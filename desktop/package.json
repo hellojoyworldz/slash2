@@ -1,0 +1,18 @@
+{
+  "name": "slash-desktop",
+  "version": "1.0.0",
+  "description": "slash 데스크탑 앱 (Electron)",
+  "main": "main.js",
+  "scripts": {
+    "build:web": "cd ../frontend && npx expo export --platform web",
+    "start": "electron .",
+    "dev": "ELECTRON_DEV=1 electron ."
+  },
+  "type": "module",
+  "devDependencies": {
+    "electron": "^43.1.0"
+  },
+  "dependencies": {
+    "electron-serve": "^3.0.1"
+  }
+}
