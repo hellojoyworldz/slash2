@@ -1,15 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import {
-  Image,
-  Linking,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { Message } from '../api';
 import { formatTime } from '../time';
 import { colors } from '../theme';
+import { Text } from './Text';
 
 interface Props {
   message: Message;
@@ -26,6 +21,7 @@ export function MessageBubble({
   onLongPress,
   onPressMenu,
 }: Props) {
+  const { t } = useTranslation();
   const isLink = message.kind === 'link' && message.url;
   // 링크만 달랑 보낸 경우 말풍선에 URL 원문을 반복해서 보여주지 않는다.
   const textBesidesUrl =
@@ -35,13 +31,19 @@ export function MessageBubble({
 
   return (
     <View style={styles.wrap}>
-      {friendLabel ? <Text style={styles.friendLabel}>{friendLabel}</Text> : null}
+      {friendLabel ? (
+        <Text variant="micro" color={colors.textTertiary} style={styles.friendLabel}>
+          {friendLabel}
+        </Text>
+      ) : null}
       <View style={styles.row}>
         {onPressMenu ? (
           <TouchableOpacity
             style={styles.menuButton}
             onPress={() => onPressMenu(message)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={t('a11y.messageMenu')}
           >
             <MaterialCommunityIcons
               name="dots-vertical"
@@ -50,17 +52,22 @@ export function MessageBubble({
             />
           </TouchableOpacity>
         ) : null}
-        <Text style={styles.time}>{formatTime(message.createdAt)}</Text>
+        <Text variant="micro" color={colors.textTertiary} style={styles.time}>
+          {formatTime(message.createdAt)}
+        </Text>
       <TouchableOpacity
         activeOpacity={0.85}
         onLongPress={() => onLongPress(message)}
         onPress={isLink ? () => Linking.openURL(message.url!) : undefined}
         style={[styles.bubble, isLink && styles.linkBubble]}
+        accessibilityRole={isLink ? 'link' : undefined}
       >
         {isLink ? (
           <View>
             {textBesidesUrl ? (
-              <Text style={styles.linkComment}>{textBesidesUrl}</Text>
+              <Text variant="body" style={styles.linkComment}>
+                {textBesidesUrl}
+              </Text>
             ) : null}
             {message.ogImage ? (
               <Image
@@ -70,21 +77,33 @@ export function MessageBubble({
               />
             ) : null}
             <View style={styles.linkBody}>
-              <Text style={styles.linkTitle} numberOfLines={2}>
+              <Text variant="bodyStrong" style={styles.linkTitle} numberOfLines={2}>
                 {message.ogTitle ?? message.url}
               </Text>
               {message.ogDescription ? (
-                <Text style={styles.linkDescription} numberOfLines={2}>
+                <Text
+                  variant="caption"
+                  color={colors.textSecondary}
+                  style={styles.linkDescription}
+                  numberOfLines={2}
+                >
                   {message.ogDescription}
                 </Text>
               ) : null}
-              <Text style={styles.linkSite} numberOfLines={1}>
+              <Text
+                variant="micro"
+                color={colors.textTertiary}
+                style={styles.linkSite}
+                numberOfLines={1}
+              >
                 {message.siteName ?? message.url}
               </Text>
             </View>
           </View>
         ) : (
-          <Text style={styles.text}>{message.content}</Text>
+          <Text variant="body" color={colors.inverse} style={styles.text}>
+            {message.content}
+          </Text>
         )}
         </TouchableOpacity>
       </View>
@@ -97,9 +116,6 @@ const styles = StyleSheet.create({
     marginVertical: 3,
   },
   friendLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textTertiary,
     textAlign: 'right',
     paddingHorizontal: 18,
     marginBottom: 2,
@@ -115,8 +131,6 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
   time: {
-    fontSize: 10,
-    color: colors.textTertiary,
     marginRight: 8,
     marginBottom: 3,
   },
@@ -139,13 +153,9 @@ const styles = StyleSheet.create({
     width: '76%',
   },
   text: {
-    fontSize: 15,
-    color: colors.inverse,
     lineHeight: 21,
   },
   linkComment: {
-    fontSize: 15,
-    color: colors.textPrimary,
     lineHeight: 21,
     paddingHorizontal: 14,
     paddingTop: 12,
@@ -161,20 +171,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   linkTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
     lineHeight: 19,
   },
   linkDescription: {
-    fontSize: 12,
-    color: colors.textSecondary,
     marginTop: 4,
     lineHeight: 17,
   },
   linkSite: {
-    fontSize: 11,
-    color: colors.textTertiary,
     marginTop: 8,
   },
 });

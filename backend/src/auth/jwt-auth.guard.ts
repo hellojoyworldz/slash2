@@ -28,7 +28,9 @@ export class JwtAuthGuard implements CanActivate {
       request.user = { id: payload.sub, email: payload.email };
       return true;
     } catch {
-      throw new UnauthorizedException('세션이 만료되었습니다. 다시 로그인해주세요.');
+      throw new UnauthorizedException(
+        '세션이 만료되었습니다. 다시 로그인해주세요.',
+      );
     }
   }
 }

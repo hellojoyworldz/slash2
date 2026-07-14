@@ -46,9 +46,12 @@ export class LinkPreviewService {
         return null;
       };
       return {
-        title:
-          pick('og:title', 'twitter:title') ?? this.titleTag(html),
-        description: pick('og:description', 'twitter:description', 'description'),
+        title: pick('og:title', 'twitter:title') ?? this.titleTag(html),
+        description: pick(
+          'og:description',
+          'twitter:description',
+          'description',
+        ),
         image: this.resolveUrl(pick('og:image', 'twitter:image'), response.url),
         siteName: pick('og:site_name') ?? new URL(response.url).hostname,
       };

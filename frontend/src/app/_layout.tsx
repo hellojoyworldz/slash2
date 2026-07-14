@@ -1,12 +1,20 @@
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from '../auth';
+import { NotifyHost } from '../components/NotifyHost';
+import { loadStoredLanguage } from '../i18n'; // import 시 i18n 초기화 실행
 import { colors } from '../theme';
 
 export default function RootLayout() {
+  // 저장된 언어 선택이 있으면 적용 (없으면 기기 언어 유지).
+  useEffect(() => {
+    void loadStoredLanguage();
+  }, []);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <AuthProvider>
@@ -21,6 +29,8 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: colors.background },
                 }}
               />
+              {/* 전역 알림/확인 모달 (alert 대체) */}
+              <NotifyHost />
             </BottomSheetModalProvider>
           </View>
         </View>

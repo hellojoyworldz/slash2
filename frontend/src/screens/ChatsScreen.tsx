@@ -1,15 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { TFunction } from 'i18next';
 import { api, ApiError, Message, RoomsSummary } from '../api';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import { Text } from '../components/Text';
 import { formatListTime } from '../time';
 import { colors, layout } from '../theme';
 
 interface Props {
   token: string | null;
   email: string;
+  displayName?: string | null;
   onOpenChat: () => void;
   onOpenFriend: (friend: { id: string; name: string }) => void;
   onLogout: () => void;
@@ -23,8 +27,8 @@ interface RoomRow {
   lastMessage: Message | null;
 }
 
-function previewText(message: Message | null): string {
-  if (!message) return '첫 메시지를 보내보세요';
+function previewText(message: Message | null, t: TFunction): string {
+  if (!message) return t('chats.firstMessage');
   if (message.kind === 'link') {
     return message.ogTitle ?? message.url ?? message.content;
   }
@@ -39,7 +43,15 @@ function sortFriendRooms(rooms: RoomsSummary['friends']) {
   });
 }
 
-export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }: Props) {
+export function ChatsScreen({
+  token,
+  email,
+  displayName,
+  onOpenChat,
+  onOpenFriend,
+  onLogout,
+}: Props) {
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState<RoomsSummary | null>(null);
   // 웹에서는 스와이프가 탭을 취소해주지 않아서 직접 구분한다.
   const dragging = useRef(false);
@@ -89,13 +101,13 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
     }
   };
 
-  const myName = email.split('@')[0] || '나';
+  const myName = displayName || email.split('@')[0] || t('common.me');
 
   // "나에게" 방이 항상 맨 위, 그 아래 친구 방들
   const rows: RoomRow[] = [
     {
       friendId: null,
-      name: '나에게',
+      name: t('chats.myRoom'),
       isSelf: true,
       pinned: false,
       lastMessage: rooms?.self ?? null,
@@ -113,6 +125,7 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
     <TouchableOpacity
       style={styles.roomRow}
       activeOpacity={0.6}
+      accessibilityRole="button"
       onPress={() => {
         // 스와이프 직후의 탭은 무시 (웹에서 드래그를 놓으면 탭으로도 인식됨)
         if (dragging.current) return;
@@ -126,13 +139,16 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
       }}
     >
       <View style={[styles.avatar, !item.isSelf && styles.friendAvatar]}>
-        <Text style={[styles.avatarText, !item.isSelf && styles.friendAvatarText]}>
+        <Text
+          variant="subheading"
+          color={item.isSelf ? colors.inverse : colors.ink}
+        >
           {(item.isSelf ? myName : item.name).charAt(0).toUpperCase()}
         </Text>
       </View>
       <View style={styles.roomInfo}>
         <View style={styles.roomNameRow}>
-          <Text style={styles.roomName}>{item.name}</Text>
+          <Text variant="subheading">{item.name}</Text>
           {item.pinned && (
             <MaterialCommunityIcons
               name="pin"
@@ -142,12 +158,19 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
             />
           )}
         </View>
-        <Text style={styles.roomPreview} numberOfLines={1}>
-          {previewText(item.lastMessage)}
+        <Text
+          variant="label"
+          color={colors.textSecondary}
+          style={styles.roomPreview}
+          numberOfLines={1}
+        >
+          {previewText(item.lastMessage, t)}
         </Text>
       </View>
       {item.lastMessage && (
-        <Text style={styles.roomTime}>{formatListTime(item.lastMessage.createdAt)}</Text>
+        <Text variant="micro" color={colors.textTertiary} style={styles.roomTime}>
+          {formatListTime(item.lastMessage.createdAt)}
+        </Text>
       )}
     </TouchableOpacity>
   );
@@ -155,7 +178,7 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>채팅</Text>
+        <Text variant="title">{t('chats.title')}</Text>
       </View>
 
       <FlatList
@@ -179,6 +202,8 @@ export function ChatsScreen({ token, email, onOpenChat, onOpenFriend, onLogout }
                     swipeRefs.current.get(item.friendId!)?.close();
                     togglePin(item);
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel={item.pinned ? t('a11y.unpin') : t('a11y.pin')}
                 >
                   <MaterialCommunityIcons
                     name={item.pinned ? 'pin-off' : 'pin'}
@@ -223,12 +248,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     paddingHorizontal: 20,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    color: colors.textPrimary,
-  },
   listContent: {
     paddingBottom: 20,
   },
@@ -247,16 +266,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.inverse,
-  },
   friendAvatar: {
     backgroundColor: colors.surface,
-  },
-  friendAvatarText: {
-    color: colors.ink,
   },
   roomInfo: {
     flex: 1,
@@ -267,23 +278,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  roomName: {
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    color: colors.textPrimary,
-  },
   pinIcon: {
     marginLeft: 5,
   },
   roomPreview: {
-    fontSize: 13,
-    color: colors.textSecondary,
     marginTop: 3,
   },
   roomTime: {
-    fontSize: 11,
-    color: colors.textTertiary,
     alignSelf: 'flex-start',
     marginTop: 5,
   },

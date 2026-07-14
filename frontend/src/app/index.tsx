@@ -3,9 +3,9 @@ import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
 
-// 시작 지점: 로그인돼 있으면 친구 탭, 아니면 로그인 화면으로
+// 시작 지점: 미로그인 → 로그인, 미인증 → 인증 안내, 인증 완료 → 친구 탭
 export default function Index() {
-  const { booting, token } = useAuth();
+  const { booting, token, emailVerified } = useAuth();
 
   if (booting) {
     return (
@@ -15,5 +15,7 @@ export default function Index() {
     );
   }
 
-  return <Redirect href={token ? '/friends' : '/login'} />;
+  if (!token) return <Redirect href="/login" />;
+  if (!emailVerified) return <Redirect href="/verify" />;
+  return <Redirect href="/friends" />;
 }

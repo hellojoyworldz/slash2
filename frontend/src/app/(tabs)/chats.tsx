@@ -3,12 +3,13 @@ import { useAuth } from '../../auth';
 import { ChatsScreen } from '../../screens/ChatsScreen';
 
 export default function ChatsRoute() {
-  const { token, email, logout } = useAuth();
+  const { token, email, displayName, logout } = useAuth();
   const router = useRouter();
   return (
     <ChatsScreen
       token={token}
       email={email}
+      displayName={displayName}
       onOpenChat={() => router.push('/chat')}
       onOpenFriend={(friend) =>
         router.push({

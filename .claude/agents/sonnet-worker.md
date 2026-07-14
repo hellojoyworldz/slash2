@@ -11,7 +11,6 @@ Handle:
 - straightforward frontend implementation
 - straightforward backend implementation
 - CRUD endpoints
-- UI components from clear specifications
 - tests
 - boilerplate
 - repetitive edits

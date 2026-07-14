@@ -16,6 +16,16 @@ services:
       timeout: 3s
       retries: 10
 
+  # 개발용 메일 서버(가짜 메일함). 백엔드가 보낸 인증/재설정 메일이
+  # http://localhost:8025 웹 화면에 잡힌다. 실제 발송은 안 함(가입 불필요).
+  # 배포 시엔 이 서비스를 지우고 .env의 MAIL_* 를 Resend/SES 등으로 바꾸면 된다.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP (백엔드가 여기로 메일 발송)
+      - "8025:8025" # 웹 UI (받은 메일 확인)
+
   # 소스가 볼륨으로 마운트되어 있어 저장하면 바로 반영된다 (핫 리로드)
   backend:
     build:
@@ -38,6 +48,10 @@ services:
   frontend:
     build: ./frontend
     command: npx expo start --web
+    # 루트 .env를 공유한다. EXPO_PUBLIC_* 값만 앱 번들에 노출되고
+    # JWT_SECRET 등 나머지는 번들에 포함되지 않는다(빌드 프로세스 env로만 존재).
+    env_file:
+      - .env
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules

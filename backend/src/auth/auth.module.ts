@@ -2,15 +2,20 @@ import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SocialAccount } from '../users/social-account.entity';
 import { User } from '../users/user.entity';
+import { AuthToken } from './auth-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MailService } from './mail.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { GoogleProvider } from './providers/google.provider';
+import { SocialProviderRegistry } from './providers/social-provider.registry';
 
 @Global()
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, SocialAccount, AuthToken]),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -20,7 +25,13 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard],
+  providers: [
+    AuthService,
+    MailService,
+    JwtAuthGuard,
+    GoogleProvider,
+    SocialProviderRegistry,
+  ],
   exports: [JwtModule, JwtAuthGuard],
 })
 export class AuthModule {}

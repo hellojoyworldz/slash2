@@ -26,18 +26,12 @@ export class MessagesController {
   constructor(private readonly messages: MessagesService) {}
 
   @Post()
-  create(
-    @CurrentUser() user: { id: string },
-    @Body() dto: CreateMessageDto,
-  ) {
+  create(@CurrentUser() user: { id: string }, @Body() dto: CreateMessageDto) {
     return this.messages.create(user.id, dto.content, dto.friendId);
   }
 
   @Get()
-  list(
-    @CurrentUser() user: { id: string },
-    @Query() query: ListMessagesQuery,
-  ) {
+  list(@CurrentUser() user: { id: string }, @Query() query: ListMessagesQuery) {
     return this.messages.list(user.id, query);
   }
 

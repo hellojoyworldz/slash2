@@ -1,55 +1,60 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { TFunction } from 'i18next';
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { api, ApiError, Friend } from '../api';
+import { Button } from '../components/Button';
+import { Text } from '../components/Text';
+import { confirmDialog } from '../notify';
 import { colors, layout } from '../theme';
 
 interface Props {
   token: string | null;
   email: string;
+  displayName?: string | null;
   onOpenChat: () => void;
   onOpenFriend: (friend: Friend) => void;
   onLogout: () => void;
 }
 
-// Alert.alert는 웹에서 동작하지 않아서 웹은 confirm으로 대체한다.
-function confirmDelete(name: string, onConfirm: () => void) {
-  if (Platform.OS === 'web') {
-    if (window.confirm(`'${name}' 친구를 삭제할까요?`)) onConfirm();
-    return;
-  }
-  Alert.alert('삭제', `'${name}' 친구를 삭제할까요?`, [
-    { text: '취소', style: 'cancel' },
-    { text: '삭제', style: 'destructive', onPress: onConfirm },
-  ]);
+// 앱 내부 모달로 삭제 확인을 받는다.
+async function confirmDelete(name: string, t: TFunction, onConfirm: () => void) {
+  const ok = await confirmDialog({
+    title: t('common.delete'),
+    message: t('friends.confirmDelete', { name }),
+    confirmLabel: t('common.delete'),
+    cancelLabel: t('common.cancel'),
+    destructive: true,
+  });
+  if (ok) onConfirm();
 }
 
 export function FriendsScreen({
   token,
   email,
+  displayName,
   onOpenChat,
   onOpenFriend,
   onLogout,
 }: Props) {
+  const { t } = useTranslation();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
-  const myName = email.split('@')[0] || '나';
+  const myName = displayName || email.split('@')[0] || t('common.me');
 
   useFocusEffect(
     useCallback(() => {
@@ -78,11 +83,11 @@ export function FriendsScreen({
   const addFriend = async () => {
     const name = nameInput.trim();
     if (!name) {
-      setFormError('이름을 입력해주세요.');
+      setFormError(t('friends.nameRequired'));
       return;
     }
     if (!token) {
-      setFormError('로그인 후 추가할 수 있어요.');
+      setFormError(t('friends.loginToAdd'));
       return;
     }
     setSubmitting(true);
@@ -90,13 +95,11 @@ export function FriendsScreen({
     try {
       const friend = await api.createFriend(token, name);
       setFriends((prev) =>
-        [...prev, friend].sort((a, b) => a.name.localeCompare(b.name, 'ko')),
+        [...prev, friend].sort((a, b) => a.name.localeCompare(b.name)),
       );
       setModalOpen(false);
-    } catch (error) {
-      setFormError(
-        error instanceof Error ? error.message : '추가하지 못했어요. 다시 시도해주세요.',
-      );
+    } catch {
+      setFormError(t('friends.addFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -104,7 +107,7 @@ export function FriendsScreen({
 
   const removeFriend = (friend: Friend) => {
     if (!token) return;
-    confirmDelete(friend.name, async () => {
+    confirmDelete(friend.name, t, async () => {
       try {
         await api.deleteFriend(token, friend.id);
         setFriends((prev) => prev.filter((f) => f.id !== friend.id));
@@ -117,9 +120,15 @@ export function FriendsScreen({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>친구</Text>
-        <TouchableOpacity onPress={openModal} hitSlop={{ top: 8, bottom: 8, left: 8 }}>
-          <Text style={styles.headerAction}>추가</Text>
+        <Text variant="title">{t('friends.title')}</Text>
+        <TouchableOpacity
+          onPress={openModal}
+          hitSlop={{ top: 8, bottom: 8, left: 8 }}
+          accessibilityRole="button"
+        >
+          <Text variant="bodyStrong" color={colors.ink}>
+            {t('friends.add')}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -133,20 +142,29 @@ export function FriendsScreen({
               style={styles.profileRow}
               onPress={onOpenChat}
               activeOpacity={0.6}
+              accessibilityRole="button"
             >
               <View style={styles.myAvatar}>
-                <Text style={styles.myAvatarText}>
+                <Text variant="heading" color={colors.inverse}>
                   {myName.charAt(0).toUpperCase()}
                 </Text>
               </View>
               <View style={styles.profileInfo}>
-                <Text style={styles.profileName}>{myName}</Text>
-                <Text style={styles.profileStatus}>나에게 메시지 보내기</Text>
+                <Text variant="heading">{myName}</Text>
+                <Text
+                  variant="label"
+                  color={colors.textSecondary}
+                  style={styles.profileStatus}
+                >
+                  {t('friends.sendToMe')}
+                </Text>
               </View>
             </TouchableOpacity>
 
             <View style={styles.divider} />
-            <Text style={styles.sectionLabel}>친구 {friends.length}</Text>
+            <Text variant="caption" color={colors.textTertiary} style={styles.sectionLabel}>
+              {t('friends.count', { count: friends.length })}
+            </Text>
           </>
         }
         renderItem={({ item }) => (
@@ -155,19 +173,22 @@ export function FriendsScreen({
             activeOpacity={0.6}
             onPress={() => onOpenFriend(item)}
             onLongPress={() => removeFriend(item)}
+            accessibilityRole="button"
           >
             <View style={styles.friendAvatar}>
-              <Text style={styles.friendAvatarText}>
+              <Text variant="subheading" color={colors.ink}>
                 {item.name.charAt(0).toUpperCase()}
               </Text>
             </View>
-            <Text style={styles.friendName}>{item.name}</Text>
+            <Text variant="bodyStrong" style={styles.friendName}>
+              {item.name}
+            </Text>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>
-              오른쪽 위 '추가'를 눌러{'\n'}첫 친구를 만들어보세요
+            <Text variant="label" color={colors.textTertiary} style={styles.emptyText}>
+              {t('friends.emptyHint')}
             </Text>
           </View>
         }
@@ -186,10 +207,10 @@ export function FriendsScreen({
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>친구 추가</Text>
+            <Text variant="heading">{t('friends.addTitle')}</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="이름 (예: 개발, 요리, 뉴스)"
+              placeholder={t('friends.namePlaceholder')}
               placeholderTextColor={colors.textTertiary}
               value={nameInput}
               onChangeText={(text) => {
@@ -200,27 +221,25 @@ export function FriendsScreen({
               autoFocus
               onSubmitEditing={addFriend}
             />
-            {formError ? <Text style={styles.modalError}>{formError}</Text> : null}
+            {formError ? (
+              <Text variant="caption" color={colors.textSecondary} style={styles.modalError}>
+                {formError}
+              </Text>
+            ) : null}
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalCancel}
+              <Button
+                label={t('common.cancel')}
+                variant="ghost"
                 onPress={() => setModalOpen(false)}
                 disabled={submitting}
-              >
-                <Text style={styles.modalCancelText}>취소</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSubmit, submitting && styles.modalSubmitDisabled]}
+                style={styles.modalButton}
+              />
+              <Button
+                label={t('friends.add')}
                 onPress={addFriend}
-                disabled={submitting}
-                activeOpacity={0.85}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color={colors.inverse} />
-                ) : (
-                  <Text style={styles.modalSubmitText}>추가</Text>
-                )}
-              </TouchableOpacity>
+                loading={submitting}
+                style={styles.modalButton}
+              />
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -242,17 +261,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     paddingHorizontal: 20,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    color: colors.textPrimary,
-  },
-  headerAction: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.ink,
-  },
   listContent: {
     flexGrow: 1,
     paddingBottom: 20,
@@ -271,23 +279,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  myAvatarText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.inverse,
-  },
   profileInfo: {
     marginLeft: 14,
   },
-  profileName: {
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    color: colors.textPrimary,
-  },
   profileStatus: {
-    fontSize: 13,
-    color: colors.textSecondary,
     marginTop: 3,
   },
   divider: {
@@ -297,8 +292,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sectionLabel: {
-    fontSize: 12,
-    color: colors.textTertiary,
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 4,
@@ -317,16 +310,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  friendAvatarText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.ink,
-  },
   friendName: {
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-    color: colors.textPrimary,
     marginLeft: 14,
   },
   empty: {
@@ -336,8 +320,6 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
   },
   emptyText: {
-    fontSize: 13,
-    color: colors.textTertiary,
     textAlign: 'center',
     lineHeight: 20,
   },
@@ -357,12 +339,6 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingBottom: 16,
   },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-    color: colors.textPrimary,
-  },
   modalInput: {
     borderBottomWidth: 1,
     borderBottomColor: colors.ink,
@@ -372,41 +348,17 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   modalError: {
-    fontSize: 12,
-    color: colors.textSecondary,
     marginTop: 8,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    marginTop: 20,
+    gap: 4,
+    marginTop: 16,
   },
-  modalCancel: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  modalCancelText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  modalSubmit: {
-    backgroundColor: colors.ink,
-    borderRadius: 10,
-    paddingHorizontal: 22,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-    minWidth: 72,
-  },
-  modalSubmitDisabled: {
-    opacity: 0.5,
-  },
-  modalSubmitText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.inverse,
+  modalButton: {
+    height: 44,
+    minWidth: 88,
   },
 });

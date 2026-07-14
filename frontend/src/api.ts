@@ -1,9 +1,12 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import i18n from './i18n';
 
 export interface User {
   id: string;
   email: string;
+  displayName?: string | null;
+  emailVerified?: boolean;
 }
 
 export interface Message {
@@ -60,6 +63,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    // 백엔드가 준 언어중립 에러 코드. 프론트가 언어별 문구로 매핑한다.
+    public code?: string,
   ) {
     super(message);
   }
@@ -73,25 +78,38 @@ async function request<T>(
     method: options.method ?? 'GET',
     headers: {
       'Content-Type': 'application/json',
+      // 백엔드가 메일·페이지를 이 언어로 발신하도록 현재 앱 언어를 알린다.
+      'X-App-Lang': i18n.language,
       ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   if (!response.ok) {
-    let message = `요청 실패 (${response.status})`;
+    let message = `HTTP ${response.status}`;
+    let code: string | undefined;
     try {
       const data = await response.json();
+      code = typeof data.code === 'string' ? data.code : undefined;
       message = Array.isArray(data.message) ? data.message[0] : data.message;
     } catch {
       // 응답 본문이 JSON이 아니면 기본 메시지 사용
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, code);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
+export interface LookupResult {
+  status: 'new' | 'password' | 'social';
+  providers?: string[];
+}
+
 export const api = {
+  // 이메일만 보내 다음 단계를 확인 (identifier-first 로그인)
+  lookup: (email: string) =>
+    request<LookupResult>('/auth/lookup', { method: 'POST', body: { email } }),
+
   register: (email: string, password: string) =>
     request<{ token: string; user: User }>('/auth/register', {
       method: 'POST',
@@ -104,7 +122,51 @@ export const api = {
       body: { email, password },
     }),
 
+  // 비밀번호 재설정 메일 요청. 가입 여부와 무관하게 항상 성공 응답.
+  forgotPassword: (email: string) =>
+    request<{ ok: true }>('/auth/forgot-password', {
+      method: 'POST',
+      body: { email },
+    }),
+
+  // 메일로 받은 6자리 코드로 앱 안에서 비밀번호 재설정.
+  resetPasswordWithCode: (email: string, code: string, password: string) =>
+    request<{ reset: boolean }>('/auth/reset-password-code', {
+      method: 'POST',
+      body: { email, code, password },
+    }),
+
+  // SNS 로그인/회원가입. token = provider(구글 등)에서 받은 idToken
+  socialLogin: (provider: 'google', token: string) =>
+    request<{ token: string; user: User }>(`/auth/social/${provider}`, {
+      method: 'POST',
+      body: { token },
+    }),
+
   me: (token: string) => request<User>('/auth/me', { token }),
+
+  // 표시 이름 변경
+  updateProfile: (token: string, displayName: string) =>
+    request<User>('/auth/me', {
+      method: 'PATCH',
+      body: { displayName },
+      token,
+    }),
+
+  // 6자리 코드로 이메일 인증 (로그인 상태, 멀티플랫폼)
+  verifyEmailCode: (token: string, code: string) =>
+    request<{ verified: boolean }>('/auth/verify-email-code', {
+      method: 'POST',
+      body: { code },
+      token,
+    }),
+
+  // 인증 메일 다시 보내기 (로그인 상태)
+  resendVerification: (token: string) =>
+    request<{ ok: true }>('/auth/resend-verification', {
+      method: 'POST',
+      token,
+    }),
 
   listMessages: (
     token: string,

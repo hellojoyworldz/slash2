@@ -13,7 +13,11 @@ import { MessagesModule } from './messages/messages.module';
     ConfigModule.forRoot({
       isGlobal: true,
       // .env는 레포 루트에서 관리한다. (backend 폴더 실행 기준의 폴백도 유지)
-      envFilePath: [join(__dirname, '../../.env'), join(__dirname, '../.env'), '.env'],
+      envFilePath: [
+        join(__dirname, '../../.env'),
+        join(__dirname, '../.env'),
+        '.env',
+      ],
     }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

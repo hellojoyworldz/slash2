@@ -6,20 +6,21 @@ import {
   BottomSheetView,
 } from '@gorhom/bottom-sheet';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { api, ApiError, Friend, Message } from '../api';
+import { confirmDialog, notify } from '../notify';
 import { MessageBubble } from '../components/MessageBubble';
+import { Text } from '../components/Text';
 import { formatDateStamp, isSameDay } from '../time';
 import { colors, layout } from '../theme';
 
@@ -41,6 +42,7 @@ export function ChatScreen({
   onBack,
   onLogout,
 }: Props) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [input, setInput] = useState('');
@@ -95,12 +97,12 @@ export function ChatScreen({
           onLogout();
           return;
         }
-        Alert.alert('알림', '메시지를 불러오지 못했습니다. 서버가 켜져 있는지 확인해주세요.');
+        notify(t('common.notice'), t('chat.loadFailed'));
       } finally {
         setLoading(false);
       }
     },
-    [token, friendId, onLogout],
+    [token, friendId, onLogout, t],
   );
 
   useEffect(() => {
@@ -144,7 +146,7 @@ export function ChatScreen({
     const content = input.trim();
     if (!content || sending) return;
     if (!token) {
-      Alert.alert('알림', '로그인 후 메시지를 보낼 수 있어요.');
+      notify(t('common.notice'), t('chat.loginToSend'));
       return;
     }
     setSending(true);
@@ -152,12 +154,9 @@ export function ChatScreen({
     try {
       const message = await api.createMessage(token, content, friendId ?? undefined);
       setMessages((prev) => [message, ...prev]);
-    } catch (error) {
+    } catch {
       setInput(content);
-      Alert.alert(
-        '전송 실패',
-        error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
-      );
+      notify(t('chat.sendFailedTitle'), t('chat.tryAgainLater'));
     } finally {
       setSending(false);
     }
@@ -191,18 +190,17 @@ export function ChatScreen({
     }
   };
 
-  const confirmDelete = (message: Message) => {
+  const confirmDelete = async (message: Message) => {
     if (!token) return;
     sheetRef.current?.dismiss();
-    // Alert.alert는 웹에서 동작하지 않아서 웹은 confirm으로 대체한다.
-    if (Platform.OS === 'web') {
-      if (window.confirm('이 메시지를 삭제할까요?')) void performDelete(message);
-      return;
-    }
-    Alert.alert('삭제', '이 메시지를 삭제할까요?', [
-      { text: '취소', style: 'cancel' },
-      { text: '삭제', style: 'destructive', onPress: () => void performDelete(message) },
-    ]);
+    const ok = await confirmDialog({
+      title: t('common.delete'),
+      message: t('chat.confirmDelete'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (ok) void performDelete(message);
   };
 
   const friendNameById = new Map(friends.map((f) => [f.id, f.name]));
@@ -216,13 +214,15 @@ export function ChatScreen({
           style={styles.backButton}
           onPress={onBack}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={t('a11y.back')}
         >
           <MaterialCommunityIcons name="chevron-left" size={30} color={colors.ink} />
         </TouchableOpacity>
         {searchOpen ? (
           <TextInput
             style={styles.searchInput}
-            placeholder="메시지·링크 검색"
+            placeholder={t('chat.searchPlaceholder')}
             placeholderTextColor={colors.textTertiary}
             value={searchText}
             onChangeText={setSearchText}
@@ -230,9 +230,9 @@ export function ChatScreen({
           />
         ) : (
           <View style={styles.headerTitleBlock}>
-            <Text style={styles.headerTitle}>{friendName ?? '나에게'}</Text>
-            <Text style={styles.headerSubtitle}>
-              {friendName ? '친구' : email || '미리보기 모드'}
+            <Text variant="heading">{friendName ?? t('chat.myRoom')}</Text>
+            <Text variant="micro" color={colors.textTertiary} style={styles.headerSubtitle}>
+              {friendName ? t('chat.friend') : email || t('chat.previewMode')}
             </Text>
           </View>
         )}
@@ -243,8 +243,11 @@ export function ChatScreen({
             setSearchOpen(!searchOpen);
           }}
           hitSlop={{ top: 8, bottom: 8 }}
+          accessibilityRole="button"
         >
-          <Text style={styles.headerActionText}>{searchOpen ? '취소' : '검색'}</Text>
+          <Text variant="label" color={colors.ink}>
+            {searchOpen ? t('common.cancel') : t('chat.search')}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -259,10 +262,10 @@ export function ChatScreen({
           </View>
         ) : messages.length === 0 ? (
           <View style={styles.center}>
-            <Text style={styles.emptyText}>
+            <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
               {activeQuery.current
-                ? '검색 결과가 없습니다'
-                : `${friendName ?? '나'}에게 첫 링크를 보내보세요!\n붙여넣기만 하면 미리보기가 만들어져요.`}
+                ? t('chat.noResults')
+                : t('chat.emptyFirstLink', { name: friendName ?? t('common.me') })}
             </Text>
           </View>
         ) : (
@@ -281,7 +284,11 @@ export function ChatScreen({
                 <View>
                   {showDateStamp && (
                     <View style={styles.dateStampRow}>
-                      <Text style={styles.dateStampText}>
+                      <Text
+                        variant="micro"
+                        color={colors.textSecondary}
+                        style={styles.dateStampText}
+                      >
                         {formatDateStamp(item.createdAt)}
                       </Text>
                     </View>
@@ -311,7 +318,7 @@ export function ChatScreen({
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
-            placeholder="링크나 메모를 입력하세요"
+            placeholder={t('chat.inputPlaceholder')}
             placeholderTextColor={colors.textTertiary}
             value={input}
             onChangeText={setInput}
@@ -322,6 +329,10 @@ export function ChatScreen({
             onPress={send}
             disabled={!canSend}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={t('a11y.send')}
+            accessibilityState={{ disabled: !canSend }}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
             {sending ? (
               <ActivityIndicator size="small" color={colors.inverse} />
@@ -346,10 +357,20 @@ export function ChatScreen({
         backgroundStyle={styles.sheetBackground}
       >
         <BottomSheetView style={styles.sheet}>
-            <Text style={styles.sheetTitle}>친구 변경</Text>
+            <Text
+              variant="label"
+              color={colors.textSecondary}
+              style={styles.sheetTitle}
+            >
+              {t('chat.changeFriend')}
+            </Text>
             {friends.length === 0 ? (
-              <Text style={styles.sheetHint}>
-                친구 탭에서 먼저 친구를 추가해보세요
+              <Text
+                variant="label"
+                color={colors.textTertiary}
+                style={styles.sheetHint}
+              >
+                {t('chat.addFriendFirst')}
               </Text>
             ) : (
               friends.map((friend) => {
@@ -361,14 +382,21 @@ export function ChatScreen({
                     onPress={() =>
                       actionMessage && assignFriend(actionMessage, friend.id)
                     }
+                    accessibilityRole="button"
                   >
                     <View style={styles.sheetAvatar}>
-                      <Text style={styles.sheetAvatarText}>
+                      <Text variant="label" color={colors.ink}>
                         {friend.name.charAt(0).toUpperCase()}
                       </Text>
                     </View>
-                    <Text style={styles.sheetRowText}>{friend.name}</Text>
-                    {selected && <Text style={styles.sheetCheck}>✓</Text>}
+                    <Text variant="bodyStrong" style={styles.sheetRowText}>
+                      {friend.name}
+                    </Text>
+                    {selected && (
+                      <Text variant="bodyStrong" color={colors.ink}>
+                        ✓
+                      </Text>
+                    )}
                   </TouchableOpacity>
                 );
               })
@@ -377,22 +405,31 @@ export function ChatScreen({
               <TouchableOpacity
                 style={styles.sheetRow}
                 onPress={() => actionMessage && assignFriend(actionMessage, null)}
+                accessibilityRole="button"
               >
-                <Text style={styles.sheetUnassign}>분류 해제</Text>
+                <Text variant="bodyStrong" color={colors.textSecondary}>
+                  {t('chat.unassign')}
+                </Text>
               </TouchableOpacity>
             ) : null}
             <View style={styles.sheetDivider} />
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => actionMessage && confirmDelete(actionMessage)}
+              accessibilityRole="button"
             >
-              <Text style={styles.sheetDelete}>삭제</Text>
+              <Text variant="bodyStrong" color={colors.ink}>
+                {t('common.delete')}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => sheetRef.current?.dismiss()}
+              accessibilityRole="button"
             >
-              <Text style={styles.sheetCancel}>취소</Text>
+              <Text variant="bodyStrong" color={colors.textTertiary}>
+                {t('common.cancel')}
+              </Text>
             </TouchableOpacity>
         </BottomSheetView>
       </BottomSheetModal>
@@ -422,24 +459,11 @@ const styles = StyleSheet.create({
   headerTitleBlock: {
     flex: 1,
   },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    letterSpacing: -0.3,
-  },
   headerSubtitle: {
-    fontSize: 11,
-    color: colors.textTertiary,
     marginTop: 1,
   },
   headerAction: {
     paddingHorizontal: 6,
-  },
-  headerActionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.ink,
   },
   searchInput: {
     flex: 1,
@@ -462,8 +486,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: 'center',
-    color: colors.textSecondary,
-    fontSize: 14,
     lineHeight: 22,
   },
   listContent: {
@@ -475,9 +497,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   dateStampText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
     backgroundColor: colors.surface,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -531,14 +550,9 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 34 : 16,
   },
   sheetTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSecondary,
     marginBottom: 6,
   },
   sheetHint: {
-    fontSize: 13,
-    color: colors.textTertiary,
     paddingVertical: 12,
   },
   sheetRow: {
@@ -555,40 +569,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  sheetAvatarText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.ink,
-  },
   sheetRowText: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  sheetCheck: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.ink,
-  },
-  sheetUnassign: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textSecondary,
   },
   sheetDivider: {
     height: 1,
     backgroundColor: colors.hairline,
     marginVertical: 6,
-  },
-  sheetDelete: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.ink,
-  },
-  sheetCancel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textTertiary,
   },
 });
