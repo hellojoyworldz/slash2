@@ -143,10 +143,10 @@ export class AuthController {
     return this.auth.getProfile(user.id);
   }
 
-  // 표시 이름 변경.
+  // 프로필 변경(표시 이름 / "전체" 방 프로필 색). 보낸 필드만 반영된다.
   @Patch('me')
   @UseGuards(JwtAuthGuard)
   updateMe(@CurrentUser() user: { id: string }, @Body() dto: UpdateProfileDto) {
-    return this.auth.updateProfile(user.id, dto.displayName);
+    return this.auth.updateProfile(user.id, dto);
   }
 }

@@ -1,8 +1,9 @@
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -12,10 +13,12 @@ import {
 } from 'react-native';
 import { api, User } from '../api';
 import { Button } from '../components/Button';
+import { GoogleLogo } from '../components/GoogleLogo';
 import { Text } from '../components/Text';
 import { errorText } from '../i18n/errors';
 import { notify } from '../notify';
-import { colors } from '../theme';
+import { ThemeColors } from '../theme';
+import { useTheme } from '../theme-context';
 
 // 브라우저에서 인증을 마치고 앱으로 돌아왔을 때 세션을 닫아준다 (웹 필수)
 WebBrowser.maybeCompleteAuthSession();
@@ -28,6 +31,8 @@ interface Props {
 
 export function LoginScreen({ onLoggedIn }: Props) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // reset = 비번 재설정 모드 (메일로 받은 코드 + 새 비번을 앱 안에서 입력)
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -155,6 +160,12 @@ export function LoginScreen({ onLoggedIn }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.inner}>
+        <Image
+          source={require('../../assets/symbol.png')}
+          style={styles.symbol}
+          resizeMode="contain"
+          accessibilityRole="image"
+        />
         <Text variant="display" color={colors.ink} style={styles.logo}>
           slash
         </Text>
@@ -231,6 +242,7 @@ export function LoginScreen({ onLoggedIn }: Props) {
             <Button
               label={t('login.continueWithGoogle')}
               variant="outline"
+              leading={<GoogleLogo size={18} />}
               onPress={() => promptGoogle()}
               loading={googleLoading}
               disabled={!googleRequest || googleLoading}
@@ -250,14 +262,22 @@ export function LoginScreen({ onLoggedIn }: Props) {
                 {mode === 'login' ? (
                   <>
                     {t('login.firstTimePrefix')}
-                    <Text variant="bodyStrong" color={colors.ink}>
+                    <Text
+                      variant="bodyStrong"
+                      color={colors.ink}
+                      style={styles.underline}
+                    >
                       {t('login.signupLink')}
                     </Text>
                   </>
                 ) : (
                   <>
                     {t('login.haveAccountPrefix')}
-                    <Text variant="bodyStrong" color={colors.ink}>
+                    <Text
+                      variant="bodyStrong"
+                      color={colors.ink}
+                      style={styles.underline}
+                    >
                       {t('login.loginLink')}
                     </Text>
                   </>
@@ -274,7 +294,11 @@ export function LoginScreen({ onLoggedIn }: Props) {
             style={styles.forgotWrap}
             accessibilityRole="button"
           >
-            <Text variant="body" color={colors.textSecondary}>
+            <Text
+              variant="body"
+              color={colors.textSecondary}
+              style={styles.underline}
+            >
               {t('login.forgotPassword')}
             </Text>
           </TouchableOpacity>
@@ -291,7 +315,11 @@ export function LoginScreen({ onLoggedIn }: Props) {
             style={styles.forgotWrap}
             accessibilityRole="button"
           >
-            <Text variant="body" color={colors.textSecondary}>
+            <Text
+              variant="body"
+              color={colors.textSecondary}
+              style={styles.underline}
+            >
               {t('login.backToLogin')}
             </Text>
           </TouchableOpacity>
@@ -301,7 +329,7 @@ export function LoginScreen({ onLoggedIn }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -310,6 +338,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 28,
+    // 데스크톱 전폭에서도 폼이 퍼지지 않게
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
+  },
+  symbol: {
+    width: 72,
+    height: 72,
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   logo: {
     textAlign: 'center',
@@ -320,15 +358,18 @@ const styles = StyleSheet.create({
     marginBottom: 56,
   },
   input: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.hairline,
-    paddingHorizontal: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 0,
+    paddingHorizontal: 12,
     paddingVertical: 16,
     fontSize: 16,
     color: colors.textPrimary,
+    backgroundColor: colors.background,
+    marginTop: 12,
   },
   inputFocused: {
-    borderBottomColor: colors.ink,
+    borderColor: colors.accent,
   },
   primaryBtn: {
     marginTop: 36,
@@ -354,5 +395,8 @@ const styles = StyleSheet.create({
   switchText: {
     textAlign: 'center',
     marginTop: 24,
+  },
+  underline: {
+    textDecorationLine: 'underline',
   },
 });

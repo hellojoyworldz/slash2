@@ -1,5 +1,8 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEmail,
+  IsHexColor,
   IsOptional,
   IsString,
   Matches,
@@ -53,11 +56,25 @@ export class ResetPasswordCodeDto {
   password: string;
 }
 
+// 프로필 부분 갱신: 이름·전체 프로필 색 각각 선택. 보낸 필드만 반영한다.
 export class UpdateProfileDto {
+  @IsOptional()
   @IsString()
   @MinLength(1, { message: '이름을 입력해주세요.' })
   @MaxLength(30, { message: '이름은 30자 이하여야 합니다.' })
-  displayName: string;
+  displayName?: string;
+
+  // "전체" 방 프로필 색(hex). 검증된 hex만 허용.
+  @IsOptional()
+  @IsHexColor()
+  selfColor?: string;
+
+  // 저장된 커스텀 프로필 색 목록(hex). 각 원소 hex 검증, 최대 16개.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16, { message: '커스텀 색은 16개까지 저장할 수 있습니다.' })
+  @IsHexColor({ each: true })
+  customColors?: string[];
 }
 
 export class ForgotPasswordDto {

@@ -1,19 +1,35 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { useAuth } from '../auth';
 import { ChatScreen } from '../screens/ChatScreen';
+import { useSelectedRoom } from '../selected-room';
+import { layout } from '../theme';
 
 export default function ChatRoute() {
-  const { token, email, logout } = useAuth();
+  const { token, logout } = useAuth();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const { setRoom } = useSelectedRoom();
   // /chat → 나에게 방, /chat?friendId=..&name=.. → 친구 방
   const params = useLocalSearchParams<{ friendId?: string; name?: string }>();
   const friendId = typeof params.friendId === 'string' ? params.friendId : null;
   const friendName = typeof params.name === 'string' ? params.name : null;
 
+  // 데스크톱에서는 전용 채팅 화면이 없다(스플릿뷰 오른쪽 패널이 담당).
+  // URL로 직접 들어오거나 창을 넓히면 방 선택만 넘기고 탭으로 돌려보낸다.
+  const isDesktop = width >= layout.desktopBreakpoint;
+  useEffect(() => {
+    if (isDesktop && friendId && friendName) {
+      setRoom({ friendId, name: friendName });
+    }
+  }, [isDesktop, friendId, friendName, setRoom]);
+
+  if (isDesktop) return <Redirect href="/chats" />;
+
   return (
     <ChatScreen
       token={token}
-      email={email}
       friendId={friendId}
       friendName={friendName}
       onBack={() => {

@@ -1,11 +1,14 @@
+import { ReactNode, useMemo } from 'react';
 import {
   ActivityIndicator,
+  Pressable,
   StyleProp,
   StyleSheet,
-  TouchableOpacity,
+  View,
   ViewStyle,
 } from 'react-native';
-import { colors } from '../theme';
+import { brutal, shiftLightness, ThemeColors } from '../theme';
+import { useTheme } from '../theme-context';
 import { Text } from './Text';
 
 type Variant = 'primary' | 'outline' | 'ghost';
@@ -17,10 +20,13 @@ interface Props {
   loading?: boolean;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** 라벨 왼쪽에 놓을 아이콘/로고 (예: Google G) */
+  leading?: ReactNode;
 }
 
-// 앱 전역 공용 버튼. 화면마다 버튼 스타일을 복붙하지 않도록 여기서 관리.
-// primary = 채움 검정, outline = 테두리, ghost = 배경 없는 텍스트 버튼.
+// 플랫 버튼 (그림자 없음, 라운드 0):
+// primary = accent 플랫 블록(보더 없음, BAT CTA 문법), 누르면 색이 살짝 깊어짐.
+// outline = 1px ink 정밀선 박스. ghost = 밑줄 텍스트.
 export function Button({
   label,
   onPress,
@@ -28,63 +34,89 @@ export function Button({
   loading = false,
   disabled = false,
   style,
+  leading,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  // 누름 피드백: accent를 살짝 어둡게 (플랫 언어의 물리감)
+  const pressedAccent = useMemo(
+    () => shiftLightness(colors.accent, -7),
+    [colors.accent],
+  );
   const isDisabled = disabled || loading;
-  const spinnerColor = variant === 'primary' ? colors.inverse : colors.ink;
+  const labelColor = variant === 'primary' ? colors.onAccent : colors.ink;
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.base,
-        variant === 'primary' && styles.primary,
-        variant === 'outline' && styles.outline,
-        variant === 'ghost' && styles.ghost,
-        isDisabled && styles.disabled,
-        style,
-      ]}
+    <Pressable
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.85}
       accessibilityRole="button"
       accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={({ pressed }) => [
+        styles.base,
+        variant === 'primary' && { backgroundColor: colors.accent },
+        variant === 'primary' && pressed && { backgroundColor: pressedAccent },
+        variant === 'outline' && styles.outline,
+        variant === 'outline' && pressed && styles.pressedNeutral,
+        variant === 'ghost' && pressed && styles.dim,
+        isDisabled && styles.dim,
+        style,
+      ]}
     >
       {loading ? (
-        <ActivityIndicator color={spinnerColor} />
+        <ActivityIndicator color={labelColor} />
+      ) : leading ? (
+        <View style={styles.row}>
+          {leading}
+          <Text
+            variant="subheading"
+            color={labelColor}
+            style={variant === 'ghost' && styles.ghostLabel}
+          >
+            {label}
+          </Text>
+        </View>
       ) : (
         <Text
           variant="subheading"
-          color={variant === 'primary' ? colors.inverse : colors.ink}
-          style={variant !== 'primary' && styles.labelInk}
+          color={labelColor}
+          style={variant === 'ghost' && styles.ghostLabel}
         >
           {label}
         </Text>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  base: {
-    height: 52,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  primary: {
-    backgroundColor: colors.ink,
-  },
-  outline: {
-    borderWidth: 1,
-    borderColor: colors.hairline,
-  },
-  ghost: {
-    backgroundColor: 'transparent',
-  },
-  disabled: {
-    opacity: 0.5,
-  },
-  labelInk: {
-    fontWeight: '600',
-  },
-});
+const makeStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    base: {
+      height: 52,
+      borderRadius: brutal.radius,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+    },
+    // 라벨 + 선행 아이콘(로고)을 나란히
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    outline: {
+      borderWidth: brutal.borderWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    pressedNeutral: {
+      backgroundColor: colors.surface,
+    },
+    // 웹코어: 텍스트 버튼은 밑줄로 정직하게
+    ghostLabel: {
+      textDecorationLine: 'underline',
+    },
+    dim: {
+      opacity: 0.45,
+    },
+  });

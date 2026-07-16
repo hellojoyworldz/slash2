@@ -105,9 +105,12 @@ export class AuthService {
     return this.issueToken(user);
   }
 
-  // 현재 로그인한 유저의 최신 프로필(인증 상태 포함)을 돌려준다.
+  // 현재 로그인한 유저의 최신 프로필(인증 상태 + 연결된 소셜 provider 목록)을 돌려준다.
   async getProfile(userId: string) {
-    const user = await this.users.findOne({ where: { id: userId } });
+    const user = await this.users.findOne({
+      where: { id: userId },
+      relations: { socialAccounts: true },
+    });
     if (!user) {
       throw new UnauthorizedException(
         '세션이 만료되었습니다. 다시 로그인해주세요.',
@@ -118,24 +121,47 @@ export class AuthService {
       email: user.email,
       displayName: user.displayName,
       emailVerified: user.emailVerified,
+      selfColor: user.selfColor ?? null,
+      customColors: user.customColors ?? [],
+      providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
   }
 
-  // 표시 이름 변경. (로그인 아이디가 아니라 화면에 보이는 이름)
-  async updateProfile(userId: string, displayName: string) {
+  // 프로필 부분 갱신: 표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 색 목록. 보낸 필드만 반영한다.
+  async updateProfile(
+    userId: string,
+    changes: {
+      displayName?: string;
+      selfColor?: string;
+      customColors?: string[];
+    },
+  ) {
     const user = await this.users.findOne({ where: { id: userId } });
     if (!user) {
       throw new UnauthorizedException(
         '세션이 만료되었습니다. 다시 로그인해주세요.',
       );
     }
-    user.displayName = displayName.trim();
+    if (changes.displayName !== undefined) {
+      user.displayName = changes.displayName.trim();
+    }
+    if (changes.selfColor !== undefined) {
+      user.selfColor = changes.selfColor;
+    }
+    if (changes.customColors !== undefined) {
+      // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
+      user.customColors = changes.customColors.length
+        ? changes.customColors
+        : null;
+    }
     await this.users.save(user);
     return {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
       emailVerified: user.emailVerified,
+      selfColor: user.selfColor ?? null,
+      customColors: user.customColors ?? [],
     };
   }
 
@@ -416,8 +442,12 @@ export class AuthService {
     return this.config.get<string>('APP_BASE_URL', 'http://localhost:4000');
   }
 
-  private issueToken(user: User) {
+  private async issueToken(user: User) {
     const payload: JwtPayload = { sub: user.id, email: user.email };
+    // 로그인 직후에도 연결된 소셜 provider를 앱에 내려준다(더보기 화면 배지 등).
+    const accounts = await this.socialAccounts.find({
+      where: { user: { id: user.id } },
+    });
     return {
       token: this.jwt.sign(payload),
       user: {
@@ -425,6 +455,9 @@ export class AuthService {
         email: user.email,
         displayName: user.displayName,
         emailVerified: user.emailVerified,
+        selfColor: user.selfColor ?? null,
+        customColors: user.customColors ?? [],
+        providers: accounts.map((a) => a.provider),
       },
     };
   }

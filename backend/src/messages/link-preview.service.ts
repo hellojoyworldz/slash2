@@ -61,22 +61,54 @@ export class LinkPreviewService {
     }
   }
 
-  /** HTML 앞부분만 읽는다 — OG 태그는 <head>에 있으므로 전체 다운로드가 필요 없다. */
+  /** HTML 앞부분만 읽는다 — OG 태그는 <head>에 있으므로 전체 다운로드가 필요 없다.
+   *  UTF-8 고정이 아니라 헤더/meta의 charset을 감지해 디코딩한다 (EUC-KR 한글 깨짐 방지). */
   private async readHead(response: Response): Promise<string> {
     const reader = response.body?.getReader();
     if (!reader) return '';
-    const decoder = new TextDecoder('utf-8', { fatal: false });
-    let html = '';
+    const chunks: Uint8Array[] = [];
     let bytes = 0;
+    // </head>·charset 탐지는 ASCII 범위라 latin1 임시 디코드로 충분하다.
+    const probe = new TextDecoder('latin1');
+    let probed = '';
     while (bytes < MAX_HTML_BYTES) {
       const { done, value } = await reader.read();
       if (done) break;
+      chunks.push(value);
       bytes += value.byteLength;
-      html += decoder.decode(value, { stream: true });
-      if (html.includes('</head>')) break;
+      probed += probe.decode(value, { stream: true });
+      if (probed.includes('</head>')) break;
     }
     void reader.cancel().catch(() => undefined);
-    return html;
+
+    const buffer = Buffer.concat(chunks);
+    const charset = this.detectCharset(
+      response.headers.get('content-type') ?? '',
+      probed,
+    );
+    try {
+      return new TextDecoder(charset, { fatal: false }).decode(buffer);
+    } catch {
+      // 미지원 charset이면 utf-8로 폴백
+      return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+    }
+  }
+
+  /** Content-Type 헤더 → <meta charset> 순으로 문자셋을 찾는다. 기본 utf-8. */
+  private detectCharset(contentType: string, probedHtml: string): string {
+    const fromHeader = /charset=["']?([\w-]+)/i.exec(contentType)?.[1];
+    const fromMeta = /<meta[^>]+charset=["']?([\w-]+)/i.exec(probedHtml)?.[1];
+    const raw = (fromHeader ?? fromMeta ?? 'utf-8').toLowerCase();
+    // 한국 사이트 변형 표기들을 euc-kr로 정규화
+    if (
+      ['euc-kr', 'ks_c_5601-1987', 'ksc5601', 'cp949', 'windows-949'].includes(
+        raw,
+      )
+    ) {
+      return 'euc-kr';
+    }
+    if (raw === 'utf8') return 'utf-8';
+    return raw;
   }
 
   private metaContent(html: string, name: string): string | null {
@@ -114,13 +146,27 @@ export class LinkPreviewService {
   }
 
   private decodeEntities(text: string): string {
-    return text
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#0?39;/g, "'")
-      .replace(/&#x27;/gi, "'")
-      .replace(/&nbsp;/g, ' ');
+    const fromCode = (code: number): string => {
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return '';
+      }
+    };
+    return (
+      text
+        // 숫자 엔티티 (&#52712; / &#xC548;) — 네이버 블로그 등이 한글을 이렇게 내려줌
+        .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+          fromCode(parseInt(hex, 16)),
+        )
+        .replace(/&#(\d+);/g, (_, dec: string) => fromCode(parseInt(dec, 10)))
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/gi, "'")
+        .replace(/&nbsp;/g, ' ')
+        // &amp;는 마지막에 (이중 디코드 방지)
+        .replace(/&amp;/g, '&')
+    );
   }
 }

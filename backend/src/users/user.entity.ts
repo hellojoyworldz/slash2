@@ -23,6 +23,16 @@ export class User {
   @Column({ nullable: true })
   displayName: string;
 
+  // "전체"(자기 자신) 방의 프로필 색(hex). null이면 프론트가 기본 검정(SELF_DEFAULT_COLOR)으로 표시.
+  // 미분류 메시지 말풍선 색의 원천이기도 하다. (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'varchar', length: 9, nullable: true })
+  selfColor: string | null;
+
+  // 사용자가 직접선택 피커로 저장해 둔 "커스텀 프로필" 색 목록(hex). 편집기 스와치 그리드에
+  // 기본 프리셋 다음에 나열된다. null/빈 = 없음. (콤마 join되는 simple-array — hex엔 콤마 없음)
+  @Column({ type: 'simple-array', nullable: true })
+  customColors: string[] | null;
+
   // 이 유저에게 보낼 메일·페이지 언어 (ko | en | ja). 앱이 보낸 언어로 갱신.
   @Column({ default: 'ko' })
   locale: string;

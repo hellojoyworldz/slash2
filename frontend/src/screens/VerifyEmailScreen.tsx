@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { Button } from '../components/Button';
 import { Text } from '../components/Text';
 import { notify } from '../notify';
-import { colors } from '../theme';
+import { ThemeColors } from '../theme';
+import { useTheme } from '../theme-context';
 
 interface Props {
   email: string;
@@ -26,6 +27,8 @@ export function VerifyEmailScreen({
   onRefresh,
 }: Props) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -149,7 +152,11 @@ export function VerifyEmailScreen({
           style={styles.logoutWrap}
           accessibilityRole="button"
         >
-          <Text variant="label" color={colors.textTertiary}>
+          <Text
+            variant="label"
+            color={colors.textTertiary}
+            style={styles.underline}
+          >
             {t('verify.logout')}
           </Text>
         </TouchableOpacity>
@@ -158,7 +165,7 @@ export function VerifyEmailScreen({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -167,6 +174,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 28,
+    // 데스크톱 전폭에서도 폼이 퍼지지 않게
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
   },
   icon: {
     fontSize: 44,
@@ -188,13 +199,15 @@ const styles = StyleSheet.create({
   },
   codeInput: {
     borderWidth: 1,
-    borderColor: colors.hairline,
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: 0,
+    paddingHorizontal: 12,
     height: 56,
     fontSize: 22,
     fontWeight: '700',
     letterSpacing: 8,
     color: colors.textPrimary,
+    backgroundColor: colors.background,
     marginBottom: 16,
   },
   resendBtn: {
@@ -210,5 +223,8 @@ const styles = StyleSheet.create({
   logoutWrap: {
     marginTop: 16,
     alignItems: 'center',
+  },
+  underline: {
+    textDecorationLine: 'underline',
   },
 });

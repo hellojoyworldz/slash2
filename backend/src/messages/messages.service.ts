@@ -93,13 +93,9 @@ export class MessagesService {
     return { items: rows.slice(0, PAGE_SIZE), hasMore };
   }
 
-  /** 채팅 탭용: "나에게" 방(전체 메시지) + 친구 방들의 마지막 메시지 요약 */
+  /** 채팅 탭용: "전체" 방 + 분류 방들의 마지막 메시지 요약 */
   async rooms(userId: string) {
-    // 고정된 방이 먼저, 나머지는 가나다순
-    const friends = await this.friends.find({
-      where: { userId },
-      order: { pinned: 'DESC', name: 'ASC' },
-    });
+    const friends = await this.friends.find({ where: { userId } });
 
     // "나에게" 방은 전체 메시지의 마지막 것
     const selfLast = await this.messages.findOne({
@@ -119,15 +115,23 @@ export class MessagesService {
 
     const byRoom = new Map(lastMessages.map((m) => [m.friendId, m]));
 
-    return {
-      self: selfLast ?? null,
-      friends: friends.map((friend) => ({
-        id: friend.id,
-        name: friend.name,
-        pinned: friend.pinned,
-        lastMessage: byRoom.get(friend.id) ?? null,
-      })),
-    };
+    // 메신저 정렬: 고정 먼저 → 마지막 메시지 최신순 → (메시지 없으면) 가나다순
+    const rooms = friends.map((friend) => ({
+      id: friend.id,
+      name: friend.name,
+      color: friend.color,
+      pinned: friend.pinned,
+      lastMessage: byRoom.get(friend.id) ?? null,
+    }));
+    rooms.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      const at = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bt = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      if (at !== bt) return bt - at;
+      return a.name.localeCompare(b.name);
+    });
+
+    return { self: selfLast ?? null, friends: rooms };
   }
 
   /** 메시지의 친구(카테고리) 분류를 바꾼다. friendId가 null이면 분류 해제. */

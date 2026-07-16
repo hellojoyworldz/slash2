@@ -21,12 +21,13 @@
     },
     "web": {
       "bundler": "metro",
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/symbol.png"
     },
     "plugins": [
       "expo-router",
       "expo-web-browser",
-      "expo-localization"
+      "expo-localization",
+      "expo-font"
     ]
   }
 }

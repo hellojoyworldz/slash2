@@ -24,17 +24,30 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 - 웹/Tailwind/CSS 전용 지시(`div`, CSS class, pseudo-element, DOM, hover-only interaction, `backdrop-blur` 등)를 그대로 사용하지 않는다.
 - React Native의 `View`, `Text`, `Pressable`, `StyleSheet`, `Animated`/`Reanimated`, `expo-linear-gradient` 등 프로젝트에서 사용 중인 패턴으로 구현한다.
 - mobile-first로 설계하되 mobile-only로 만들지 않는다: 터치 타깃, safe area, 작은 화면, iOS/Android 차이, 데스크톱 웹, 접근성, 다국어 길이 변화를 함께 고려한다.
-- 디자인 토큰은 `src/theme.ts`(`colors`·`layout`). 색·여백은 여기서만 가져다 쓴다.
-- 텍스트 대비: 흰 배경 기준 WCAG 4.5:1 이상 유지 (현재 secondary 7.0:1, tertiary 4.7:1).
-  회색을 더 옅게 바꾸거나 새 회색을 추가할 때 대비를 먼저 확인할 것.
+- **테마(다크모드)**: 색은 정적 import가 아니라 **`useTheme()`**(`src/theme-context.tsx`)에서 가져온다.
+  - 패턴: `const { colors } = useTheme();` + `const styles = useMemo(() => makeStyles(colors), [colors]);`
+    파일 하단에 `const makeStyles = (colors: ThemeColors) => StyleSheet.create({...})`.
+  - `src/theme.ts`에는 정적 `colors` export가 **없다** (팔레트 함수 `makeColors`·`makePuffy`·`layout`·`typography`만).
+  - 라이트/다크: **앱 크롬은 순수 흑백 고정**(`colors.accent` = ink, `colors.onAccent` = inverse). 사용자 색 취향은 없다.
+  - **색은 분류의 것**: 크롬(primary 버튼·전송·활성 탭·활성 선택 pill)은 전부 ink. 원색은 분류에서만 —
+    분류 아바타 배경(`components/CategoryAvatar`)과 그 분류 말풍선. 본문·구분선 등 중립 요소엔 색 금지.
+  - **말풍선 색**: `makePuffy(scheme, 분류색)`으로 파생(`MessageBubble`의 `bubbleColor` prop). 색 없으면 회색 파스텔.
+  - 취향 저장: AsyncStorage `slash.themeMode`(light|dark|system).
+- 텍스트 대비: 라이트·다크 모두 WCAG 4.5:1 이상 유지 (라이트: secondary 7.0 / tertiary 4.7, 다크: 9.3 / 5.8).
+  회색을 옅게 바꾸거나 새 회색을 추가할 때 두 모드 대비를 먼저 확인할 것.
+- 웹 포커스 링: 루트 `_layout.tsx`가 `:focus-visible` 스타일(currentColor 링)을 주입한다. `outline: none`으로 없애지 말 것.
 - 접근성: 인터랙티브 요소에 `accessibilityRole`(+필요시 `accessibilityState`·`accessibilityLabel`) 필수.
   아이콘 전용 버튼은 반드시 `t('a11y.*')` 라벨을 단다. 터치 타깃 44pt 미만이면 hitSlop 보강.
+- **시각 언어는 루트 `DESIGN.md`(네오 브루탈리즘 × 웹코어)를 따른다**: 라운드 0, 2px ink 보더,
+  하드 오프셋 섀도. 보더+섀도+눌림 재질은 `src/components/Brutal.tsx`의 `BrutalFrame`으로만 구현
+  (직접 그리지 말 것). 광택·그라디언트·소프트 섀도 금지.
 - 버튼은 공용 `src/components/Button.tsx` 사용(variant: `primary`·`outline`·`ghost`).
   화면마다 버튼 스타일을 인라인 `StyleSheet`로 복붙하지 말 것.
 - **alert 금지**: `Alert.alert`·`window.alert`·`window.confirm`을 쓰지 않는다(웹에서 안 뜨고 못생김). 대신:
   - `notify(title, message)` — 알림(버튼 1개)
   - `confirmDialog({ title, message, confirmLabel, cancelLabel, destructive })` → `Promise<boolean>` — 확인/취소
   - `src/notify.ts`가 제공하고, 루트에 마운트된 `<NotifyHost/>`가 `components/Dialog.tsx`로 렌더한다.
+- **900px 트리 스왑 생존**: 반응형 브레이크포인트(`layout.desktopBreakpoint`, 900) 교차 시 데스크톱 3패널과 모바일 탭은 서로 다른 트리라 화면이 통째로 리마운트된다. 사용자 입력·진행 상태(검색어·입력 draft·오버레이 열림 등)는 이 교차에서 반드시 살아남아야 하므로, 휘발성 UI 상태는 화면 로컬 `useState`가 아니라 루트 프로바이더에 둔다(`NameEditProvider`·`SelectedRoomProvider`의 draft 패턴 참조). 방별로 구분돼야 하는 상태는 roomKey로 태깅해 자기 방일 때만 복원한다.
 
 ## 다국어 (i18n)
 

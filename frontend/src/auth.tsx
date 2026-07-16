@@ -13,12 +13,22 @@ interface AuthState {
   displayName: string | null;
   // 이메일 인증 여부. 소셜 로그인은 보통 true, 이메일 가입 직후엔 false.
   emailVerified: boolean;
+  // "전체"(자기 자신) 방 프로필 색(hex). null이면 기본 검정으로 그린다.
+  selfColor: string | null;
+  // 저장된 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
+  customColors: string[];
+  // 연결된 소셜 provider 목록 (예: ['google']). 더보기 화면 배지 등에 사용.
+  providers: string[];
   loggedIn: (token: string, user: User) => Promise<void>;
   logout: () => Promise<void>;
   // 서버에서 최신 인증 상태를 다시 불러온다 (인증 완료 후 새로고침용).
   refresh: () => Promise<boolean>;
   // 이름 변경 후 컨텍스트 갱신용.
   setDisplayName: (name: string | null) => void;
+  // "전체" 프로필 색 변경 후 컨텍스트 갱신용.
+  setSelfColor: (color: string | null) => void;
+  // 커스텀 프로필 목록 추가/삭제 후 컨텍스트 갱신용.
+  setCustomColors: (colors: string[]) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -29,6 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
+  const [selfColor, setSelfColor] = useState<string | null>(null);
+  const [customColors, setCustomColors] = useState<string[]>([]);
+  const [providers, setProviders] = useState<string[]>([]);
 
   // 앱 시작 시 저장된 토큰으로 자동 로그인
   useEffect(() => {
@@ -42,6 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setEmail(user.email);
           setDisplayName(user.displayName ?? null);
           setEmailVerified(!!user.emailVerified);
+          setSelfColor(user.selfColor ?? null);
+          setCustomColors(user.customColors ?? []);
+          setProviders(user.providers ?? []);
         } else if (savedEmail) {
           setEmail(savedEmail);
         }
@@ -58,6 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmail(user.email);
     setDisplayName(user.displayName ?? null);
     setEmailVerified(!!user.emailVerified);
+    setSelfColor(user.selfColor ?? null);
+    setCustomColors(user.customColors ?? []);
+    setProviders(user.providers ?? []);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, newToken],
       [EMAIL_KEY, user.email],
@@ -68,6 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setDisplayName(null);
     setEmailVerified(false);
+    setSelfColor(null);
+    setCustomColors([]);
+    setProviders([]);
     await AsyncStorage.removeItem(TOKEN_KEY);
   };
 
@@ -77,6 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const user = await api.me(token);
       setDisplayName(user.displayName ?? null);
       setEmailVerified(!!user.emailVerified);
+      setSelfColor(user.selfColor ?? null);
+      setCustomColors(user.customColors ?? []);
+      setProviders(user.providers ?? []);
       return !!user.emailVerified;
     } catch {
       return false;
@@ -91,10 +116,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         displayName,
         emailVerified,
+        selfColor,
+        customColors,
+        providers,
         loggedIn,
         logout,
         refresh,
         setDisplayName,
+        setSelfColor,
+        setCustomColors,
       }}
     >
       {children}

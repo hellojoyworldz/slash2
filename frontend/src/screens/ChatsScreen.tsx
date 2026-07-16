@@ -1,19 +1,31 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { TFunction } from 'i18next';
+import { Pencil, Pin, PinOff, Plus, Trash2 } from 'lucide-react-native';
 import { api, ApiError, Message, RoomsSummary } from '../api';
+import { useAuth } from '../auth';
+import { useCategoryEdit } from '../category-edit';
+import { CategoryAvatar } from '../components/CategoryAvatar';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
+import { confirmDialog } from '../notify';
+import { useSelectedRoom } from '../selected-room';
 import { formatListTime } from '../time';
-import { colors, layout } from '../theme';
+import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
+import { useTheme } from '../theme-context';
 
 interface Props {
   token: string | null;
-  email: string;
-  displayName?: string | null;
   onOpenChat: () => void;
   onOpenFriend: (friend: { id: string; name: string }) => void;
   onLogout: () => void;
@@ -22,6 +34,7 @@ interface Props {
 interface RoomRow {
   friendId: string | null;
   name: string;
+  color?: string | null;
   isSelf: boolean;
   pinned: boolean;
   lastMessage: Message | null;
@@ -35,24 +48,36 @@ function previewText(message: Message | null, t: TFunction): string {
   return message.content;
 }
 
-// 고정된 방 먼저, 그 안에서는 가나다순
+// 메신저 정렬(서버와 동일 규칙): 고정 먼저 → 마지막 메시지 최신순 → 가나다순
 function sortFriendRooms(rooms: RoomsSummary['friends']) {
   return [...rooms].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+    const at = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const bt = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    if (at !== bt) return bt - at;
     return a.name.localeCompare(b.name, 'ko');
   });
 }
 
 export function ChatsScreen({
   token,
-  email,
-  displayName,
   onOpenChat,
   onOpenFriend,
   onLogout,
 }: Props) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { selfColor } = useAuth();
+  // 분류 추가·수정 편집기(루트 상주) — 헤더 +버튼·행 스와이프 수정에서 연다.
+  const { open: openCategoryEditor } = useCategoryEdit();
   const [rooms, setRooms] = useState<RoomsSummary | null>(null);
+  // 상주 대화 패널에서 전송/삭제/분류가 일어나면 목록도 갱신 (데스크톱 스플릿뷰)
+  // room: 현재 선택된 방 — 데스크톱에서 active 행 하이라이트에 쓴다.
+  const { roomsVersion, room, setRoom, bumpRooms } = useSelectedRoom();
+  // 데스크톱(스플릿뷰)에서만 선택 방을 강조한다. 모바일은 목록·대화가 동시에 안 보여 무의미.
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= layout.desktopBreakpoint;
   // 웹에서는 스와이프가 탭을 취소해주지 않아서 직접 구분한다.
   const dragging = useRef(false);
   const openRowId = useRef<string | null>(null);
@@ -74,7 +99,7 @@ export function ChatsScreen({
       return () => {
         cancelled = true;
       };
-    }, [token, onLogout]),
+    }, [token, onLogout, roomsVersion]),
   );
 
   const togglePin = async (row: RoomRow) => {
@@ -95,13 +120,46 @@ export function ChatsScreen({
     );
     try {
       await api.updateFriendPinned(token, row.friendId, nextPinned);
+      // 분류 탭 핀 표시도 함께 갱신되도록 신호.
+      bumpRooms();
     } catch {
       const summary = await api.listRooms(token).catch(() => null);
       if (summary) setRooms(summary);
     }
   };
 
-  const myName = displayName || email.split('@')[0] || t('common.me');
+  // 분류 삭제(destructive) — confirmDialog 확인 후.
+  const confirmDeleteRoom = async (row: RoomRow) => {
+    if (!token || !row.friendId) return;
+    const friendId = row.friendId;
+    const ok = await confirmDialog({
+      title: t('common.delete'),
+      message: t('friends.confirmDelete', { name: row.name }),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.deleteFriend(token, friendId);
+      setRooms((prev) =>
+        prev
+          ? { ...prev, friends: prev.friends.filter((f) => f.id !== friendId) }
+          : prev,
+      );
+      bumpRooms();
+      // 데스크톱 상주 대화가 방금 지운 분류면 "전체"로 되돌린다.
+      if (room?.friendId === friendId) setRoom(null);
+    } catch {
+      const summary = await api.listRooms(token).catch(() => null);
+      if (summary) setRooms(summary);
+    }
+  };
+
+  const editRoom = (row: RoomRow) => {
+    if (!row.friendId) return;
+    openCategoryEditor({ id: row.friendId, name: row.name, color: row.color });
+  };
 
   // "나에게" 방이 항상 맨 위, 그 아래 친구 방들
   const rows: RoomRow[] = [
@@ -115,21 +173,23 @@ export function ChatsScreen({
     ...(rooms?.friends ?? []).map((friend) => ({
       friendId: friend.id,
       name: friend.name,
+      color: friend.color,
       isSelf: false,
       pinned: friend.pinned,
       lastMessage: friend.lastMessage,
     })),
   ];
 
-  const renderRow = (item: RoomRow) => (
+  const renderRow = (item: RoomRow, selected: boolean) => (
     <TouchableOpacity
-      style={styles.roomRow}
+      style={[styles.roomRow, selected && styles.roomRowActive]}
       activeOpacity={0.6}
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={() => {
         // 스와이프 직후의 탭은 무시 (웹에서 드래그를 놓으면 탭으로도 인식됨)
         if (dragging.current) return;
-        // 고정 버튼이 열려 있는 행을 누르면 이동 대신 닫는다
+        // 액션이 열려 있는 행을 누르면 이동 대신 닫는다
         if (!item.isSelf && openRowId.current === item.friendId) {
           swipeRefs.current.get(item.friendId!)?.close();
           return;
@@ -138,14 +198,11 @@ export function ChatsScreen({
         else onOpenFriend({ id: item.friendId!, name: item.name });
       }}
     >
-      <View style={[styles.avatar, !item.isSelf && styles.friendAvatar]}>
-        <Text
-          variant="subheading"
-          color={item.isSelf ? colors.inverse : colors.ink}
-        >
-          {(item.isSelf ? myName : item.name).charAt(0).toUpperCase()}
-        </Text>
-      </View>
+      {/* 전체 방 아바타도 분류처럼 CategoryAvatar(전체 프로필 색). null이면 기본 검정. */}
+      <CategoryAvatar
+        color={item.isSelf ? selfColor ?? SELF_DEFAULT_COLOR : item.color}
+        size={50}
+      />
       <View style={styles.roomInfo}>
         <View style={styles.roomNameRow}>
           <Text variant="subheading">{item.name}</Text>
@@ -177,41 +234,54 @@ export function ChatsScreen({
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text variant="title">{t('chats.title')}</Text>
-      </View>
+      <TabHeader
+        title={t('chats.title')}
+        actions={[
+          {
+            key: 'add',
+            icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
+            label: t('friends.add'),
+            onPress: () => openCategoryEditor(),
+          },
+        ]}
+      />
 
       <FlatList
         data={rows}
         keyExtractor={(item) => item.friendId ?? 'self'}
-        renderItem={({ item }) =>
-          item.isSelf ? (
-            renderRow(item)
+        renderItem={({ item }) => {
+          // 선택 표시(데스크톱만): 분류 방은 friendId 일치, 전체 방은 room===null.
+          const selected =
+            isDesktop &&
+            (item.isSelf ? room === null : room?.friendId === item.friendId);
+          return item.isSelf ? (
+            renderRow(item, selected)
           ) : (
-            // 오른쪽으로 스와이프하면 고정/해제 버튼이 나온다
+            // 왼→오 스와이프로 [고정][삭제][수정] 액션이 드러난다.
             <SwipeableRow
               ref={(ref) => {
                 if (item.friendId) swipeRefs.current.set(item.friendId, ref);
               }}
-              actionWidth={84}
-              action={
-                <TouchableOpacity
-                  style={styles.pinAction}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    swipeRefs.current.get(item.friendId!)?.close();
-                    togglePin(item);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={item.pinned ? t('a11y.unpin') : t('a11y.pin')}
-                >
-                  <MaterialCommunityIcons
-                    name={item.pinned ? 'pin-off' : 'pin'}
-                    size={22}
-                    color={colors.inverse}
-                  />
-                </TouchableOpacity>
-              }
+              actions={[
+                {
+                  key: 'pin',
+                  icon: item.pinned ? PinOff : Pin,
+                  label: item.pinned ? t('a11y.unpin') : t('a11y.pin'),
+                  onPress: () => togglePin(item),
+                },
+                {
+                  key: 'delete',
+                  icon: Trash2,
+                  label: t('common.delete'),
+                  onPress: () => confirmDeleteRoom(item),
+                },
+                {
+                  key: 'edit',
+                  icon: Pencil,
+                  label: t('friends.editTitle'),
+                  onPress: () => editRoom(item),
+                },
+              ]}
               onDragStateChange={(isDragging) => {
                 dragging.current = isDragging;
               }}
@@ -228,25 +298,20 @@ export function ChatsScreen({
                 }
               }}
             >
-              {renderRow(item)}
+              {renderRow(item, selected)}
             </SwipeableRow>
-          )
-        }
+          );
+        }}
         contentContainerStyle={styles.listContent}
       />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  header: {
-    paddingTop: layout.statusBarPad + 4,
-    paddingBottom: 14,
-    paddingHorizontal: 20,
   },
   listContent: {
     paddingBottom: 20,
@@ -258,15 +323,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: colors.background,
   },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 19,
-    backgroundColor: colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  friendAvatar: {
+  // 데스크톱 스플릿뷰에서 현재 선택된 방 — 연회색 면으로 강조(불투명이라 스와이프 액션도 안 비친다).
+  roomRowActive: {
     backgroundColor: colors.surface,
   },
   roomInfo: {
@@ -287,11 +345,5 @@ const styles = StyleSheet.create({
   roomTime: {
     alignSelf: 'flex-start',
     marginTop: 5,
-  },
-  pinAction: {
-    flex: 1,
-    backgroundColor: colors.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

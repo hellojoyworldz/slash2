@@ -12,7 +12,11 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CreateFriendDto, UpdateFriendDto } from './friends.dto';
+import {
+  CreateFriendDto,
+  ReorderFriendsDto,
+  UpdateFriendDto,
+} from './friends.dto';
 import { FriendsService } from './friends.service';
 
 @Controller('friends')
@@ -27,7 +31,17 @@ export class FriendsController {
 
   @Post()
   create(@CurrentUser() user: { id: string }, @Body() dto: CreateFriendDto) {
-    return this.friends.create(user.id, dto.name);
+    return this.friends.create(user.id, dto.name, dto.color);
+  }
+
+  // 주의: '/friends/order'가 @Patch(':id')(ParseUUIDPipe)에 먹히지 않도록 반드시 위에 선언한다.
+  @Patch('order')
+  @HttpCode(204)
+  async reorder(
+    @CurrentUser() user: { id: string },
+    @Body() dto: ReorderFriendsDto,
+  ) {
+    await this.friends.reorder(user.id, dto.ids);
   }
 
   @Patch(':id')

@@ -7,6 +7,12 @@ export interface User {
   email: string;
   displayName?: string | null;
   emailVerified?: boolean;
+  // "전체"(자기 자신) 방 프로필 색(hex). null이면 프론트가 기본 검정으로 표시.
+  selfColor?: string | null;
+  // 사용자가 저장한 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
+  customColors?: string[];
+  // 연결된 소셜 provider 목록 (예: ['google']). /auth/me·로그인 응답에서 내려온다.
+  providers?: string[];
 }
 
 export interface Message {
@@ -31,6 +37,10 @@ export interface MessagePage {
 export interface Friend {
   id: string;
   name: string;
+  // 분류 배경색 (hex). 아바타 배경·이 분류 말풍선 색의 원천. null이면 기본 표면색.
+  color?: string | null;
+  // 이 분류에 담긴 메시지 개수 (목록 API에서 내려줌)
+  messageCount?: number;
   pinned: boolean;
   createdAt: string;
 }
@@ -41,6 +51,7 @@ export interface RoomsSummary {
   friends: {
     id: string;
     name: string;
+    color?: string | null;
     pinned: boolean;
     lastMessage: Message | null;
   }[];
@@ -145,11 +156,18 @@ export const api = {
 
   me: (token: string) => request<User>('/auth/me', { token }),
 
-  // 표시 이름 변경
-  updateProfile: (token: string, displayName: string) =>
+  // 프로필 부분 갱신 (표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 목록). 보낸 필드만 반영된다.
+  updateProfile: (
+    token: string,
+    changes: {
+      displayName?: string;
+      selfColor?: string;
+      customColors?: string[];
+    },
+  ) =>
     request<User>('/auth/me', {
       method: 'PATCH',
-      body: { displayName },
+      body: changes,
       token,
     }),
 
@@ -202,13 +220,33 @@ export const api = {
 
   listFriends: (token: string) => request<Friend[]>('/friends', { token }),
 
-  createFriend: (token: string, name: string) =>
-    request<Friend>('/friends', { method: 'POST', body: { name }, token }),
+  createFriend: (token: string, name: string, color?: string) =>
+    request<Friend>('/friends', {
+      method: 'POST',
+      body: color ? { name, color } : { name },
+      token,
+    }),
 
   deleteFriend: (token: string, id: string) =>
     request<void>(`/friends/${id}`, { method: 'DELETE', token }),
 
+  // 분류 수정 (이름·프로필색). 부분 갱신이라 바뀐 필드만 보낸다.
+  updateFriend: (
+    token: string,
+    id: string,
+    changes: { name?: string; color?: string },
+  ) =>
+    request<Friend>(`/friends/${id}`, {
+      method: 'PATCH',
+      body: changes,
+      token,
+    }),
+
   // 채팅 목록 상단 고정 토글
   updateFriendPinned: (token: string, id: string, pinned: boolean) =>
     request<Friend>(`/friends/${id}`, { method: 'PATCH', body: { pinned }, token }),
+
+  // 분류 탭 수동 정렬 저장. ids = 화면에 보이는 순서 그대로. 응답은 204(본문 없음).
+  reorderFriends: (token: string, ids: string[]) =>
+    request<void>('/friends/order', { method: 'PATCH', body: { ids }, token }),
 };
