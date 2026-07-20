@@ -13,7 +13,8 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Ellipsis, MessageSquare, Slash } from 'lucide-react-native';
+import { Asterisk, Ellipsis, MessageSquare, Slash, Tag } from 'lucide-react-native';
+import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
 import { Text } from '../../components/Text';
 import { ChatScreen } from '../../screens/ChatScreen';
@@ -43,6 +44,10 @@ const resizeCursor =
 const TAB_ICONS = {
   chats: MessageSquare,
   slashes: Slash,
+  // 자동구분 — ✳ 글리프(카드 꼬리표·워드마크)와 정체성을 잇는 asterisk.
+  auto: Asterisk,
+  // 태그 — lucide Tag.
+  tags: Tag,
   more: Ellipsis,
 } as const;
 type TabIconKey = keyof typeof TAB_ICONS;
@@ -98,9 +103,10 @@ const TabButton = forwardRef<
 export default function TabsLayout() {
   const { token, emailVerified, logout } = useAuth();
   const { t } = useTranslation();
+  const { appStyle } = useAppStyle();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
-  const { room, setRoom } = useSelectedRoom();
+  const { room, setRoom, autoKind, setAutoKind, tag, setTag } = useSelectedRoom();
   const router = useRouter();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -177,11 +183,37 @@ export default function TabsLayout() {
       <TabTrigger name="chats" href="/chats" asChild>
         <TabButton icon="chats" label={t('tabs.chats')} rail={rail} />
       </TabTrigger>
+      <TabTrigger name="auto" href="/auto" asChild>
+        <TabButton icon="auto" label={t('tabs.auto')} rail={rail} />
+      </TabTrigger>
+      <TabTrigger name="tags" href="/tags" asChild>
+        <TabButton icon="tags" label={t('tabs.tags')} rail={rail} />
+      </TabTrigger>
       <TabTrigger name="more" href="/more" asChild>
         <TabButton icon="more" label={t('tabs.more')} rail={rail} pushBottom />
       </TabTrigger>
     </>
   );
+
+  // ── 목록형(list) ──
+  // 화면 스타일은 "테마"다 — URL/라우트는 채팅형과 동일하고 렌더만 교체한다.
+  // 탭바/레일 크롬 없이 각 라우트(friends/auto/more)의 목록형 화면을 전폭으로 렌더.
+  // TabList는 여전히 필요하다(Tabs 내비게이터가 어떤 라우트가 탭인지 알아야 라우팅됨) —
+  // 다만 0크기·접근성 숨김으로 화면에서 치운다. 보드 자체가 세그먼트·⋯로 네비게이션한다.
+  if (appStyle === 'list') {
+    return (
+      <Tabs style={styles.container}>
+        <TabList
+          style={styles.hiddenTabList}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {triggers(false)}
+        </TabList>
+        <TabSlot />
+      </Tabs>
+    );
+  }
 
   // 주의: TabList는 반드시 Tabs의 "직속 자식"이어야 한다 (View로 감싸면
   // 헤드리스 파서가 트리거를 못 찾아 "no screens" 에러).
@@ -221,20 +253,51 @@ export default function TabsLayout() {
           </View>
         </GestureDetector>
 
-        {/* ③ 대화 패널: 항상 상주, 남은 폭 전부. 방 선택 시 여기만 교체 */}
+        {/* ③ 대화 패널: 항상 상주, 남은 폭 전부. 방 선택 시 여기만 교체.
+            렌더 우선순위: tag > autoKind > room(일반). 태그·자동구분은 보기 전용 방. */}
         <View style={styles.chatPane}>
-          <ChatScreen
-            key={room?.friendId ?? 'self'}
-            token={token}
-            friendId={room?.friendId ?? null}
-            friendName={room?.name ?? null}
-            showBack={room !== null}
-            onBack={() => setRoom(null)}
-            onLogout={async () => {
-              await logout();
-              router.replace('/login');
-            }}
-          />
+          {tag ? (
+            <ChatScreen
+              key={`tag:${tag.id}`}
+              token={token}
+              tag={tag}
+              friendId={null}
+              friendName={null}
+              showBack
+              onBack={() => setTag(null)}
+              onLogout={async () => {
+                await logout();
+                router.replace('/login');
+              }}
+            />
+          ) : autoKind ? (
+            <ChatScreen
+              key={`auto:${autoKind}`}
+              token={token}
+              auto={autoKind}
+              friendId={null}
+              friendName={null}
+              showBack
+              onBack={() => setAutoKind(null)}
+              onLogout={async () => {
+                await logout();
+                router.replace('/login');
+              }}
+            />
+          ) : (
+            <ChatScreen
+              key={room?.friendId ?? 'self'}
+              token={token}
+              friendId={room?.friendId ?? null}
+              friendName={room?.name ?? null}
+              showBack={room !== null}
+              onBack={() => setRoom(null)}
+              onLogout={async () => {
+                await logout();
+                router.replace('/login');
+              }}
+            />
+          )}
         </View>
 
         {/* 워드마크 오버레이 */}
@@ -249,6 +312,18 @@ export default function TabsLayout() {
   // 목록으로 튕기지 말고 그 방의 /chat 라우트로 이어준다.
   // wasDesktopRef가 "그 순간"만 한정하므로, 모바일에서 목록으로 되돌아가도
   // 다시 /chat으로 끌려가지 않는다(무한 리다이렉트 방지). room이 있을 때만.
+  if (wasDesktopRef.current && tag) {
+    return (
+      <Redirect
+        href={{ pathname: '/tag-room', params: { tagId: tag.id, name: tag.name } }}
+      />
+    );
+  }
+  if (wasDesktopRef.current && autoKind) {
+    return (
+      <Redirect href={{ pathname: '/auto-room', params: { kind: autoKind } }} />
+    );
+  }
   if (wasDesktopRef.current && room) {
     return (
       <Redirect
@@ -272,6 +347,14 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  // 목록형에서 등록만 유지하고 화면에선 치우는 TabList (0크기·흐름 밖).
+  hiddenTabList: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+    overflow: 'hidden',
   },
   containerRail: {
     flex: 1,

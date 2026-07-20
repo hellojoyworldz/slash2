@@ -75,6 +75,13 @@ export class UpdateProfileDto {
   @ArrayMaxSize(16, { message: '커스텀 색은 16개까지 저장할 수 있습니다.' })
   @IsHexColor({ each: true })
   customColors?: string[];
+
+  // 자동구분 카테고리 순서. AUTO_ORDER_CATEGORIES의 순열인지는 서비스에서 검증
+  // (아니면 400 invalid_auto_order).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  autoOrder?: string[];
 }
 
 export class ForgotPasswordDto {

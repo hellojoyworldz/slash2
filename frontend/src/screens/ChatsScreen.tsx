@@ -35,6 +35,7 @@ interface RoomRow {
   friendId: string | null;
   name: string;
   color?: string | null;
+  description?: string | null;
   isSelf: boolean;
   pinned: boolean;
   lastMessage: Message | null;
@@ -158,7 +159,12 @@ export function ChatsScreen({
 
   const editRoom = (row: RoomRow) => {
     if (!row.friendId) return;
-    openCategoryEditor({ id: row.friendId, name: row.name, color: row.color });
+    openCategoryEditor({
+      id: row.friendId,
+      name: row.name,
+      color: row.color,
+      description: row.description,
+    });
   };
 
   // "나에게" 방이 항상 맨 위, 그 아래 친구 방들
@@ -174,6 +180,7 @@ export function ChatsScreen({
       friendId: friend.id,
       name: friend.name,
       color: friend.color,
+      description: friend.description,
       isSelf: false,
       pinned: friend.pinned,
       lastMessage: friend.lastMessage,

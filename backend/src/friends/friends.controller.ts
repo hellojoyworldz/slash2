@@ -14,6 +14,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   CreateFriendDto,
+  ReorderFavoriteFriendsDto,
   ReorderFriendsDto,
   UpdateFriendDto,
 } from './friends.dto';
@@ -31,7 +32,7 @@ export class FriendsController {
 
   @Post()
   create(@CurrentUser() user: { id: string }, @Body() dto: CreateFriendDto) {
-    return this.friends.create(user.id, dto.name, dto.color);
+    return this.friends.create(user.id, dto.name, dto.color, dto.description);
   }
 
   // 주의: '/friends/order'가 @Patch(':id')(ParseUUIDPipe)에 먹히지 않도록 반드시 위에 선언한다.
@@ -42,6 +43,16 @@ export class FriendsController {
     @Body() dto: ReorderFriendsDto,
   ) {
     await this.friends.reorder(user.id, dto.ids);
+  }
+
+  // 주의: '/friends/favorite-order'도 마찬가지로 @Patch(':id')보다 위에 선언한다.
+  @Patch('favorite-order')
+  @HttpCode(204)
+  async reorderFavorites(
+    @CurrentUser() user: { id: string },
+    @Body() dto: ReorderFavoriteFriendsDto,
+  ) {
+    await this.friends.reorderFavorites(user.id, dto.ids);
   }
 
   @Patch(':id')

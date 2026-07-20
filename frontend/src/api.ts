@@ -11,8 +11,48 @@ export interface User {
   selfColor?: string | null;
   // 사용자가 저장한 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors?: string[];
+  // 자동구분 표시 순서(6종 순열). null이면 프론트가 기본 순서로 표시.
+  // 자동구분 탭·목록형 보드 섹션·자동구분 칩(전체 제외) 순서에 반영된다.
+  autoOrder?: AutoKind[] | null;
   // 연결된 소셜 provider 목록 (예: ['google']). /auth/me·로그인 응답에서 내려온다.
   providers?: string[];
+}
+
+// 링크 자동구분: 서버가 링크를 분류한 종류. 미분류/구버전 메시지는 null.
+export type LinkType = 'place' | 'video' | 'item' | 'article';
+
+// 자동구분 탭이 모아 보는 종류(전 방 통합). link=미분류 링크, memo=순수 텍스트 메모까지 포함해 6종.
+export type AutoKind = 'place' | 'video' | 'item' | 'article' | 'memo' | 'link';
+
+// 자동구분 개수: 여섯 키를 항상 포함(0이어도 키는 있다).
+export type AutoCounts = Record<AutoKind, number>;
+
+// 종류별 부가 메타데이터. 서버가 아직 값을 안 줄 수 있어 모든 필드가 optional.
+export interface LinkMeta {
+  placeName?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  phone?: string;
+  hours?: string;
+  price?: number;
+  currency?: string;
+  durationSec?: number;
+  channel?: string;
+  author?: string;
+}
+
+// content에 등장한 링크별 미리보기. 등장 순서대로 저장되며, 중복 URL은 1회, 최대 5개.
+// 프론트는 content를 각 url의 첫 등장 위치로 쪼개 [텍스트][카드]… 순서대로 렌더한다.
+// 레거시 단일 필드(url/og*/linkType/linkMeta)는 links[0]과 동일 값. 구 메시지는 links가 null.
+export interface MessageLink {
+  url: string;
+  ogTitle: string | null;
+  ogDescription: string | null;
+  ogImage: string | null;
+  siteName: string | null;
+  linkType: LinkType | null;
+  linkMeta: LinkMeta | null;
 }
 
 export interface Message {
@@ -26,6 +66,26 @@ export interface Message {
   ogImage: string | null;
   siteName: string | null;
   createdAt: string;
+  // 자동구분 결과. 서버가 아직 안 줄 수 있어 optional/nullable — 없으면 일반 링크 카드로 렌더.
+  linkType?: LinkType | null;
+  linkMeta?: LinkMeta | null;
+  // content에 등장한 모든 링크(등장 순서·최대 5개)의 미리보기. 링크 없거나 구 메시지면 null/없음.
+  links?: MessageLink[] | null;
+  // 이 메시지에 붙은 태그 id 목록(전체 교체·부분 의미론). 서버 미배포/구버전이면 없을 수 있어 optional.
+  tagIds?: string[];
+  // 이 메시지가 속한 방의 공지인지(방당 1개). 서버 미배포/구버전이면 없을 수 있어 optional.
+  isNotice?: boolean;
+}
+
+// 사용자 정의 태그(메시지 다중 분류). 분류(friend)와 달리 색이 없다 — 색은 분류의 것.
+export interface Tag {
+  id: string;
+  name: string;
+  position: number;
+  // 태그 탭 상단 고정. GET /tags 정렬 = 고정 먼저 → position → name. 서버 미배포면 없을 수 있어 optional.
+  pinned?: boolean;
+  // 이 태그가 붙은 메시지 개수 (GET /tags에서 내려줌). 서버 미배포/구버전이면 없을 수 있어 optional.
+  messageCount?: number;
 }
 
 export interface MessagePage {
@@ -39,9 +99,16 @@ export interface Friend {
   name: string;
   // 분류 배경색 (hex). 아바타 배경·이 분류 말풍선 색의 원천. null이면 기본 표면색.
   color?: string | null;
+  // 상태메시지 (카톡 프로필 상태메시지처럼). 선택 입력.
+  description?: string | null;
   // 이 분류에 담긴 메시지 개수 (목록 API에서 내려줌)
   messageCount?: number;
   pinned: boolean;
+  // 분류 탭 즐겨찾기(★). 채팅 탭 고정(pinned)과 무관 — 본 목록(분류) 정렬엔 영향 없음. 서버 미배포/구버전이면 없을 수 있어 optional.
+  favorite?: boolean;
+  // 즐겨찾기 섹션 전용 순서(분류 position과 독립). favorite=true 토글 시 서버가 맨 밑 위치 자동 부여,
+  // false 시 null. 즐겨찾기 섹션은 이 값 오름차순(null이면 맨 뒤)으로 정렬한다. 서버 미배포/구버전이면 없을 수 있어 optional.
+  favoritePosition?: number | null;
   createdAt: string;
 }
 
@@ -52,6 +119,7 @@ export interface RoomsSummary {
     id: string;
     name: string;
     color?: string | null;
+    description?: string | null;
     pinned: boolean;
     lastMessage: Message | null;
   }[];
@@ -156,13 +224,15 @@ export const api = {
 
   me: (token: string) => request<User>('/auth/me', { token }),
 
-  // 프로필 부분 갱신 (표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 목록). 보낸 필드만 반영된다.
+  // 프로필 부분 갱신 (표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 목록 / 자동구분 순서).
+  // 보낸 필드만 반영된다. autoOrder는 6종 순열이어야 하며, 잘못되면 400 code 'invalid_auto_order'.
   updateProfile: (
     token: string,
     changes: {
       displayName?: string;
       selfColor?: string;
       customColors?: string[];
+      autoOrder?: AutoKind[];
     },
   ) =>
     request<User>('/auth/me', {
@@ -188,15 +258,30 @@ export const api = {
 
   listMessages: (
     token: string,
-    params: { q?: string; before?: string; friendId?: string } = {},
+    params: {
+      q?: string;
+      before?: string;
+      friendId?: string;
+      // 자동구분 통합 조회. 있으면 서버가 friendId를 무시하고 전 방에서 이 종류만 모은다.
+      auto?: AutoKind;
+      // 태그 통합 조회. 있으면 서버가 friendId를 무시하고 이 태그가 붙은 메시지를 전 방에서 모은다.
+      tagId?: string;
+    } = {},
   ) => {
     const query = new URLSearchParams();
     if (params.q) query.set('q', params.q);
     if (params.before) query.set('before', params.before);
-    if (params.friendId) query.set('friendId', params.friendId);
+    // auto·tagId가 있으면 전 방 통합이라 friendId는 보내지 않는다(서버도 무시).
+    if (params.auto) query.set('auto', params.auto);
+    else if (params.tagId) query.set('tagId', params.tagId);
+    else if (params.friendId) query.set('friendId', params.friendId);
     const suffix = query.size ? `?${query.toString()}` : '';
     return request<MessagePage>(`/messages${suffix}`, { token });
   },
+
+  // 자동구분 탭의 종류별 개수(여섯 키 항상 포함). 화면 포커스 시 갱신.
+  autoCounts: (token: string) =>
+    request<AutoCounts>('/messages/auto-counts', { token }),
 
   createMessage: (token: string, content: string, friendId?: string) =>
     request<Message>('/messages', {
@@ -218,23 +303,45 @@ export const api = {
       token,
     }),
 
+  // 메시지 내용(content) 수정.
+  // 주의: 현재 백엔드 PATCH /messages/:id 는 friendId만 반영한다(UpdateMessageDto에 content가 없어
+  // ValidationPipe whitelist가 content를 떨궈내고, 서비스는 dto.friendId ?? null로 분류를 덮어쓴다).
+  // 그래서 content만 보내면 분류가 풀리는 사고가 난다 — 현재 friendId를 함께 실어 분류를 보존한다.
+  // 백엔드가 content를 지원하도록 확장되면(UpdateMessageDto + 서비스) 이 호출이 그대로 내용을 수정한다.
+  updateMessageContent: (
+    token: string,
+    id: string,
+    content: string,
+    friendId: string | null,
+  ) =>
+    request<Message>(`/messages/${id}`, {
+      method: 'PATCH',
+      body: { content, friendId },
+      token,
+    }),
+
   listFriends: (token: string) => request<Friend[]>('/friends', { token }),
 
-  createFriend: (token: string, name: string, color?: string) =>
+  createFriend: (
+    token: string,
+    name: string,
+    color?: string,
+    description?: string,
+  ) =>
     request<Friend>('/friends', {
       method: 'POST',
-      body: color ? { name, color } : { name },
+      body: { name, ...(color ? { color } : {}), ...(description ? { description } : {}) },
       token,
     }),
 
   deleteFriend: (token: string, id: string) =>
     request<void>(`/friends/${id}`, { method: 'DELETE', token }),
 
-  // 분류 수정 (이름·프로필색). 부분 갱신이라 바뀐 필드만 보낸다.
+  // 분류 수정 (이름·프로필색·설명). 부분 갱신이라 바뀐 필드만 보낸다.
   updateFriend: (
     token: string,
     id: string,
-    changes: { name?: string; color?: string },
+    changes: { name?: string; color?: string; description?: string },
   ) =>
     request<Friend>(`/friends/${id}`, {
       method: 'PATCH',
@@ -246,7 +353,64 @@ export const api = {
   updateFriendPinned: (token: string, id: string, pinned: boolean) =>
     request<Friend>(`/friends/${id}`, { method: 'PATCH', body: { pinned }, token }),
 
+  // 분류 탭 즐겨찾기(★) 토글. 정렬에는 영향 없음(수동 드래그 순서 유지).
+  updateFriendFavorite: (token: string, id: string, favorite: boolean) =>
+    request<Friend>(`/friends/${id}`, { method: 'PATCH', body: { favorite }, token }),
+
   // 분류 탭 수동 정렬 저장. ids = 화면에 보이는 순서 그대로. 응답은 204(본문 없음).
   reorderFriends: (token: string, ids: string[]) =>
     request<void>('/friends/order', { method: 'PATCH', body: { ids }, token }),
+
+  // 즐겨찾기 섹션 수동 정렬 저장(분류 순서와 독립). ids = 즐겨찾기 섹션에 보이는 순서 그대로.
+  // 서버가 favoritePosition을 이 순서로 재부여한다. 응답은 204(본문 없음).
+  reorderFavorites: (token: string, ids: string[]) =>
+    request<void>('/friends/favorite-order', { method: 'PATCH', body: { ids }, token }),
+
+  // ── 태그 ──────────────────────────────────────────────────────────
+  listTags: (token: string) => request<Tag[]>('/tags', { token }),
+
+  // 새 태그 생성. 이름 중복은 409 code 'tag_name_taken'.
+  createTag: (token: string, name: string) =>
+    request<Tag>('/tags', { method: 'POST', body: { name }, token }),
+
+  // 태그 이름 수정.
+  updateTag: (token: string, id: string, name: string) =>
+    request<Tag>(`/tags/${id}`, { method: 'PATCH', body: { name }, token }),
+
+  // 태그 탭 상단 고정 토글(분류 고정과 동일 관례).
+  updateTagPinned: (token: string, id: string, pinned: boolean) =>
+    request<Tag>(`/tags/${id}`, { method: 'PATCH', body: { pinned }, token }),
+
+  // 태그 삭제(모든 메시지에서 제거된다).
+  deleteTag: (token: string, id: string) =>
+    request<void>(`/tags/${id}`, { method: 'DELETE', token }),
+
+  // 태그 탭 수동 정렬 저장. ids = 화면에 보이는 순서 그대로. 응답은 204(본문 없음).
+  // 분류 재정렬(reorderFriends)과 동일 관례 — 엔드포인트만 다르다. GET /tags는 position ASC.
+  reorderTags: (token: string, ids: string[]) =>
+    request<void>('/tags/order', { method: 'PATCH', body: { ids }, token }),
+
+  // 메시지 태그 전체 교체(부분 의미론 — tagIds만 반영).
+  updateMessageTags: (token: string, id: string, tagIds: string[]) =>
+    request<Message>(`/messages/${id}`, { method: 'PATCH', body: { tagIds }, token }),
+
+  // 공지 설정/해제. true=이 방 공지(방당 1개, 기존 자동 해제), false=해제.
+  updateMessageNotice: (token: string, id: string, notice: boolean) =>
+    request<Message>(`/messages/${id}`, { method: 'PATCH', body: { notice }, token }),
+
+  // 방 공지 조회. friendId 없으면 전체(self) 방. 응답 래핑이 확정 전이라 방어적으로 언랩:
+  // Message 자체 / { notice: Message|null } / null 을 모두 Message|null로 정규화한다.
+  getNoticeMessage: async (
+    token: string,
+    friendId: string | null,
+  ): Promise<Message | null> => {
+    const query = friendId ? `?friendId=${encodeURIComponent(friendId)}` : '';
+    const res = await request<
+      Message | { notice: Message | null } | null
+    >(`/messages/notice${query}`, { token });
+    if (!res || typeof res !== 'object') return null;
+    if ('notice' in res) return res.notice ?? null;
+    if ('id' in res) return res as Message;
+    return null;
+  },
 };

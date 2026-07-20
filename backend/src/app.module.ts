@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { FriendsModule } from './friends/friends.module';
 import { MessagesModule } from './messages/messages.module';
+import { TagsModule } from './tags/tags.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { MessagesModule } from './messages/messages.module';
     AuthModule,
     FriendsModule,
     MessagesModule,
+    TagsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

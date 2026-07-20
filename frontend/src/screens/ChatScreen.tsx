@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   StyleSheet,
   TextInput,
@@ -18,13 +19,18 @@ import {
   View,
 } from 'react-native';
 import { Pencil, Search, X } from 'lucide-react-native';
-import { api, ApiError, Friend, Message } from '../api';
+import { api, ApiError, AutoKind, Friend, Message, Tag } from '../api';
 import { useAuth } from '../auth';
+import { ListFilter, matchesAutoFilter } from '../auto-filter';
 import { useCategoryEdit } from '../category-edit';
 import { confirmDialog, notify } from '../notify';
+import { AutoChips } from '../components/AutoChips';
 import { CategoryAvatar } from '../components/CategoryAvatar';
 import { MessageBubble } from '../components/MessageBubble';
+import { NoticeBanner } from '../components/NoticeBanner';
 import { Text } from '../components/Text';
+import { useMessageActions } from '../message-actions';
+import { copyToClipboard, messagePayload, shareContent } from '../share';
 import { useSelectedRoom } from '../selected-room';
 import { formatDateStamp, isSameDay } from '../time';
 import { layout, ThemeColors } from '../theme';
@@ -40,6 +46,13 @@ interface Props {
   onLogout: () => void;
   /** 데스크톱 상주 패널에서 "나에게" 방일 땐 뒤로갈 곳이 없어 숨긴다 */
   showBack?: boolean;
+  /** 자동구분 방 모드: 있으면 전 방 통합으로 이 종류만 모아 보는 "보기 전용" 방.
+   *  friendId는 무시되고, 입력창·프로필 편집(펜)이 숨겨진다. */
+  auto?: AutoKind | null;
+  /** 태그 방 모드: 있으면 이 태그가 붙은 메시지를 전 방 통합으로 모아 보는 "보기 전용" 방.
+   *  자동구분 방과 동일하게 friendId는 무시되고, 입력창·프로필 편집(펜)이 숨겨진다.
+   *  헤더는 #태그명, 말풍선은 메시지별 자기 분류 색. */
+  tag?: Tag | null;
 }
 
 export function ChatScreen({
@@ -49,6 +62,8 @@ export function ChatScreen({
   onBack,
   onLogout,
   showBack = true,
+  auto = null,
+  tag = null,
 }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -58,10 +73,15 @@ export function ChatScreen({
   const { bumpRooms, roomsVersion, saveChatDraft, readChatDraft } = useSelectedRoom();
   // 분류/전체 프로필 편집기(루트 상주) — 헤더 펜 아이콘에서 연다.
   const { open: openCategoryEditor } = useCategoryEdit();
+  // 메시지 액션(⋮ 메뉴·태그 선택·내용 수정)은 루트 상주 호스트로 이동 — 여기선 열기만.
+  const { openMessageMenu } = useMessageActions();
   // "전체" 방(미분류) 말풍선 색 + self 편집 프리필에 쓰는 전체 프로필 색.
   const { selfColor } = useAuth();
+  // 자동구분·태그 방은 입력창·펜·공지가 없는 "보기 전용" 방(전 방 통합 모음).
+  const viewOnly = !!auto || !!tag;
   // 방 구분 키. 저장된 draft가 이 값과 일치할 때만 복원한다(다른 방이면 빈 상태).
-  const roomKey = friendId ?? 'self';
+  // 자동구분/태그 방은 friendId(null)로 'self'와 겹치지 않게 접두어로 태깅한다.
+  const roomKey = tag ? `tag:${tag.id}` : auto ? `auto:${auto}` : friendId ?? 'self';
   // 마운트 시 1회: 같은 방의 draft가 있으면 검색·입력 상태를 그걸로 시작한다.
   const [initialDraft] = useState(() => readChatDraft(roomKey));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -75,7 +95,14 @@ export function ChatScreen({
   const [searchOpen, setSearchOpen] = useState(initialDraft?.searchOpen ?? false);
   const [searchText, setSearchText] = useState(initialDraft?.searchText ?? '');
   const [friends, setFriends] = useState<Friend[]>([]);
-  // ⋮ 버튼이나 길게 누르기로 고른 메시지 (바텀시트의 대상)
+  // 전역 태그 목록(말풍선 #태그명 표시용).
+  const [tags, setTags] = useState<Tag[]>([]);
+  // 이 방의 공지 메시지(없으면 null). 방 진입 시 GET notice로 로드, 등록/해제 시 즉시 갱신.
+  const [noticeMessage, setNoticeMessage] = useState<Message | null>(null);
+  // 자동구분 칩 선택. 채팅 뷰·목록 모드가 공유해서(뷰 전환해도 유지) 방 레벨로 호이스트.
+  // ChatScreen이 방마다 key로 리마운트되므로(탭바/데스크톱 레일) 방 전환 시 자연히 '전체'로 초기화된다.
+  const [autoFilter, setAutoFilter] = useState<ListFilter>('all');
+  // ⋮/long-press로 고른 메시지 — 분류 변경 바텀시트의 대상(액션 메뉴·태그·수정은 루트 호스트).
   const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const activeQuery = useRef('');
   // 첫 로드 여부: 첫 조회는 디바운스 없이 즉시(복원된 검색어로) 실행하기 위한 플래그
@@ -86,9 +113,98 @@ export function ChatScreen({
   const inputRef = useRef<TextInput>(null);
   const sendRef = useRef<() => void>(() => {});
 
+  // 태그 저장·내용 수정 성공 시 목록의 해당 메시지를 최신본으로 교체(루트 호스트가 콜백 호출).
+  const applyUpdated = (updated: Message) => {
+    setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+    bumpRooms();
+  };
+
+  // ⋮/long-press → 루트 상주 액션 메뉴를 연다. 화면 고유 효과는 콜백으로 위임한다.
+  // (분류 변경 바텀시트는 화면에 남으므로 actionMessage도 함께 세팅한다.)
   const openMenu = (message: Message) => {
+    if (!token) return;
     setActionMessage(message);
-    sheetRef.current?.present();
+    const isNoticeMsg = !!message.isNotice || noticeMessage?.id === message.id;
+    openMessageMenu({
+      message,
+      isNotice: isNoticeMsg,
+      onCopy: () => void doCopy(message),
+      onShare: () => void doShare(message),
+      onNotice: () => void doNotice(message),
+      onEditCategory: () => sheetRef.current?.present(),
+      onDelete: () => void confirmDelete(message),
+      onSaved: applyUpdated,
+      onTagsChanged: reloadTags,
+    });
+  };
+
+  // 복사: 링크=url, 메모=content 클립보드 복사 후 짧은 확인.
+  const doCopy = async (message: Message) => {
+    try {
+      await copyToClipboard(messagePayload(message));
+      notify(t('chat.copied'));
+    } catch {
+      notify(t('common.notice'), t('chat.tryAgainLater'));
+    }
+  };
+
+  // 공유: 네이티브 Share.share / 웹 navigator.share, 없으면 복사 폴백(확인 문구).
+  const doShare = async (message: Message) => {
+    try {
+      const result = await shareContent(messagePayload(message));
+      if (result === 'copied') notify(t('chat.copied'));
+    } catch {
+      // 공유 실패·취소는 조용히 무시.
+    }
+  };
+
+  // 공지 토글: 이미 공지면 해제(false), 아니면 이 방 공지로(true, 기존 공지는 서버가 자동 해제).
+  const doNotice = async (message: Message) => {
+    if (!token) return;
+    const makeNotice = !(message.isNotice || noticeMessage?.id === message.id);
+    try {
+      const updated = await api.updateMessageNotice(token, message.id, makeNotice);
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id === updated.id) return updated;
+          // 방당 1개 — 같은 방(friendId)의 기존 공지는 해제 표시.
+          if (makeNotice && m.friendId === updated.friendId && m.isNotice) {
+            return { ...m, isNotice: false };
+          }
+          return m;
+        }),
+      );
+      setNoticeMessage(makeNotice ? updated : null);
+    } catch {
+      notify(t('common.notice'), t('chat.tryAgainLater'));
+    }
+  };
+
+  // 공지 배너 탭 = 링크면 원본 열기.
+  const openNoticeOriginal = () => {
+    if (noticeMessage?.kind === 'link' && noticeMessage.url) {
+      Linking.openURL(noticeMessage.url);
+    }
+  };
+
+  // 공지 배너 X = 확인 후 해제.
+  const dismissNotice = async () => {
+    if (!token || !noticeMessage) return;
+    const target = noticeMessage;
+    const ok = await confirmDialog({
+      title: t('chat.noticeBanner.dismissTitle'),
+      message: t('chat.noticeBanner.dismissMessage'),
+      confirmLabel: t('common.confirm'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
+    try {
+      const updated = await api.updateMessageNotice(token, target.id, false);
+      setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+      setNoticeMessage(null);
+    } catch {
+      notify(t('common.notice'), t('chat.tryAgainLater'));
+    }
   };
 
   const renderBackdrop = useCallback(
@@ -116,7 +232,12 @@ export function ChatScreen({
       try {
         const page = await api.listMessages(token, {
           q: query || undefined,
-          friendId: friendId ?? undefined,
+          // 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합, 일반 방은 friendId로 조회.
+          ...(tag
+            ? { tagId: tag.id }
+            : auto
+              ? { auto }
+              : { friendId: friendId ?? undefined }),
         });
         // 응답이 도착했을 때 검색어가 이미 바뀌었으면 버린다.
         if (activeQuery.current !== query) return;
@@ -132,7 +253,7 @@ export function ChatScreen({
         setLoading(false);
       }
     },
-    [token, friendId, onLogout, t],
+    [token, friendId, auto, tag, onLogout, t],
   );
 
   // 분류 시트와 친구 이름 태그·말풍선 색에 쓸 친구 목록.
@@ -144,6 +265,39 @@ export function ChatScreen({
       .then(setFriends)
       .catch(() => {});
   }, [token, roomsVersion]);
+
+  // 전역 태그 목록. 마운트 시 + 태그 모달에서 생성·수정·삭제 후 갱신.
+  const reloadTags = useCallback(() => {
+    if (!token) return;
+    api.listTags(token).then(setTags).catch(() => {});
+  }, [token]);
+  useEffect(() => {
+    reloadTags();
+  }, [reloadTags]);
+  const tagNameById = useMemo(
+    () => new Map(tags.map((tg) => [tg.id, tg.name])),
+    [tags],
+  );
+
+  // 방 진입 시 공지 로드(자동구분·태그 방은 공지 개념 없음 → null). 백엔드 미배포면 조용히 null.
+  useEffect(() => {
+    if (!token || viewOnly) {
+      setNoticeMessage(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getNoticeMessage(token, friendId)
+      .then((m) => {
+        if (!cancelled) setNoticeMessage(m);
+      })
+      .catch(() => {
+        if (!cancelled) setNoticeMessage(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, friendId, viewOnly]);
 
   // 첫 로드는 즉시 실행하되 "현재 검색어"로 조회한다.
   // 복원된 검색어(searchOpen+searchText)가 있으면 그 결과가 바로 보이고,
@@ -171,7 +325,11 @@ export function ChatScreen({
       const page = await api.listMessages(token, {
         q: activeQuery.current || undefined,
         before: oldest.id,
-        friendId: friendId ?? undefined,
+        ...(tag
+          ? { tagId: tag.id }
+          : auto
+            ? { auto }
+            : { friendId: friendId ?? undefined }),
       });
       setMessages((prev) => [...prev, ...page.items]);
       setHasMore(page.hasMore);
@@ -193,6 +351,8 @@ export function ChatScreen({
     try {
       const message = await api.createMessage(token, content, friendId ?? undefined);
       setMessages((prev) => [message, ...prev]);
+      // 필터가 걸린 채로 보내면 방금 보낸 메시지가 가려질 수 있어 '전체'로 되돌린다.
+      setAutoFilter('all');
       bumpRooms();
     } catch {
       setInput(content);
@@ -275,9 +435,20 @@ export function ChatScreen({
   const currentFriend = friendId
     ? friends.find((f) => f.id === friendId) ?? null
     : null;
-  const roomName = currentFriend?.name ?? friendName;
+  // 자동구분 방이면 종류 이름(장소/영상/…)을 헤더·빈상태에 쓴다.
+  const autoName = auto ? t(`auto.names.${auto}`) : null;
+  // 태그 방이면 #태그명을 헤더 제목으로 쓴다.
+  const tagTitle = tag ? `#${tag.name}` : null;
+  const roomName = tagTitle ?? autoName ?? currentFriend?.name ?? friendName;
 
   const canSend = !!input.trim() && !sending;
+
+  // 채팅 뷰(말풍선 타임라인)용 클라이언트 필터: 자동구분 방은 이미 한 종류라 대상이 아니고,
+  // '전체' 칩이면 원본 그대로. 방은 항상 말풍선 타임라인이다(방 내부 보기 전환 없음).
+  const chatMessages =
+    auto || autoFilter === 'all'
+      ? messages
+      : messages.filter((m) => matchesAutoFilter(m, autoFilter));
 
   return (
     <View style={styles.container}>
@@ -307,8 +478,9 @@ export function ChatScreen({
             <Text variant="heading" numberOfLines={1} style={styles.headerTitleText}>
               {roomName ?? t('chat.myRoom')}
             </Text>
-            {/* 펜(프로필 수정): 전체 방(friendId=null) → 전체 프로필, 분류 방 → 그 분류. */}
-            {friendId === null ? (
+            {/* 펜(프로필 수정): 전체 방(friendId=null) → 전체 프로필, 분류 방 → 그 분류.
+                자동구분·태그 방은 편집할 프로필이 없어 펜을 숨긴다. */}
+            {viewOnly ? null : friendId === null ? (
               <TouchableOpacity
                 style={styles.headerEdit}
                 onPress={() => openCategoryEditor({ self: true })}
@@ -349,6 +521,15 @@ export function ChatScreen({
         </TouchableOpacity>
       </View>
 
+      {/* 채팅방 상단 공지 배너 — 자동구분·태그 방 제외. 탭 = 링크면 원본 열기, X = 확인 후 해제. */}
+      {!viewOnly && noticeMessage ? (
+        <NoticeBanner
+          message={noticeMessage}
+          onPress={openNoticeOriginal}
+          onDismiss={dismissNotice}
+        />
+      ) : null}
+
       <KeyboardAvoidingView
         style={styles.body}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -365,62 +546,86 @@ export function ChatScreen({
               <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
                 {activeQuery.current
                   ? t('chat.noResults')
-                  : t('chat.emptyFirstLink', { name: roomName ?? t('common.me') })}
+                  : tag
+                    ? t('tags.roomEmpty')
+                    : auto
+                      ? t('auto.empty', { name: autoName })
+                      : t('chat.emptyFirstLink', { name: roomName ?? t('common.me') })}
               </Text>
             </View>
           </View>
         ) : (
-          <FlatList
-            data={messages}
-            inverted
-            keyExtractor={(item) => item.id}
-            renderItem={({ item, index }) => {
-              // 날짜가 바뀌는 첫 메시지 위에만 날짜 구분선을 띄운다
-              // (inverted 목록이라 다음 인덱스가 더 오래된 메시지)
-              const older = messages[index + 1];
-              const showDateStamp =
-                !older ||
-                !isSameDay(new Date(item.createdAt), new Date(older.createdAt));
-              return (
-                <View>
-                  {showDateStamp && (
-                    <View style={styles.dateStampRow}>
-                      <Text
-                        variant="micro"
-                        color={colors.textTertiary}
-                        style={styles.dateStampText}
-                      >
-                        {'─── '}{formatDateStamp(item.createdAt)}{' ───'}
-                      </Text>
-                    </View>
-                  )}
-                  <MessageBubble
-                    message={item}
-                    friendLabel={
-                      !friendId && item.friendId
-                        ? friendNameById.get(item.friendId)
-                        : null
-                    }
-                    bubbleColor={
-                      item.friendId
-                        ? friendColorById.get(item.friendId) ?? null
-                        : selfColor ?? null
-                    }
-                    onLongPress={(message) => {
-                      if (token) openMenu(message);
-                    }}
-                    onPressMenu={token ? openMenu : undefined}
-                  />
+          // 채팅 뷰(말풍선 타임라인). 자동구분 칩으로 종류 필터. 자동구분 방은 칩 없음.
+          <>
+            {auto ? null : <AutoChips value={autoFilter} onChange={setAutoFilter} />}
+            {chatMessages.length === 0 ? (
+              // 필터 결과 0건: 목록 모드와 같은 dotted 빈상태 문구를 재사용.
+              <View style={styles.center}>
+                <View style={styles.emptyBox}>
+                  <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
+                    {t('viewMode.emptyFilter')}
+                  </Text>
                 </View>
-              );
-            }}
-            onEndReached={loadOlder}
-            onEndReachedThreshold={0.4}
-            contentContainerStyle={styles.listContent}
-            keyboardShouldPersistTaps="handled"
-          />
+              </View>
+            ) : (
+              <FlatList
+                data={chatMessages}
+                inverted
+                keyExtractor={(item) => item.id}
+                renderItem={({ item, index }) => {
+                  // 날짜가 바뀌는 첫 메시지 위에만 날짜 구분선을 띄운다
+                  // (inverted 목록이라 다음 인덱스가 더 오래된 메시지)
+                  const older = chatMessages[index + 1];
+                  const showDateStamp =
+                    !older ||
+                    !isSameDay(new Date(item.createdAt), new Date(older.createdAt));
+                  return (
+                    <View>
+                      {showDateStamp && (
+                        <View style={styles.dateStampRow}>
+                          <Text
+                            variant="micro"
+                            color={colors.textTertiary}
+                            style={styles.dateStampText}
+                          >
+                            {'─── '}{formatDateStamp(item.createdAt)}{' ───'}
+                          </Text>
+                        </View>
+                      )}
+                      <MessageBubble
+                        message={item}
+                        friendLabel={
+                          !friendId && item.friendId
+                            ? friendNameById.get(item.friendId)
+                            : null
+                        }
+                        bubbleColor={
+                          item.friendId
+                            ? friendColorById.get(item.friendId) ?? null
+                            : selfColor ?? null
+                        }
+                        tagNames={(item.tagIds ?? [])
+                          .map((id) => tagNameById.get(id))
+                          .filter((n): n is string => !!n)}
+                        onLongPress={(message) => {
+                          if (token) openMenu(message);
+                        }}
+                        onPressMenu={token ? openMenu : undefined}
+                      />
+                    </View>
+                  );
+                }}
+                onEndReached={loadOlder}
+                onEndReachedThreshold={0.4}
+                contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+              />
+            )}
+          </>
         )}
 
+        {/* 자동구분·태그 방은 어느 방으로 보낼지 정의가 없어 입력창을 숨긴다(보기 전용 모음). */}
+        {viewOnly ? null : (
         <View style={styles.inputBar}>
           <TextInput
             ref={inputRef}
@@ -464,6 +669,7 @@ export function ChatScreen({
             )}
           </TouchableOpacity>
         </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* 메시지 분류/삭제 바텀시트 — 아래로 끌어내려 닫을 수 있다 */}
@@ -532,15 +738,6 @@ export function ChatScreen({
               </TouchableOpacity>
             ) : null}
             <View style={styles.sheetDivider} />
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => actionMessage && confirmDelete(actionMessage)}
-              accessibilityRole="button"
-            >
-              <Text variant="bodyStrong" color={colors.ink}>
-                {t('common.delete')}
-              </Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.sheetRow}
               onPress={() => sheetRef.current?.dismiss()}

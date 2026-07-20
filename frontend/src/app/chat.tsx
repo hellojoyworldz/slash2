@@ -1,6 +1,7 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useWindowDimensions } from 'react-native';
+import { useAppStyle } from '../app-style';
 import { useAuth } from '../auth';
 import { ChatScreen } from '../screens/ChatScreen';
 import { useSelectedRoom } from '../selected-room';
@@ -8,6 +9,7 @@ import { layout } from '../theme';
 
 export default function ChatRoute() {
   const { token, logout } = useAuth();
+  const { appStyle } = useAppStyle();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { setRoom } = useSelectedRoom();
@@ -25,6 +27,8 @@ export default function ChatRoute() {
     }
   }, [isDesktop, friendId, friendName, setRoom]);
 
+  // 목록형엔 채팅방 개념이 없다 — 분류 보드로 돌려보낸다.
+  if (appStyle === 'list') return <Redirect href="/friends" />;
   if (isDesktop) return <Redirect href="/chats" />;
 
   return (

@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   CreateMessageDto,
   ListMessagesQuery,
+  NoticeQuery,
   UpdateMessageDto,
 } from './messages.dto';
 import { MessagesService } from './messages.service';
@@ -40,13 +41,24 @@ export class MessagesController {
     return this.messages.rooms(user.id);
   }
 
+  @Get('auto-counts')
+  autoCounts(@CurrentUser() user: { id: string }) {
+    return this.messages.autoCounts(user.id);
+  }
+
+  // friendId 생략 = "나에게"(friendId null) 방의 공지. { notice: Message | null } 래핑 반환.
+  @Get('notice')
+  notice(@CurrentUser() user: { id: string }, @Query() query: NoticeQuery) {
+    return this.messages.getNotice(user.id, query.friendId);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: { id: string },
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateMessageDto,
   ) {
-    return this.messages.updateFriend(user.id, id, dto.friendId ?? null);
+    return this.messages.update(user.id, id, dto);
   }
 
   @Delete(':id')

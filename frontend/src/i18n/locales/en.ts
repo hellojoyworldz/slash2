@@ -9,6 +9,7 @@ export default {
     save: 'Save',
     me: 'Me',
     notice: 'Notice',
+    close: 'Close',
   },
   // Screen-reader labels (not visible on screen)
   a11y: {
@@ -17,12 +18,17 @@ export default {
     messageMenu: 'Message options',
     pin: 'Pin',
     unpin: 'Unpin',
+    favorite: 'Favorite',
+    unfavorite: 'Unfavorite',
     resizeList: 'Resize list',
     reorder: 'Reorder',
+    cardDetail: 'Card details',
   },
   tabs: {
     friends: 'Categories',
     chats: 'Chats',
+    auto: 'Auto',
+    tags: 'Tags',
     more: 'More',
   },
   login: {
@@ -87,6 +93,7 @@ export default {
     inputPlaceholder: 'Enter a link or note',
     inputPlaceholderDesktop: 'Enter a link or note · Enter to send, Shift+Enter for a new line',
     categoryTag: 'Category: {{name}}',
+    noticeTag: 'Notice',
     changeFriend: 'Change category',
     addFriendFirst: 'Add a category on the Categories tab first',
     unassign: 'Remove category',
@@ -95,6 +102,52 @@ export default {
     sendFailedTitle: 'Failed to send',
     tryAgainLater: 'Please try again in a moment.',
     loadFailed: 'Couldn’t load messages. Check that the server is running.',
+    // Link card data-row (leader line) labels
+    linkData: {
+      hours: 'Hours',
+      price: 'Price',
+      address: 'Address',
+      phone: 'Phone',
+      source: 'Source',
+    },
+    // Card detail panel map/source actions
+    linkSheet: {
+      openMap: 'Open in Maps',
+      openSource: 'Open source: {{name}}',
+    },
+    // Message ⋮/long-press action menu (Kakao-style row list)
+    menu: {
+      title: 'Message',
+      copy: 'Copy',
+      share: 'Share',
+      notice: 'Set as notice',
+      noticeOff: 'Remove notice',
+      tags: 'Tags',
+      editContent: 'Edit content',
+      editCategory: 'Change category',
+    },
+    // Short confirmation after copy/share
+    copied: 'Copied',
+    // Notice banner at the top of a chat room
+    noticeBanner: {
+      dismiss: 'Remove notice',
+      dismissTitle: 'Remove notice',
+      dismissMessage: 'Remove this notice?',
+    },
+  },
+  // Tag picker modal
+  tags: {
+    title: 'Tags',
+    tabTitle: 'Tags',
+    addTitle: 'Add tag',
+    editTitle: 'Edit tag',
+    newPlaceholder: 'New tag name',
+    empty: 'No tags yet. Add one above.',
+    emptyHint: 'Tap “Add” at the top right\nto create your first tag',
+    roomEmpty: 'No messages with this tag yet',
+    removeLabel: 'Delete tag {{name}}',
+    deleteTitle: 'Delete tag',
+    deleteMessage: 'Remove “{{name}}” from all messages?',
   },
   friends: {
     title: 'Categories',
@@ -122,7 +175,54 @@ export default {
     addProfile: 'Add profile',
     removeProfile: 'Remove profile',
     namePlaceholder: 'Name (e.g. Dev, Cooking, News)',
+    descriptionPlaceholder: 'Description (optional)',
     confirmDelete: 'Delete “{{name}}”?',
+    favoritesSection: 'Favorites',
+  },
+  auto: {
+    title: 'Auto-sort',
+    empty: 'No messages sorted as {{name}} yet',
+    names: {
+      place: 'Places',
+      video: 'Videos',
+      item: 'Products',
+      article: 'Articles',
+      memo: 'Notes',
+      link: 'Links',
+    },
+  },
+  // Auto-sort chips (All filter, empty state) — shared by chat view and list board.
+  viewMode: {
+    filterAll: 'All',
+    emptyFilter: 'Nothing here',
+  },
+  // App-wide screen style (chat / list) — switched from More
+  appStyle: {
+    title: 'Screen style',
+    chat: 'Chat style',
+    list: 'List style',
+  },
+  // List style (Notion DB view) screen strings
+  list: {
+    new: 'New',
+    newTitle: 'Add link or note',
+    category: 'Category',
+    autoKind: 'Auto-sort',
+    notice: 'Notice',
+    noticeOn: 'Set',
+    date: 'Date',
+    duration: 'Length',
+    channel: 'Channel',
+    openOriginal: 'Open original',
+    tags: 'Tags',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    inputPlaceholder: 'Enter a link or note',
+    searchPlaceholder: 'Search title & content',
+    uncategorized: 'Uncategorized',
+    empty: 'Nothing saved yet',
+    tagsEmpty: 'Nothing tagged yet',
+    noResults: 'No results',
   },
   more: {
     title: 'More',
@@ -144,6 +244,11 @@ export default {
       'This email is already registered via social login. Please use social login.',
     invalid_credentials: 'Email or password is incorrect.',
     social_only_account: 'This email is registered through social login.',
+    tag_name_taken: 'That tag name already exists.',
+    invalid_tag: 'That tag is invalid.',
+    tag_name_required: 'Please enter a tag name.',
+    invalid_auto_order: 'That auto-category order is invalid.',
+    invalid_order: 'That order is invalid.',
     requestFailed: 'Request failed.',
   },
 };

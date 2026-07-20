@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pencil } from 'lucide-react-native';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { AppStyle, useAppStyle } from '../app-style';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
 import { Text } from '../components/Text';
@@ -22,19 +23,42 @@ const MODE_OPTIONS: { key: ThemeMode; labelKey: string }[] = [
   { key: 'system', labelKey: 'more.modeSystem' },
 ];
 
+// 화면 스타일 2택. 앱 전체 컨셉(채팅형/목록형)을 가른다 — 선택 즉시 해당 그룹으로 이동.
+const APP_STYLE_OPTIONS: { key: AppStyle; labelKey: string }[] = [
+  { key: 'chat', labelKey: 'appStyle.chat' },
+  { key: 'list', labelKey: 'appStyle.list' },
+];
+
 interface Props {
   email: string;
   displayName: string | null;
   // 연결된 소셜 provider 목록 (예: ['google']). 이메일 옆 배지 표시용.
   providers: string[];
   onLogout: () => void;
+  // 헤더 타이틀 왼쪽 슬롯(예: 목록형 더보기의 뒤로가기). 탭바가 있는 채팅형에선 생략.
+  leading?: ReactNode;
 }
 
-export function MoreScreen({ email, displayName, providers, onLogout }: Props) {
+export function MoreScreen({
+  email,
+  displayName,
+  providers,
+  onLogout,
+  leading,
+}: Props) {
   const { t, i18n } = useTranslation();
   const { colors, mode, setMode } = useTheme();
+  const { appStyle, setAppStyle } = useAppStyle();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const current = i18n.language as Language;
+
+  // 화면 스타일 전환 — 라우트 점프 없이 상태만 바꾼다. 두 스타일이 URL을 공유하므로
+  // 현재 주소가 그대로 유효하다((tabs) 레이아웃과 각 라우트가 스타일에 맞게 렌더를 교체).
+  // 예외적으로 /chats·채팅방처럼 목록형에 개념이 없는 라우트는 각 라우트가 /friends로 리다이렉트한다.
+  const changeAppStyle = (key: AppStyle) => {
+    if (key === appStyle) return;
+    setAppStyle(key);
+  };
   // 표시 이름이 없으면 이메일 앞부분으로 폴백
   const name = displayName || email.split('@')[0] || t('common.me');
 
@@ -50,6 +74,7 @@ export function MoreScreen({ email, displayName, providers, onLogout }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
+          {leading ? <View style={styles.headerLeading}>{leading}</View> : null}
           <Text variant="title">{t('more.title')}</Text>
         </View>
 
@@ -152,6 +177,36 @@ export function MoreScreen({ email, displayName, providers, onLogout }: Props) {
           </View>
         </View>
 
+        {/* 화면 스타일 — 채팅형/목록형 (언어 스위처와 같은 UI 문법). 선택 즉시 전환·이동. */}
+        <View style={styles.sectionCard}>
+          <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
+            {t('appStyle.title')}
+          </Text>
+          <View style={styles.pillRow}>
+            {APP_STYLE_OPTIONS.map(({ key, labelKey }) => {
+              const active = appStyle === key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.pill, active && styles.pillActive]}
+                  onPress={() => changeAppStyle(key)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  hitSlop={{ top: 6, bottom: 6 }}
+                >
+                  <Text
+                    variant="label"
+                    color={active ? colors.onAccent : colors.textSecondary}
+                  >
+                    {t(labelKey)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {/* 보조 액션이라 outline */}
         <Button
           label={t('more.logout')}
@@ -176,9 +231,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingBottom: layout.bottomPad + 24,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingTop: layout.statusBarPad + 4,
     paddingBottom: 14,
     paddingHorizontal: 20,
+  },
+  headerLeading: {
+    marginRight: 8,
+    marginLeft: -6,
   },
   profileRow: {
     flexDirection: 'row',

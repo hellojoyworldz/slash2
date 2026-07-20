@@ -7,6 +7,14 @@ export interface LinkPreview {
   siteName: string | null;
 }
 
+export interface LinkPreviewResult {
+  preview: LinkPreview;
+  /** 분류기 입력용 원본 HTML(실패 시 null). */
+  html: string | null;
+  /** 리다이렉트가 해소된 최종 URL — naver.me 단축링크 등이 여기서 풀린다. */
+  finalUrl: string | null;
+}
+
 const MAX_HTML_BYTES = 512 * 1024;
 const FETCH_TIMEOUT_MS = 5000;
 
@@ -14,8 +22,9 @@ const FETCH_TIMEOUT_MS = 5000;
 export class LinkPreviewService {
   private readonly logger = new Logger(LinkPreviewService.name);
 
-  /** 실패해도 예외를 던지지 않는다 — 미리보기는 없으면 없는 대로 저장한다. */
-  async fetch(url: string): Promise<LinkPreview> {
+  /** 페이지를 한 번 받아 미리보기(OG)와, 분류기가 쓸 원본 HTML·최종 URL을 함께 돌려준다.
+   *  실패해도 예외를 던지지 않는다 — 미리보기는 없으면 없는 대로 저장한다. */
+  async fetchPage(url: string): Promise<LinkPreviewResult> {
     const empty: LinkPreview = {
       title: null,
       description: null,
@@ -35,9 +44,9 @@ export class LinkPreviewService {
       });
       const contentType = response.headers.get('content-type') ?? '';
       if (!response.ok || !contentType.includes('html')) {
-        return empty;
+        return { preview: empty, html: null, finalUrl: response.url || url };
       }
-      const html = await this.readHead(response);
+      const html = await this.readHtml(response);
       const pick = (...names: string[]) => {
         for (const name of names) {
           const value = this.metaContent(html, name);
@@ -45,7 +54,7 @@ export class LinkPreviewService {
         }
         return null;
       };
-      return {
+      const preview: LinkPreview = {
         title: pick('og:title', 'twitter:title') ?? this.titleTag(html),
         description: pick(
           'og:description',
@@ -55,20 +64,23 @@ export class LinkPreviewService {
         image: this.resolveUrl(pick('og:image', 'twitter:image'), response.url),
         siteName: pick('og:site_name') ?? new URL(response.url).hostname,
       };
+      return { preview, html, finalUrl: response.url || url };
     } catch (error) {
       this.logger.warn(`link preview failed for ${url}: ${String(error)}`);
-      return empty;
+      return { preview: empty, html: null, finalUrl: null };
     }
   }
 
-  /** HTML 앞부분만 읽는다 — OG 태그는 <head>에 있으므로 전체 다운로드가 필요 없다.
+  /** HTML을 캡(512KB)까지 읽는다. OG 태그는 <head>에 있지만 JSON-LD 구조화 데이터는
+   *  <body>에 있는 사이트가 많아, </head>에서 끊지 않고 캡까지 받아 분류기에 넘긴다.
    *  UTF-8 고정이 아니라 헤더/meta의 charset을 감지해 디코딩한다 (EUC-KR 한글 깨짐 방지). */
-  private async readHead(response: Response): Promise<string> {
+  private async readHtml(response: Response): Promise<string> {
     const reader = response.body?.getReader();
     if (!reader) return '';
     const chunks: Uint8Array[] = [];
     let bytes = 0;
-    // </head>·charset 탐지는 ASCII 범위라 latin1 임시 디코드로 충분하다.
+    // charset 탐지는 ASCII 범위라 latin1 임시 디코드로 충분하다. charset meta는 문서
+    // 앞부분에 있으므로 앞 64KB까지만 누적한다(latin1은 단일바이트라 스트림 상태 불필요).
     const probe = new TextDecoder('latin1');
     let probed = '';
     while (bytes < MAX_HTML_BYTES) {
@@ -76,8 +88,9 @@ export class LinkPreviewService {
       if (done) break;
       chunks.push(value);
       bytes += value.byteLength;
-      probed += probe.decode(value, { stream: true });
-      if (probed.includes('</head>')) break;
+      if (probed.length < 64 * 1024) {
+        probed += probe.decode(value, { stream: true });
+      }
     }
     void reader.cancel().catch(() => undefined);
 

@@ -9,6 +9,7 @@ export default {
     save: '저장',
     me: '나',
     notice: '알림',
+    close: '닫기',
   },
   // 스크린리더용 라벨 (화면에 표시되지 않음)
   a11y: {
@@ -17,12 +18,17 @@ export default {
     messageMenu: '메시지 메뉴',
     pin: '고정',
     unpin: '고정 해제',
+    favorite: '즐겨찾기',
+    unfavorite: '즐겨찾기 해제',
     resizeList: '목록 너비 조절',
     reorder: '순서 변경',
+    cardDetail: '카드 상세',
   },
   tabs: {
     friends: '분류',
     chats: '채팅',
+    auto: '자동구분',
+    tags: '태그',
     more: '더보기',
   },
   login: {
@@ -86,6 +92,7 @@ export default {
     inputPlaceholder: '링크나 메모를 입력하세요',
     inputPlaceholderDesktop: '링크나 메모를 입력하세요 · Enter 전송, Shift+Enter 줄바꿈',
     categoryTag: '분류: {{name}}',
+    noticeTag: '공지',
     changeFriend: '분류 변경',
     addFriendFirst: '분류 탭에서 먼저 분류를 추가해보세요',
     unassign: '분류 해제',
@@ -94,6 +101,52 @@ export default {
     sendFailedTitle: '전송 실패',
     tryAgainLater: '잠시 후 다시 시도해주세요.',
     loadFailed: '메시지를 불러오지 못했습니다. 서버가 켜져 있는지 확인해주세요.',
+    // 링크 카드 데이터 행(리더라인) 라벨
+    linkData: {
+      hours: '영업',
+      price: '가격',
+      address: '주소',
+      phone: '전화',
+      source: '출처',
+    },
+    // 카드 상세 패널의 지도/출처 액션
+    linkSheet: {
+      openMap: '지도 앱에서 열기',
+      openSource: '출처 열기: {{name}}',
+    },
+    // 메시지 ⋮/long-press 액션 메뉴 (카톡 스타일 행 리스트)
+    menu: {
+      title: '메시지',
+      copy: '복사',
+      share: '공유',
+      notice: '공지',
+      noticeOff: '공지 해제',
+      tags: '태그',
+      editContent: '내용 수정',
+      editCategory: '분류 수정',
+    },
+    // 복사/공유 후 짧은 확인
+    copied: '복사했어요',
+    // 채팅방 상단 공지 배너
+    noticeBanner: {
+      dismiss: '공지 해제',
+      dismissTitle: '공지 해제',
+      dismissMessage: '이 공지를 해제할까요?',
+    },
+  },
+  // 태그 선택 모달 · 태그 탭/보드
+  tags: {
+    title: '태그',
+    tabTitle: '태그',
+    addTitle: '태그 추가',
+    editTitle: '태그 수정',
+    newPlaceholder: '새 태그 이름',
+    empty: '아직 태그가 없어요. 위에서 추가해보세요.',
+    emptyHint: "오른쪽 위 '추가'를 눌러\n첫 태그를 만들어보세요",
+    roomEmpty: '아직 이 태그의 메시지가 없어요',
+    removeLabel: '{{name}} 태그 삭제',
+    deleteTitle: '태그 삭제',
+    deleteMessage: "'{{name}}' 태그를 모든 메시지에서 제거할까요?",
   },
   friends: {
     title: '분류',
@@ -121,7 +174,55 @@ export default {
     addProfile: '프로필 추가',
     removeProfile: '프로필 삭제',
     namePlaceholder: '이름 (예: 개발, 요리, 뉴스)',
+    descriptionPlaceholder: '설명 (선택)',
     confirmDelete: "'{{name}}' 분류를 삭제할까요?",
+    favoritesSection: '즐겨찾기',
+  },
+  auto: {
+    title: '자동구분',
+    // 종류 이름이 접미사로 자연스럽게 붙도록 '종류로'로 통일(장소/영상/…/링크 모두 무난).
+    empty: '아직 {{name}} 종류로 구분된 메시지가 없어요',
+    names: {
+      place: '장소',
+      video: '영상',
+      item: '상품',
+      article: '글',
+      memo: '메모',
+      link: '링크',
+    },
+  },
+  // 자동구분 칩(전체 필터·빈상태) 문구 — 채팅 뷰·목록형 보드 공용.
+  viewMode: {
+    filterAll: '전체',
+    emptyFilter: '해당하는 항목이 없어요',
+  },
+  // 앱 전체 화면 스타일(채팅형/목록형) — 더보기에서 전환
+  appStyle: {
+    title: '화면 스타일',
+    chat: '채팅형',
+    list: '목록형',
+  },
+  // 목록형(노션 DB 뷰) 화면 문구
+  list: {
+    new: '새로 만들기',
+    newTitle: '링크·메모 추가',
+    category: '분류',
+    autoKind: '자동구분',
+    notice: '공지',
+    noticeOn: '등록됨',
+    date: '날짜',
+    duration: '길이',
+    channel: '채널',
+    openOriginal: '원본 열기',
+    tags: '태그',
+    moveUp: '위로 이동',
+    moveDown: '아래로 이동',
+    inputPlaceholder: '링크나 메모를 입력하세요',
+    searchPlaceholder: '제목·내용 검색',
+    uncategorized: '미분류',
+    empty: '아직 저장한 항목이 없어요',
+    tagsEmpty: '아직 태그가 붙은 항목이 없어요',
+    noResults: '검색 결과가 없어요',
   },
   more: {
     title: '더보기',
@@ -144,6 +245,11 @@ export default {
       '이미 소셜 로그인으로 가입된 이메일입니다. 소셜 로그인으로 이용해주세요.',
     invalid_credentials: '이메일 또는 비밀번호가 올바르지 않습니다.',
     social_only_account: '이 이메일은 소셜 로그인으로 가입되어 있습니다.',
+    tag_name_taken: '이미 있는 태그 이름이에요.',
+    invalid_tag: '잘못된 태그예요.',
+    tag_name_required: '태그 이름을 입력해주세요.',
+    invalid_auto_order: '자동구분 순서가 올바르지 않아요.',
+    invalid_order: '순서가 올바르지 않아요.',
     requestFailed: '요청에 실패했습니다.',
   },
 };

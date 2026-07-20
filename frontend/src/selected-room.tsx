@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AutoKind, Tag } from './api';
 
 // 데스크톱 스플릿뷰에서 오른쪽 패널이 보여줄 방.
 // null = "전체" (기본 방). 모바일에서는 사용하지 않는다(라우팅으로 이동).
@@ -30,6 +31,13 @@ export interface ChatDraft {
 interface SelectedRoomState {
   room: SelectedRoom | null;
   setRoom: (room: SelectedRoom | null) => void;
+  /** 데스크톱 오른쪽 패널이 자동구분 방을 보여줄 때의 종류. null이면 일반 방(room)을 보여준다. */
+  autoKind: AutoKind | null;
+  setAutoKind: (kind: AutoKind | null) => void;
+  /** 데스크톱 오른쪽 패널이 태그 방을 보여줄 때의 태그. null이면 태그 방 아님.
+   *  렌더 우선순위: tag > autoKind > room(일반). */
+  tag: Tag | null;
+  setTag: (tag: Tag | null) => void;
   /** 방 목록에 영향 주는 변경(전송·삭제·분류)의 카운터 — 목록 새로고침 신호 */
   roomsVersion: number;
   bumpRooms: () => void;
@@ -42,7 +50,26 @@ interface SelectedRoomState {
 const SelectedRoomContext = createContext<SelectedRoomState | null>(null);
 
 export function SelectedRoomProvider({ children }: { children: ReactNode }) {
-  const [room, setRoom] = useState<SelectedRoom | null>(null);
+  const [room, setRoomState] = useState<SelectedRoom | null>(null);
+  // 오른쪽 패널은 한 번에 하나만 보여준다: 일반 방을 고르면 자동구분·태그 선택을 해제하고,
+  // 자동구분/태그를 고르면 렌더 우선순위(tag > autoKind > room)로 그 방을 띄운다.
+  const [autoKind, setAutoKindState] = useState<AutoKind | null>(null);
+  const [tag, setTagState] = useState<Tag | null>(null);
+  const setRoom = useCallback((next: SelectedRoom | null) => {
+    setRoomState(next);
+    setAutoKindState(null);
+    setTagState(null);
+  }, []);
+  // 자동구분을 고르면 태그 선택을 해제한다(우선순위 충돌 방지).
+  const setAutoKind = useCallback((kind: AutoKind | null) => {
+    setAutoKindState(kind);
+    setTagState(null);
+  }, []);
+  // 태그를 고르면 자동구분 선택을 해제한다(태그가 최우선).
+  const setTag = useCallback((next: Tag | null) => {
+    setTagState(next);
+    setAutoKindState(null);
+  }, []);
   const [roomsVersion, setRoomsVersion] = useState(0);
   const bumpRooms = useCallback(() => setRoomsVersion((v) => v + 1), []);
 
@@ -61,12 +88,27 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
     () => ({
       room,
       setRoom,
+      autoKind,
+      setAutoKind,
+      tag,
+      setTag,
       roomsVersion,
       bumpRooms,
       saveChatDraft,
       readChatDraft,
     }),
-    [room, roomsVersion, bumpRooms, saveChatDraft, readChatDraft],
+    [
+      room,
+      setRoom,
+      autoKind,
+      setAutoKind,
+      tag,
+      setTag,
+      roomsVersion,
+      bumpRooms,
+      saveChatDraft,
+      readChatDraft,
+    ],
   );
   return (
     <SelectedRoomContext.Provider value={value}>

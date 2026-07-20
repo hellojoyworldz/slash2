@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { api, User } from './api';
+import { api, AutoKind, User } from './api';
 
 const TOKEN_KEY = 'slash.token';
 const EMAIL_KEY = 'slash.email';
@@ -17,6 +17,8 @@ interface AuthState {
   selfColor: string | null;
   // 저장된 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors: string[];
+  // 자동구분 표시 순서(6종 순열). null이면 기본 순서로 그린다.
+  autoOrder: AutoKind[] | null;
   // 연결된 소셜 provider 목록 (예: ['google']). 더보기 화면 배지 등에 사용.
   providers: string[];
   loggedIn: (token: string, user: User) => Promise<void>;
@@ -29,6 +31,8 @@ interface AuthState {
   setSelfColor: (color: string | null) => void;
   // 커스텀 프로필 목록 추가/삭제 후 컨텍스트 갱신용.
   setCustomColors: (colors: string[]) => void;
+  // 자동구분 순서 변경 후 컨텍스트 갱신용(낙관적).
+  setAutoOrder: (order: AutoKind[] | null) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -41,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [emailVerified, setEmailVerified] = useState(false);
   const [selfColor, setSelfColor] = useState<string | null>(null);
   const [customColors, setCustomColors] = useState<string[]>([]);
+  const [autoOrder, setAutoOrder] = useState<AutoKind[] | null>(null);
   const [providers, setProviders] = useState<string[]>([]);
 
   // 앱 시작 시 저장된 토큰으로 자동 로그인
@@ -57,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setEmailVerified(!!user.emailVerified);
           setSelfColor(user.selfColor ?? null);
           setCustomColors(user.customColors ?? []);
+          setAutoOrder(user.autoOrder ?? null);
           setProviders(user.providers ?? []);
         } else if (savedEmail) {
           setEmail(savedEmail);
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmailVerified(!!user.emailVerified);
     setSelfColor(user.selfColor ?? null);
     setCustomColors(user.customColors ?? []);
+    setAutoOrder(user.autoOrder ?? null);
     setProviders(user.providers ?? []);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, newToken],
@@ -89,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setEmailVerified(false);
     setSelfColor(null);
     setCustomColors([]);
+    setAutoOrder(null);
     setProviders([]);
     await AsyncStorage.removeItem(TOKEN_KEY);
   };
@@ -101,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setEmailVerified(!!user.emailVerified);
       setSelfColor(user.selfColor ?? null);
       setCustomColors(user.customColors ?? []);
+      setAutoOrder(user.autoOrder ?? null);
       setProviders(user.providers ?? []);
       return !!user.emailVerified;
     } catch {
@@ -118,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emailVerified,
         selfColor,
         customColors,
+        autoOrder,
         providers,
         loggedIn,
         logout,
@@ -125,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDisplayName,
         setSelfColor,
         setCustomColors,
+        setAutoOrder,
       }}
     >
       {children}

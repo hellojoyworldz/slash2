@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -9,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { IsNull, Repository } from 'typeorm';
+import { isValidAutoOrder } from '../users/auto-order';
 import { SocialAccount } from '../users/social-account.entity';
 import { User } from '../users/user.entity';
 import { AuthToken, AuthTokenPurpose } from './auth-token.entity';
@@ -123,17 +125,19 @@ export class AuthService {
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
       customColors: user.customColors ?? [],
+      autoOrder: user.autoOrder ?? null,
       providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
   }
 
-  // 프로필 부분 갱신: 표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 색 목록. 보낸 필드만 반영한다.
+  // 프로필 부분 갱신: 표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 색 목록 / 자동구분 순서. 보낸 필드만 반영한다.
   async updateProfile(
     userId: string,
     changes: {
       displayName?: string;
       selfColor?: string;
       customColors?: string[];
+      autoOrder?: string[];
     },
   ) {
     const user = await this.users.findOne({ where: { id: userId } });
@@ -154,6 +158,15 @@ export class AuthService {
         ? changes.customColors
         : null;
     }
+    if (changes.autoOrder !== undefined) {
+      if (!isValidAutoOrder(changes.autoOrder)) {
+        throw new BadRequestException({
+          code: 'invalid_auto_order',
+          message: '자동구분 순서가 올바르지 않습니다.',
+        });
+      }
+      user.autoOrder = changes.autoOrder;
+    }
     await this.users.save(user);
     return {
       id: user.id,
@@ -162,6 +175,7 @@ export class AuthService {
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
       customColors: user.customColors ?? [],
+      autoOrder: user.autoOrder ?? null,
     };
   }
 
@@ -457,6 +471,7 @@ export class AuthService {
         emailVerified: user.emailVerified,
         selfColor: user.selfColor ?? null,
         customColors: user.customColors ?? [],
+        autoOrder: user.autoOrder ?? null,
         providers: accounts.map((a) => a.provider),
       },
     };

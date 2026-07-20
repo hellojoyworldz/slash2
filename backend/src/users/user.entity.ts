@@ -33,6 +33,11 @@ export class User {
   @Column({ type: 'simple-array', nullable: true })
   customColors: string[] | null;
 
+  // "자동구분" 카테고리 표시 순서(설정에서 드래그 저장). AUTO_ORDER_CATEGORIES의 순열.
+  // null이면 프론트가 기본 순서로 표시. (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'jsonb', nullable: true })
+  autoOrder: string[] | null;
+
   // 이 유저에게 보낼 메일·페이지 언어 (ko | en | ja). 앱이 보낸 언어로 갱신.
   @Column({ default: 'ko' })
   locale: string;

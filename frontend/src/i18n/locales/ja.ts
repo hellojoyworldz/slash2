@@ -9,6 +9,7 @@ export default {
     save: '保存',
     me: '自分',
     notice: 'お知らせ',
+    close: '閉じる',
   },
   // スクリーンリーダー用ラベル（画面には表示されない）
   a11y: {
@@ -17,12 +18,17 @@ export default {
     messageMenu: 'メッセージメニュー',
     pin: '固定',
     unpin: '固定を解除',
+    favorite: 'お気に入り',
+    unfavorite: 'お気に入り解除',
     resizeList: 'リストの幅を調整',
     reorder: '並べ替え',
+    cardDetail: 'カードの詳細',
   },
   tabs: {
     friends: 'カテゴリ',
     chats: 'チャット',
+    auto: '自動分類',
+    tags: 'タグ',
     more: 'その他',
   },
   login: {
@@ -87,6 +93,7 @@ export default {
     inputPlaceholder: 'リンクやメモを入力',
     inputPlaceholderDesktop: 'リンクやメモを入力 · Enterで送信、Shift+Enterで改行',
     categoryTag: 'カテゴリ: {{name}}',
+    noticeTag: 'お知らせ',
     changeFriend: 'カテゴリを変更',
     addFriendFirst: '「カテゴリ」タブで先にカテゴリを追加してください',
     unassign: 'カテゴリを解除',
@@ -95,6 +102,52 @@ export default {
     sendFailedTitle: '送信失敗',
     tryAgainLater: 'しばらくしてからもう一度お試しください。',
     loadFailed: 'メッセージを読み込めませんでした。サーバーが起動しているか確認してください。',
+    // リンクカードのデータ行（リーダーライン）ラベル
+    linkData: {
+      hours: '営業',
+      price: '価格',
+      address: '住所',
+      phone: '電話',
+      source: '出典',
+    },
+    // カード詳細パネルの地図・出典アクション
+    linkSheet: {
+      openMap: '地図アプリで開く',
+      openSource: '出典を開く: {{name}}',
+    },
+    // メッセージ ⋮/長押しアクションメニュー（カカオトーク風の行リスト）
+    menu: {
+      title: 'メッセージ',
+      copy: 'コピー',
+      share: '共有',
+      notice: 'お知らせに設定',
+      noticeOff: 'お知らせを解除',
+      tags: 'タグ',
+      editContent: '内容を編集',
+      editCategory: 'カテゴリを変更',
+    },
+    // コピー・共有後の短い確認
+    copied: 'コピーしました',
+    // チャットルーム上部のお知らせバナー
+    noticeBanner: {
+      dismiss: 'お知らせを解除',
+      dismissTitle: 'お知らせを解除',
+      dismissMessage: 'このお知らせを解除しますか？',
+    },
+  },
+  // タグ選択モーダル
+  tags: {
+    title: 'タグ',
+    tabTitle: 'タグ',
+    addTitle: 'タグを追加',
+    editTitle: 'タグを編集',
+    newPlaceholder: '新しいタグ名',
+    empty: 'まだタグがありません。上から追加してみましょう。',
+    emptyHint: '右上の「追加」を押して\n最初のタグを作りましょう',
+    roomEmpty: 'このタグのメッセージはまだありません',
+    removeLabel: 'タグ「{{name}}」を削除',
+    deleteTitle: 'タグを削除',
+    deleteMessage: '「{{name}}」をすべてのメッセージから削除しますか？',
   },
   friends: {
     title: 'カテゴリ',
@@ -122,7 +175,54 @@ export default {
     addProfile: 'プロフィールを追加',
     removeProfile: 'プロフィールを削除',
     namePlaceholder: '名前（例：開発、料理、ニュース）',
+    descriptionPlaceholder: '説明（任意）',
     confirmDelete: '「{{name}}」を削除しますか？',
+    favoritesSection: 'お気に入り',
+  },
+  auto: {
+    title: '自動分類',
+    empty: 'まだ{{name}}に分類されたメッセージはありません',
+    names: {
+      place: '場所',
+      video: '動画',
+      item: '商品',
+      article: '記事',
+      memo: 'メモ',
+      link: 'リンク',
+    },
+  },
+  // 自動分類チップ（すべてフィルタ・空状態）— チャット表示とリストボードで共用。
+  viewMode: {
+    filterAll: 'すべて',
+    emptyFilter: '該当する項目がありません',
+  },
+  // アプリ全体の画面スタイル（チャット型/リスト型）— その他から切り替え
+  appStyle: {
+    title: '画面スタイル',
+    chat: 'チャット型',
+    list: 'リスト型',
+  },
+  // リスト型（Notion DBビュー）画面の文言
+  list: {
+    new: '新規作成',
+    newTitle: 'リンク・メモを追加',
+    category: 'カテゴリ',
+    autoKind: '自動分類',
+    notice: 'お知らせ',
+    noticeOn: '設定済み',
+    date: '日付',
+    duration: '長さ',
+    channel: 'チャンネル',
+    openOriginal: '元を開く',
+    tags: 'タグ',
+    moveUp: '上へ移動',
+    moveDown: '下へ移動',
+    inputPlaceholder: 'リンクやメモを入力',
+    searchPlaceholder: 'タイトル・内容を検索',
+    uncategorized: '未分類',
+    empty: 'まだ保存した項目がありません',
+    tagsEmpty: 'まだタグの付いた項目がありません',
+    noResults: '検索結果がありません',
   },
   more: {
     title: 'その他',
@@ -144,6 +244,11 @@ export default {
       'すでにソーシャルログインで登録済みのメールアドレスです。ソーシャルログインをご利用ください。',
     invalid_credentials: 'メールアドレスまたはパスワードが正しくありません。',
     social_only_account: 'このメールアドレスはソーシャルログインで登録されています。',
+    tag_name_taken: 'そのタグ名はすでに使われています。',
+    invalid_tag: '無効なタグです。',
+    tag_name_required: 'タグ名を入力してください。',
+    invalid_auto_order: '自動分類の順序が正しくありません。',
+    invalid_order: '順序が正しくありません。',
     requestFailed: 'リクエストに失敗しました。',
   },
 };

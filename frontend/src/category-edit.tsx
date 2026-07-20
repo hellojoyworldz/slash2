@@ -41,7 +41,11 @@ export interface EditableCategory {
   id: string;
   name: string;
   color?: string | null;
+  description?: string | null;
 }
+
+// 설명(상태메시지) 최대 길이 — 백엔드 MaxLength(80)과 일치.
+const DESCRIPTION_MAX = 80;
 
 // 프리셋(8색) 중 하나인지 — 아니면 "직접선택(커스텀)" 색이다.
 const isPresetColor = (hex: string) =>
@@ -96,6 +100,7 @@ function CategoryEditModal({
   const [self, setSelf] = useState(false);
   const [editing, setEditing] = useState<EditableCategory | null>(null);
   const [nameInput, setNameInput] = useState('');
+  const [descriptionInput, setDescriptionInput] = useState('');
   const [color, setColor] = useState(CATEGORY_COLORS[0].hex);
   // 직접선택(색 피커) 펼침 여부.
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -118,6 +123,7 @@ function CategoryEditModal({
     setSelf(isSelf);
     setEditing(cat);
     setNameInput(cat?.name ?? '');
+    setDescriptionInput(cat?.description ?? '');
     setColor(initialColor);
     setPickerOpen(false);
     setSubmitting(false);
@@ -151,6 +157,7 @@ function CategoryEditModal({
       setFormError(t('friends.nameRequired'));
       return;
     }
+    const description = descriptionInput.trim();
     setSubmitting(true);
     setFormError('');
     try {
@@ -158,6 +165,7 @@ function CategoryEditModal({
         const updated = await api.updateFriend(token, editing.id, {
           name,
           color,
+          description,
         });
         // 채팅 목록·개수·말풍선 색·친구 목록 재조회 신호(구독 화면들이 roomsVersion으로 재조회).
         bumpRooms();
@@ -167,7 +175,7 @@ function CategoryEditModal({
         }
         onClose();
       } else {
-        await api.createFriend(token, name, color);
+        await api.createFriend(token, name, color, description);
         bumpRooms();
         onClose();
       }
@@ -257,19 +265,30 @@ function CategoryEditModal({
     >
       {/* "전체" 프로필은 이름이 없다(색만 고른다). */}
       {!self ? (
-        <TextInput
-          style={styles.input}
-          placeholder={t('friends.namePlaceholder')}
-          placeholderTextColor={colors.textTertiary}
-          value={nameInput}
-          onChangeText={(text) => {
-            setNameInput(text);
-            if (formError) setFormError('');
-          }}
-          maxLength={30}
-          autoFocus
-          onSubmitEditing={handleSubmit}
-        />
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder={t('friends.namePlaceholder')}
+            placeholderTextColor={colors.textTertiary}
+            value={nameInput}
+            onChangeText={(text) => {
+              setNameInput(text);
+              if (formError) setFormError('');
+            }}
+            maxLength={30}
+            autoFocus
+            onSubmitEditing={handleSubmit}
+          />
+          <TextInput
+            style={[styles.input, styles.descriptionInput]}
+            placeholder={t('friends.descriptionPlaceholder')}
+            placeholderTextColor={colors.textTertiary}
+            value={descriptionInput}
+            onChangeText={setDescriptionInput}
+            maxLength={DESCRIPTION_MAX}
+            onSubmitEditing={handleSubmit}
+          />
+        </>
       ) : null}
 
       {/* 프로필(색) 선택 — 각 스와치가 그 색의 미니 아바타(선택 시 어떤 프로필이 될지) */}
@@ -400,6 +419,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: 16,
     color: colors.textPrimary,
     backgroundColor: colors.background,
+  },
+  descriptionInput: {
+    marginTop: 8,
   },
   profileLabel: {
     marginTop: 16,
