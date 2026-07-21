@@ -55,11 +55,16 @@ const isPresetColor = (hex: string) =>
 interface EditSession {
   category: EditableCategory | null;
   self: boolean;
+  // 추가(생성) 모드 기본 선택색. 호출부가 자기 분류 목록으로 pickDefaultCategoryColor를 계산해 넘긴다.
+  defaultColor?: string;
 }
 
 interface CategoryEditState {
-  /** 무인자 = 분류 추가, category 전달 = 그 분류 수정, { self:true } = "전체" 프로필 편집. */
-  open: (arg?: EditableCategory | { self: true }) => void;
+  /**
+   * 무인자 = 분류 추가, category 전달 = 그 분류 수정, { self:true } = "전체" 프로필 편집.
+   * defaultColor는 추가(무인자) 호출에서만 의미가 있다 — 미사용 프리셋 순서대로 호출부가 계산해 넘긴다.
+   */
+  open: (arg?: EditableCategory | { self: true }, defaultColor?: string) => void;
 }
 
 const CategoryEditContext = createContext<CategoryEditState | null>(null);
@@ -68,10 +73,13 @@ export function CategoryEditProvider({ children }: { children: ReactNode }) {
   // Provider는 "열림 세션"만 들고 있는다 — 폼 상태(이름·색 등)는 형제 컴포넌트가 소유해
   // 타이핑마다 children(앱 전체)이 리렌더되지 않게 한다.
   const [session, setSession] = useState<EditSession | null>(null);
-  const open = useCallback((arg?: EditableCategory | { self: true }) => {
-    if (arg && 'self' in arg) setSession({ category: null, self: true });
-    else setSession({ category: arg ?? null, self: false });
-  }, []);
+  const open = useCallback(
+    (arg?: EditableCategory | { self: true }, defaultColor?: string) => {
+      if (arg && 'self' in arg) setSession({ category: null, self: true });
+      else setSession({ category: arg ?? null, self: false, defaultColor });
+    },
+    [],
+  );
   const value = useMemo(() => ({ open }), [open]);
   return (
     <CategoryEditContext.Provider value={value}>
@@ -91,8 +99,15 @@ function CategoryEditModal({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { token, selfColor, setSelfColor, customColors, setCustomColors } =
-    useAuth();
+  const {
+    token,
+    selfColor,
+    setSelfColor,
+    selfDescription,
+    setSelfDescription,
+    customColors,
+    setCustomColors,
+  } = useAuth();
   // 편집 결과를 채팅 목록·개수·상주 대화 헤더로 전파한다.
   const { room, setRoom, bumpRooms } = useSelectedRoom();
 
@@ -110,20 +125,22 @@ function CategoryEditModal({
   // 편집 도중 selfColor가 바뀌어도 진행 중인 입력이 리셋되지 않게 한다.
   const selfColorRef = useRef(selfColor);
   selfColorRef.current = selfColor;
+  const selfDescriptionRef = useRef(selfDescription);
+  selfDescriptionRef.current = selfDescription;
 
   // 세션이 새로 열릴 때마다 프리필한다. 닫힘(null)일 땐 유지 — 재오픈 전 깜빡임 방지.
   useEffect(() => {
     if (!session) return;
     const isSelf = session.self;
     const cat = session.category;
-    // self=현재 selfColor(없으면 기본 검정), 수정=그 분류 색, 추가=첫 프리셋.
+    // self=현재 selfColor(없으면 기본 검정), 수정=그 분류 색, 추가=호출부가 계산한 기본색(없으면 첫 프리셋).
     const initialColor = isSelf
       ? selfColorRef.current ?? SELF_DEFAULT_COLOR
-      : cat?.color ?? CATEGORY_COLORS[0].hex;
+      : cat?.color ?? session.defaultColor ?? CATEGORY_COLORS[0].hex;
     setSelf(isSelf);
     setEditing(cat);
     setNameInput(cat?.name ?? '');
-    setDescriptionInput(cat?.description ?? '');
+    setDescriptionInput(isSelf ? selfDescriptionRef.current ?? '' : cat?.description ?? '');
     setColor(initialColor);
     setPickerOpen(false);
     setSubmitting(false);
@@ -135,13 +152,18 @@ function CategoryEditModal({
       setFormError(t('friends.loginToAdd'));
       return;
     }
-    // "전체" 프로필: 이름 없이 색만 저장.
+    // "전체" 프로필: 이름은 고정("전체"), 색·설명만 저장.
     if (self) {
+      const description = descriptionInput.trim();
       setSubmitting(true);
       setFormError('');
       try {
-        await api.updateProfile(token, { selfColor: color });
+        await api.updateProfile(token, {
+          selfColor: color,
+          selfDescription: description,
+        });
         setSelfColor(color);
+        setSelfDescription(description || null);
         bumpRooms();
         onClose();
       } catch {
@@ -228,8 +250,9 @@ function CategoryEditModal({
     }
   };
 
+  // self(전체)도 타이틀은 일반 분류와 동일한 "분류 수정" — 이름 칸이 이미 "전체"를 보여준다.
   const title = self
-    ? t('chats.myRoom')
+    ? t('friends.editTitle')
     : editing
       ? t('friends.editTitle')
       : t('friends.addTitle');
@@ -263,33 +286,37 @@ function CategoryEditModal({
       onConfirm={handleSubmit}
       busy={submitting}
     >
-      {/* "전체" 프로필은 이름이 없다(색만 고른다). */}
-      {!self ? (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder={t('friends.namePlaceholder')}
-            placeholderTextColor={colors.textTertiary}
-            value={nameInput}
-            onChangeText={(text) => {
-              setNameInput(text);
-              if (formError) setFormError('');
-            }}
-            maxLength={30}
-            autoFocus
-            onSubmitEditing={handleSubmit}
-          />
-          <TextInput
-            style={[styles.input, styles.descriptionInput]}
-            placeholder={t('friends.descriptionPlaceholder')}
-            placeholderTextColor={colors.textTertiary}
-            value={descriptionInput}
-            onChangeText={setDescriptionInput}
-            maxLength={DESCRIPTION_MAX}
-            onSubmitEditing={handleSubmit}
-          />
-        </>
-      ) : null}
+      {/* "전체" 프로필은 이름을 고칠 수 없다 — 편집 불가 고정 텍스트로 같은 자리에 박는다. */}
+      {self ? (
+        <View style={[styles.input, styles.fixedNameBox]}>
+          <Text variant="body" color={colors.textPrimary}>
+            {t('chats.myRoom')}
+          </Text>
+        </View>
+      ) : (
+        <TextInput
+          style={styles.input}
+          placeholder={t('friends.namePlaceholder')}
+          placeholderTextColor={colors.textTertiary}
+          value={nameInput}
+          onChangeText={(text) => {
+            setNameInput(text);
+            if (formError) setFormError('');
+          }}
+          maxLength={30}
+          autoFocus
+          onSubmitEditing={handleSubmit}
+        />
+      )}
+      <TextInput
+        style={[styles.input, styles.descriptionInput]}
+        placeholder={t('friends.descriptionPlaceholder')}
+        placeholderTextColor={colors.textTertiary}
+        value={descriptionInput}
+        onChangeText={setDescriptionInput}
+        maxLength={DESCRIPTION_MAX}
+        onSubmitEditing={handleSubmit}
+      />
 
       {/* 프로필(색) 선택 — 각 스와치가 그 색의 미니 아바타(선택 시 어떤 프로필이 될지) */}
       <Text
@@ -422,6 +449,10 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   descriptionInput: {
     marginTop: 8,
+  },
+  // "전체" 프로필의 이름 자리 — TextInput과 같은 박스, 편집 불가 고정 텍스트만 가운데 정렬.
+  fixedNameBox: {
+    justifyContent: 'center',
   },
   profileLabel: {
     marginTop: 16,

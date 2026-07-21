@@ -23,6 +23,8 @@ export default {
     resizeList: 'リストの幅を調整',
     reorder: '並べ替え',
     cardDetail: 'カードの詳細',
+    editCategory: 'カテゴリを編集',
+    editTags: 'タグを編集',
   },
   tabs: {
     friends: 'カテゴリ',
@@ -94,6 +96,9 @@ export default {
     inputPlaceholderDesktop: 'リンクやメモを入力 · Enterで送信、Shift+Enterで改行',
     categoryTag: 'カテゴリ: {{name}}',
     noticeTag: 'お知らせ',
+    noTags: 'タグなし',
+    tagsNone: 'なし',
+    tagsTag: 'タグ: {{names}}',
     changeFriend: 'カテゴリを変更',
     addFriendFirst: '「カテゴリ」タブで先にカテゴリを追加してください',
     unassign: 'カテゴリを解除',
@@ -109,6 +114,9 @@ export default {
       address: '住所',
       phone: '電話',
       source: '出典',
+      channel: 'チャンネル',
+      duration: '長さ',
+      author: '投稿者',
     },
     // カード詳細パネルの地図・出典アクション
     linkSheet: {
@@ -118,13 +126,14 @@ export default {
     // メッセージ ⋮/長押しアクションメニュー（カカオトーク風の行リスト）
     menu: {
       title: 'メッセージ',
+      detail: '詳細を見る',
       copy: 'コピー',
       share: '共有',
       notice: 'お知らせに設定',
       noticeOff: 'お知らせを解除',
       tags: 'タグ',
-      editContent: '内容を編集',
-      editCategory: 'カテゴリを変更',
+      editContent: '編集',
+      editCategory: 'カテゴリ',
     },
     // コピー・共有後の短い確認
     copied: 'コピーしました',
@@ -175,6 +184,7 @@ export default {
     addProfile: 'プロフィールを追加',
     removeProfile: 'プロフィールを削除',
     namePlaceholder: '名前（例：開発、料理、ニュース）',
+    newPlaceholder: '新しいカテゴリ名',
     descriptionPlaceholder: '説明（任意）',
     confirmDelete: '「{{name}}」を削除しますか？',
     favoritesSection: 'お気に入り',
@@ -237,6 +247,9 @@ export default {
     modeDark: 'ダーク',
     modeSystem: 'システム',
     linkedGoogle: 'Google連携済み',
+  },
+  sites: {
+    googleMaps: 'Googleマップ',
   },
   errors: {
     email_taken: 'すでに登録済みのメールアドレスです。',

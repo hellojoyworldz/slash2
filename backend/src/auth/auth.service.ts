@@ -124,18 +124,20 @@ export class AuthService {
       displayName: user.displayName,
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
+      selfDescription: user.selfDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
       providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
   }
 
-  // 프로필 부분 갱신: 표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 색 목록 / 자동구분 순서. 보낸 필드만 반영한다.
+  // 프로필 부분 갱신: 표시 이름 / "전체" 방 프로필 색·설명 / 커스텀 프로필 색 목록 / 자동구분 순서. 보낸 필드만 반영한다.
   async updateProfile(
     userId: string,
     changes: {
       displayName?: string;
       selfColor?: string;
+      selfDescription?: string;
       customColors?: string[];
       autoOrder?: string[];
     },
@@ -151,6 +153,11 @@ export class AuthService {
     }
     if (changes.selfColor !== undefined) {
       user.selfColor = changes.selfColor;
+    }
+    if (changes.selfDescription !== undefined) {
+      // 빈 문자열은 저장하지 않고 null로 통일 — friends.description과 같은 관례.
+      const trimmed = changes.selfDescription.trim();
+      user.selfDescription = trimmed || null;
     }
     if (changes.customColors !== undefined) {
       // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
@@ -174,6 +181,7 @@ export class AuthService {
       displayName: user.displayName,
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
+      selfDescription: user.selfDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
     };
@@ -470,6 +478,7 @@ export class AuthService {
         displayName: user.displayName,
         emailVerified: user.emailVerified,
         selfColor: user.selfColor ?? null,
+        selfDescription: user.selfDescription ?? null,
         customColors: user.customColors ?? [],
         autoOrder: user.autoOrder ?? null,
         providers: accounts.map((a) => a.provider),

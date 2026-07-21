@@ -21,7 +21,7 @@ import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
 import { useSelectedRoom } from '../selected-room';
 import { formatListTime } from '../time';
-import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
+import { layout, pickDefaultCategoryColor, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 
 interface Props {
@@ -248,7 +248,8 @@ export function ChatsScreen({
             key: 'add',
             icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
             label: t('friends.add'),
-            onPress: () => openCategoryEditor(),
+            onPress: () =>
+              openCategoryEditor(undefined, pickDefaultCategoryColor(rooms?.friends ?? [])),
           },
         ]}
       />

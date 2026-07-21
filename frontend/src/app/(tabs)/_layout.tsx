@@ -13,7 +13,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Asterisk, Ellipsis, MessageSquare, Slash, Tag } from 'lucide-react-native';
+import { Asterisk, Ellipsis, Hash, MessageSquare, Slash } from 'lucide-react-native';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
 import { Text } from '../../components/Text';
@@ -46,8 +46,8 @@ const TAB_ICONS = {
   slashes: Slash,
   // 자동구분 — ✳ 글리프(카드 꼬리표·워드마크)와 정체성을 잇는 asterisk.
   auto: Asterisk,
-  // 태그 — lucide Tag.
-  tags: Tag,
+  // 태그 — lucide Hash(#).
+  tags: Hash,
   more: Ellipsis,
 } as const;
 type TabIconKey = keyof typeof TAB_ICONS;
@@ -210,7 +210,7 @@ export default function TabsLayout() {
         >
           {triggers(false)}
         </TabList>
-        <TabSlot />
+        <TabSlot style={styles.slot} />
       </Tabs>
     );
   }
@@ -225,7 +225,7 @@ export default function TabsLayout() {
 
         {/* ② 목록 패널: 탭 화면(채팅/친구/더보기)이 여기 들어옴 */}
         <View style={[styles.listPane, { width: paneWidth }]}>
-          <TabSlot />
+          <TabSlot style={styles.slot} />
         </View>
 
         {/* ②↔③ 드래그 스플리터 (텔레그램식 너비 조절) */}
@@ -337,7 +337,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs style={styles.container}>
-      <TabSlot />
+      <TabSlot style={styles.slot} />
       <TabList style={styles.tabBar}>{triggers(false)}</TabList>
     </Tabs>
   );
@@ -347,6 +347,14 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  // TabSlot(react-native-screens ScreenContainer)의 기본 스타일은
+  // {flexShrink:0, flexGrow:1} — 웹(RNW=실제 CSS flexbox)에서 부모 높이에
+  // 갇히지 못하고 내용만큼 자라(1500) 페이지를 밀어낸다. 스크롤러(FlatList)가
+  // 패널 높이에 바운드되도록 flex:1(grow1/shrink1/basis0) + minHeight:0으로 덮는다.
+  slot: {
+    flex: 1,
+    minHeight: 0,
   },
   // 목록형에서 등록만 유지하고 화면에선 치우는 TabList (0크기·흐름 밖).
   hiddenTabList: {
@@ -412,6 +420,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.accent,
   },
   listPane: {
+    // 3패널 row의 교차축 stretch로 높이는 뷰포트에 고정된다.
+    // 스크롤러 밖으로 새어나온 내용이 문서를 늘리지 못하게 여기서 클립(backstop).
+    overflow: 'hidden',
     backgroundColor: colors.background,
   },
   // 드래그 히트 영역(9px, 투명) — 가운데 1px 라인만 보인다.

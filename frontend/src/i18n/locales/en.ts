@@ -23,6 +23,8 @@ export default {
     resizeList: 'Resize list',
     reorder: 'Reorder',
     cardDetail: 'Card details',
+    editCategory: 'Edit category',
+    editTags: 'Edit tags',
   },
   tabs: {
     friends: 'Categories',
@@ -94,6 +96,9 @@ export default {
     inputPlaceholderDesktop: 'Enter a link or note · Enter to send, Shift+Enter for a new line',
     categoryTag: 'Category: {{name}}',
     noticeTag: 'Notice',
+    noTags: 'No tags',
+    tagsNone: 'None',
+    tagsTag: 'Tags: {{names}}',
     changeFriend: 'Change category',
     addFriendFirst: 'Add a category on the Categories tab first',
     unassign: 'Remove category',
@@ -109,6 +114,9 @@ export default {
       address: 'Address',
       phone: 'Phone',
       source: 'Source',
+      channel: 'Channel',
+      duration: 'Duration',
+      author: 'Author',
     },
     // Card detail panel map/source actions
     linkSheet: {
@@ -118,13 +126,14 @@ export default {
     // Message ⋮/long-press action menu (Kakao-style row list)
     menu: {
       title: 'Message',
+      detail: 'View details',
       copy: 'Copy',
       share: 'Share',
       notice: 'Set as notice',
       noticeOff: 'Remove notice',
       tags: 'Tags',
-      editContent: 'Edit content',
-      editCategory: 'Change category',
+      editContent: 'Edit',
+      editCategory: 'Category',
     },
     // Short confirmation after copy/share
     copied: 'Copied',
@@ -175,6 +184,7 @@ export default {
     addProfile: 'Add profile',
     removeProfile: 'Remove profile',
     namePlaceholder: 'Name (e.g. Dev, Cooking, News)',
+    newPlaceholder: 'New category name',
     descriptionPlaceholder: 'Description (optional)',
     confirmDelete: 'Delete “{{name}}”?',
     favoritesSection: 'Favorites',
@@ -237,6 +247,9 @@ export default {
     modeDark: 'Dark',
     modeSystem: 'System',
     linkedGoogle: 'Linked with Google',
+  },
+  sites: {
+    googleMaps: 'Google Maps',
   },
   errors: {
     email_taken: 'This email is already registered.',

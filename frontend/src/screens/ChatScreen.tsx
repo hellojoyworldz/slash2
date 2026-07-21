@@ -1,17 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import {
-  BottomSheetBackdrop,
-  BottomSheetBackdropProps,
-  BottomSheetModal,
-  BottomSheetView,
-} from '@gorhom/bottom-sheet';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   StyleSheet,
   TextInput,
@@ -25,11 +18,11 @@ import { ListFilter, matchesAutoFilter } from '../auto-filter';
 import { useCategoryEdit } from '../category-edit';
 import { confirmDialog, notify } from '../notify';
 import { AutoChips } from '../components/AutoChips';
-import { CategoryAvatar } from '../components/CategoryAvatar';
 import { MessageBubble } from '../components/MessageBubble';
 import { NoticeBanner } from '../components/NoticeBanner';
 import { Text } from '../components/Text';
 import { useMessageActions } from '../message-actions';
+import { useMessageDetail } from '../message-detail';
 import { copyToClipboard, messagePayload, shareContent } from '../share';
 import { useSelectedRoom } from '../selected-room';
 import { formatDateStamp, isSameDay } from '../time';
@@ -75,6 +68,8 @@ export function ChatScreen({
   const { open: openCategoryEditor } = useCategoryEdit();
   // 메시지 액션(⋮ 메뉴·태그 선택·내용 수정)은 루트 상주 호스트로 이동 — 여기선 열기만.
   const { openMessageMenu } = useMessageActions();
+  // 메시지 상세 모달(공지 배너 탭)도 루트 상주 호스트 — 여기선 열기만.
+  const { openMessageDetail } = useMessageDetail();
   // "전체" 방(미분류) 말풍선 색 + self 편집 프리필에 쓰는 전체 프로필 색.
   const { selfColor } = useAuth();
   // 자동구분·태그 방은 입력창·펜·공지가 없는 "보기 전용" 방(전 방 통합 모음).
@@ -102,12 +97,9 @@ export function ChatScreen({
   // 자동구분 칩 선택. 채팅 뷰·목록 모드가 공유해서(뷰 전환해도 유지) 방 레벨로 호이스트.
   // ChatScreen이 방마다 key로 리마운트되므로(탭바/데스크톱 레일) 방 전환 시 자연히 '전체'로 초기화된다.
   const [autoFilter, setAutoFilter] = useState<ListFilter>('all');
-  // ⋮/long-press로 고른 메시지 — 분류 변경 바텀시트의 대상(액션 메뉴·태그·수정은 루트 호스트).
-  const [actionMessage, setActionMessage] = useState<Message | null>(null);
   const activeQuery = useRef('');
   // 첫 로드 여부: 첫 조회는 디바운스 없이 즉시(복원된 검색어로) 실행하기 위한 플래그
   const firstLoadRef = useRef(true);
-  const sheetRef = useRef<BottomSheetModal>(null);
   // 물리 키보드 기기(데스크톱급)에서만 Enter=전송, Shift+Enter=줄바꿈
   const desktopInput = useDesktopClassInput();
   const inputRef = useRef<TextInput>(null);
@@ -119,40 +111,76 @@ export function ChatScreen({
     bumpRooms();
   };
 
+  // 메시지 상세 모달 페이로드 조립 — 공지 배너 탭·⋮ 메뉴의 "상세보기"·"내용 수정"이 공유한다.
+  // 분류명·색·태그명은 현재 로드된 friends/tags/selfColor에서 뽑는다.
+  // startInEdit=true면 상세 모달이 열리자마자 인라인 수정 모드로 시작한다
+  // (⋮ 메뉴 [내용 수정] 경로 — 별도 수정 모달 없이 상세 모달 하나로 통일).
+  // 메시지 → 메타(분류명·색·태그명) 파생. 상세 페이로드의 초기 메타이자,
+  // 상세 모달이 픽커 변경을 즉시 반영할 때(resolveMeta) 쓰는 파생 함수다.
+  // 현재 로드된 friends/tags/selfColor를 클로저로 캡처한다.
+  const resolveDetailMeta = (m: Message) => {
+    const friend = m.friendId ? friends.find((f) => f.id === m.friendId) : null;
+    const names = (m.tagIds ?? [])
+      .map((id) => tags.find((tg) => tg.id === id)?.name)
+      .filter((n): n is string => !!n);
+    return {
+      categoryName: friend?.name ?? t('list.uncategorized'),
+      categoryColor: friend?.color ?? selfColor ?? null,
+      tagNames: names,
+    };
+  };
+
+  const buildDetailPayload = (m: Message, startInEdit = false) => ({
+    message: m,
+    ...resolveDetailMeta(m),
+    onSaved: applyUpdated,
+    startInEdit,
+    // 메타 블록 연필(분류·태그 인라인 편집)용 — 픽커 선택지·즉시 반영·목록 동기화 배선.
+    friends,
+    selfColor,
+    resolveMeta: resolveDetailMeta,
+    onCategoryChanged: applyCategoryChange,
+    onFriendsChanged: bumpRooms,
+    onTagsChanged: reloadTags,
+  });
+
   // ⋮/long-press → 루트 상주 액션 메뉴를 연다. 화면 고유 효과는 콜백으로 위임한다.
-  // (분류 변경 바텀시트는 화면에 남으므로 actionMessage도 함께 세팅한다.)
+  // 분류 변경은 호스트가 분류 선택 모달(step)로 전환한다 — 선택지(friends·selfColor)와
+  // 적용 결과 반영 콜백(applyCategoryChange)만 넘긴다(PATCH는 모달이 직접 수행).
   const openMenu = (message: Message) => {
     if (!token) return;
-    setActionMessage(message);
     const isNoticeMsg = !!message.isNotice || noticeMessage?.id === message.id;
     openMessageMenu({
       message,
       isNotice: isNoticeMsg,
+      onDetail: () => openMessageDetail(buildDetailPayload(message)),
       onCopy: () => void doCopy(message),
       onShare: () => void doShare(message),
       onNotice: () => void doNotice(message),
-      onEditCategory: () => sheetRef.current?.present(),
+      onEditContent: () => openMessageDetail(buildDetailPayload(message, true)),
       onDelete: () => void confirmDelete(message),
       onSaved: applyUpdated,
       onTagsChanged: reloadTags,
+      friends,
+      selfColor,
+      onCategoryChanged: applyCategoryChange,
+      onFriendsChanged: bumpRooms,
     });
   };
 
-  // 복사: 링크=url, 메모=content 클립보드 복사 후 짧은 확인.
+  // 복사: 링크=url, 메모=content 클립보드 복사. 성공 확인창은 띄우지 않는다(사용자 확정 — 조용히).
   const doCopy = async (message: Message) => {
     try {
       await copyToClipboard(messagePayload(message));
-      notify(t('chat.copied'));
     } catch {
       notify(t('common.notice'), t('chat.tryAgainLater'));
     }
   };
 
-  // 공유: 네이티브 Share.share / 웹 navigator.share, 없으면 복사 폴백(확인 문구).
+  // 공유: 네이티브 Share.share / 웹 navigator.share, 없으면 복사 폴백(조용히).
   const doShare = async (message: Message) => {
     try {
-      const result = await shareContent(messagePayload(message));
-      if (result === 'copied') notify(t('chat.copied'));
+      await shareContent(messagePayload(message));
     } catch {
       // 공유 실패·취소는 조용히 무시.
     }
@@ -180,11 +208,10 @@ export function ChatScreen({
     }
   };
 
-  // 공지 배너 탭 = 링크면 원본 열기.
-  const openNoticeOriginal = () => {
-    if (noticeMessage?.kind === 'link' && noticeMessage.url) {
-      Linking.openURL(noticeMessage.url);
-    }
+  // 공지 배너 탭 = 메시지 상세 모달 열기(입력 순서 그대로 본문 전체 표시).
+  const openNoticeDetail = () => {
+    if (!noticeMessage) return;
+    openMessageDetail(buildDetailPayload(noticeMessage));
   };
 
   // 공지 배너 X = 확인 후 해제.
@@ -206,19 +233,6 @@ export function ChatScreen({
       notify(t('common.notice'), t('chat.tryAgainLater'));
     }
   };
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.4}
-        pressBehavior="close"
-      />
-    ),
-    [],
-  );
 
   const load = useCallback(
     async (query: string) => {
@@ -381,23 +395,16 @@ export function ChatScreen({
     return () => el.removeEventListener('keydown', onKeyDown);
   }, [desktopInput]);
 
-  // 메시지를 friendId(null=분류 해제)로 분류하고 목록을 갱신한다.
-  const assignFriend = async (message: Message, newFriendId: string | null) => {
-    if (!token) return;
-    sheetRef.current?.dismiss();
-    try {
-      const updated = await api.updateMessageFriend(token, message.id, newFriendId);
-      setMessages((prev) => {
-        // 친구 방에서 다른 곳으로 분류하면 그 방 목록에서는 빠진다.
-        if (friendId && updated.friendId !== friendId) {
-          return prev.filter((m) => m.id !== message.id);
-        }
-        return prev.map((m) => (m.id === message.id ? updated : m));
-      });
-      bumpRooms();
-    } catch {
-      // 실패 시 목록이 그대로라 사용자가 다시 시도할 수 있다.
-    }
+  // 분류 선택 모달이 PATCH를 마친 뒤, 서버가 돌려준 최신 메시지를 목록에 반영한다.
+  // 친구 방에서 다른 분류로 옮기면 그 방 목록에서는 빠지고, 그 외엔 제자리 교체.
+  const applyCategoryChange = (updated: Message) => {
+    setMessages((prev) => {
+      if (friendId && updated.friendId !== friendId) {
+        return prev.filter((m) => m.id !== updated.id);
+      }
+      return prev.map((m) => (m.id === updated.id ? updated : m));
+    });
+    bumpRooms();
   };
 
   const performDelete = async (message: Message) => {
@@ -413,7 +420,6 @@ export function ChatScreen({
 
   const confirmDelete = async (message: Message) => {
     if (!token) return;
-    sheetRef.current?.dismiss();
     const ok = await confirmDialog({
       title: t('common.delete'),
       message: t('chat.confirmDelete'),
@@ -525,7 +531,7 @@ export function ChatScreen({
       {!viewOnly && noticeMessage ? (
         <NoticeBanner
           message={noticeMessage}
-          onPress={openNoticeOriginal}
+          onPress={openNoticeDetail}
           onDismiss={dismissNotice}
         />
       ) : null}
@@ -611,6 +617,7 @@ export function ChatScreen({
                           if (token) openMenu(message);
                         }}
                         onPressMenu={token ? openMenu : undefined}
+                        onDetail={() => openMessageDetail(buildDetailPayload(item))}
                       />
                     </View>
                   );
@@ -671,84 +678,6 @@ export function ChatScreen({
         </View>
         )}
       </KeyboardAvoidingView>
-
-      {/* 메시지 분류/삭제 바텀시트 — 아래로 끌어내려 닫을 수 있다 */}
-      <BottomSheetModal
-        ref={sheetRef}
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
-        onDismiss={() => setActionMessage(null)}
-        handleIndicatorStyle={styles.sheetHandle}
-        backgroundStyle={styles.sheetBackground}
-      >
-        <BottomSheetView style={styles.sheet}>
-            <Text
-              variant="label"
-              color={colors.textSecondary}
-              style={styles.sheetTitle}
-            >
-              {t('chat.changeFriend')}
-            </Text>
-            {friends.length === 0 ? (
-              <Text
-                variant="label"
-                color={colors.textTertiary}
-                style={styles.sheetHint}
-              >
-                {t('chat.addFriendFirst')}
-              </Text>
-            ) : (
-              friends.map((friend) => {
-                const selected = actionMessage?.friendId === friend.id;
-                return (
-                  <TouchableOpacity
-                    key={friend.id}
-                    style={styles.sheetRow}
-                    onPress={() =>
-                      actionMessage && assignFriend(actionMessage, friend.id)
-                    }
-                    accessibilityRole="button"
-                  >
-                    <CategoryAvatar
-                      color={friend.color}
-                      size={32}
-                      style={styles.sheetAvatar}
-                    />
-                    <Text variant="bodyStrong" style={styles.sheetRowText}>
-                      {friend.name}
-                    </Text>
-                    {selected && (
-                      <Text variant="bodyStrong" color={colors.ink}>
-                        ✓
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              })
-            )}
-            {actionMessage?.friendId ? (
-              <TouchableOpacity
-                style={styles.sheetRow}
-                onPress={() => actionMessage && assignFriend(actionMessage, null)}
-                accessibilityRole="button"
-              >
-                <Text variant="bodyStrong" color={colors.textSecondary}>
-                  {t('chat.unassign')}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-            <View style={styles.sheetDivider} />
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => sheetRef.current?.dismiss()}
-              accessibilityRole="button"
-            >
-              <Text variant="bodyStrong" color={colors.textTertiary}>
-                {t('common.cancel')}
-              </Text>
-            </TouchableOpacity>
-        </BottomSheetView>
-      </BottomSheetModal>
     </View>
   );
 }
@@ -868,45 +797,5 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   sendDisabled: {
     backgroundColor: colors.surface,
-  },
-  sheetBackground: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  sheetHandle: {
-    backgroundColor: colors.hairline,
-    borderRadius: 0,
-    width: 40,
-  },
-  sheet: {
-    paddingHorizontal: 20,
-    paddingTop: 6,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-  },
-  sheetTitle: {
-    marginBottom: 6,
-  },
-  sheetHint: {
-    paddingVertical: 12,
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  sheetAvatar: {
-    marginRight: 12,
-  },
-  sheetRowText: {
-    flex: 1,
-  },
-  sheetDivider: {
-    borderTopWidth: 1,
-    borderStyle: 'dotted' as const,
-    borderTopColor: colors.border,
-    marginVertical: 6,
   },
 });

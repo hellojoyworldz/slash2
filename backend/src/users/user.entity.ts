@@ -28,6 +28,11 @@ export class User {
   @Column({ type: 'varchar', length: 9, nullable: true })
   selfColor: string | null;
 
+  // "전체"(자기 자신) 방의 설명(상태메시지). friends.description과 같은 관례 —
+  // 빈 문자열은 저장하지 않고 null로 통일. (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  selfDescription: string | null;
+
   // 사용자가 직접선택 피커로 저장해 둔 "커스텀 프로필" 색 목록(hex). 편집기 스와치 그리드에
   // 기본 프리셋 다음에 나열된다. null/빈 = 없음. (콤마 join되는 simple-array — hex엔 콤마 없음)
   @Column({ type: 'simple-array', nullable: true })

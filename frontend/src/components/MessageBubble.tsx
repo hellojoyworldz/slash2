@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo } from 'react';
 import {
-  Image,
   Linking,
   Platform,
   StyleProp,
@@ -12,91 +11,14 @@ import {
   ViewStyle,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import { Megaphone } from 'lucide-react-native';
-import { LinkType, Message, MessageLink } from '../api';
+import { Eye, Megaphone } from 'lucide-react-native';
+import { Message, MessageLink } from '../api';
+import { Segment, splitSegments } from '../message-segments';
 import { formatTime } from '../time';
 import { hexAlpha, makePuffy, PuffyColors, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
-import { BrutalFrame } from './Brutal';
-import { LinkDataRow } from './LinkDataRow';
+import { LinkCard } from './LinkCard';
 import { Text } from './Text';
-
-// 자동구분 종류 → 출처 행 꼬리표(대문자 모노 글리프). 미분류는 LINK.
-const TAG_BY_TYPE: Record<LinkType, string> = {
-  place: 'PLACE',
-  video: 'VIDEO',
-  item: 'ITEM',
-  article: 'ARTICLE',
-};
-
-// 장소 흑백 정적지도 썸네일용 구글 키. 없으면 ogImage로 폴백한다.
-const GMAPS_KEY = process.env.EXPO_PUBLIC_GMAPS_STATIC_KEY;
-
-// 가격 표기: 기본 통화 KRW(₩), 그 외는 통화코드 + 금액. 천단위 구분은 Intl(실패 시 원값 폴백).
-function formatPrice(price: number, currency?: string): string {
-  const cur = currency ?? 'KRW';
-  let num: string;
-  try {
-    num = new Intl.NumberFormat('ko-KR').format(price);
-  } catch {
-    num = String(price);
-  }
-  return cur === 'KRW' ? `₩${num}` : `${cur} ${num}`;
-}
-
-// 영상 길이: 1시간 미만 m:ss, 이상 h:mm:ss.
-function formatDuration(totalSec: number): string {
-  const s = Math.max(0, Math.floor(totalSec));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
-}
-
-// 본문 세그먼트: 텍스트 조각 또는 링크 카드. 입력 순서 그대로 교차 렌더한다.
-type Segment = { type: 'text'; value: string } | { type: 'card'; link: MessageLink };
-
-// content를 각 링크 url의 "첫 등장 위치" 기준으로 잘라 [텍스트][카드]… 세그먼트로 만든다.
-// - 같은 url이 여러 번이면 첫 위치에만 카드, 이후 등장은 url 문자열째 제거(카드도 안 붙인다).
-// - 같은 위치에서 겹치는 url(접두어 관계)은 더 긴 url을 택해 온전한 링크를 카드로 만든다.
-function splitSegments(content: string, links: MessageLink[]): Segment[] {
-  const urls = links.map((l) => l.url).filter((u): u is string => !!u);
-  const linkByUrl = new Map(links.map((l) => [l.url, l]));
-  const segs: Segment[] = [];
-  const carded = new Set<string>();
-  let cursor = 0;
-  while (cursor < content.length) {
-    let bestIdx = -1;
-    let bestUrl: string | null = null;
-    for (const url of urls) {
-      const idx = content.indexOf(url, cursor);
-      if (idx < 0) continue;
-      if (
-        bestIdx === -1 ||
-        idx < bestIdx ||
-        (idx === bestIdx && bestUrl != null && url.length > bestUrl.length)
-      ) {
-        bestIdx = idx;
-        bestUrl = url;
-      }
-    }
-    if (bestIdx === -1 || bestUrl == null) {
-      segs.push({ type: 'text', value: content.slice(cursor) });
-      break;
-    }
-    if (bestIdx > cursor) {
-      segs.push({ type: 'text', value: content.slice(cursor, bestIdx) });
-    }
-    if (!carded.has(bestUrl)) {
-      const link = linkByUrl.get(bestUrl);
-      if (link) segs.push({ type: 'card', link });
-      carded.add(bestUrl);
-    }
-    cursor = bestIdx + bestUrl.length;
-  }
-  return segs;
-}
 
 interface Props {
   message: Message;
@@ -110,6 +32,8 @@ interface Props {
   onLongPress: (message: Message) => void;
   /** ⋮ 버튼을 눌렀을 때 (없으면 버튼 숨김) */
   onPressMenu?: (message: Message) => void;
+  /** 말풍선 하단 상세보기 아이콘 탭 (없으면 버튼 숨김) — ChatScreen의 openMessageDetail 경로 재사용. */
+  onDetail?: () => void;
 }
 
 export function MessageBubble({
@@ -119,6 +43,7 @@ export function MessageBubble({
   tagNames,
   onLongPress,
   onPressMenu,
+  onDetail,
 }: Props) {
   const { t } = useTranslation();
   const { colors, resolvedScheme } = useTheme();
@@ -215,7 +140,7 @@ export function MessageBubble({
         style={wrapperStyle}
         numberOfLines={1}
       >
-        {tagNames.map((n) => `#${n}`).join(' ')}
+        {t('chat.tagsTag', { names: tagNames.map((n) => `#${n}`).join(' ') })}
       </Text>
     ) : null;
 
@@ -235,99 +160,26 @@ export function MessageBubble({
     if (message.url) Linking.openURL(message.url);
   };
 
-  // 흰 OG 카드([코멘트][썸네일][본문: 타이틀·캡션·데이터 행·출처 행]).
-  // 각 링크 자신의 og/linkType/linkMeta로 그린다(세그먼트 카드·단일 폴백 공용).
-  // comment는 단일 폴백에서만 쓴다(세그먼트 모드는 텍스트가 카드 밖 세그먼트로 나온다).
-  const renderCard = (link: MessageLink, comment?: string | null) => {
-    const lt = link.linkType ?? null;
-    const m = link.linkMeta ?? null;
-    const isPlace = lt === 'place';
-    const isVideo = lt === 'video';
-    const isItem = lt === 'item';
-    const tag = (lt && TAG_BY_TYPE[lt]) || 'LINK';
-    // 캡션: 장소는 설명 대신 주소를, 그 외는 ogDescription.
-    const captionText = isPlace ? m?.address ?? null : link.ogDescription;
-    // 썸네일: 장소는 (키+좌표) 흑백 정적지도 → 없으면 ogImage → 둘 다 없으면 생략.
-    const staticMapUrl =
-      isPlace && m?.lat != null && m?.lng != null && GMAPS_KEY
-        ? `https://maps.googleapis.com/maps/api/staticmap?center=${m.lat},${m.lng}&zoom=16&size=460x240&scale=2&style=saturation:-100&markers=color:0xEBADC4%7C${m.lat},${m.lng}&key=${GMAPS_KEY}`
-        : null;
-    const thumbUri = staticMapUrl ?? link.ogImage ?? null;
-    // 데이터 행: 장소는 영업·전화(있는 것만), 상품은 가격.
-    const dataRows: { label: string; value: string }[] = [];
-    if (isPlace && m?.hours)
-      dataRows.push({ label: t('chat.linkData.hours'), value: m.hours });
-    if (isPlace && m?.phone)
-      dataRows.push({ label: t('chat.linkData.phone'), value: m.phone });
-    if (isItem && m?.price != null)
-      dataRows.push({
-        label: t('chat.linkData.price'),
-        value: formatPrice(m.price, m.currency),
-      });
-    return (
-      <BrutalFrame contentStyle={styles.linkInner}>
-        {comment ? (
-          <Text variant="body" style={styles.linkComment}>
-            {comment}
-          </Text>
-        ) : null}
-        {thumbUri ? (
-          <View style={styles.thumbWrap}>
-            <Image
-              source={{ uri: thumbUri }}
-              style={styles.thumbnail}
-              resizeMode="cover"
-            />
-            {/* 영상 길이 배지 — durationSec 있을 때만, 썸네일 우하단. */}
-            {isVideo && m?.durationSec != null ? (
-              <View style={styles.durationBadge}>
-                <Text variant="micro" color="#FFFFFF" style={styles.durationText}>
-                  {formatDuration(m.durationSec)}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-        <View style={styles.linkBody}>
-          <Text variant="bodyStrong" style={styles.linkTitle} numberOfLines={2}>
-            {link.ogTitle ?? link.url}
-          </Text>
-          {captionText ? (
-            <Text
-              variant="caption"
-              color={colors.textSecondary}
-              style={styles.linkDescription}
-              numberOfLines={2}
-            >
-              {captionText}
-            </Text>
-          ) : null}
-          {dataRows.map((r) => (
-            <LinkDataRow key={r.label} label={r.label} value={r.value} />
-          ))}
-          {/* 출처 행: [siteName ←공간→ ✳ TAG] */}
-          <View style={styles.sourceRow}>
-            <Text
-              variant="micro"
-              color={colors.textTertiary}
-              style={styles.sourceSite}
-              numberOfLines={1}
-            >
-              {link.siteName ?? link.url}
-            </Text>
-            <Text
-              variant="micro"
-              color={colors.textTertiary}
-              style={styles.sourceTag}
-              numberOfLines={1}
-            >
-              {`✳ ${tag}`}
-            </Text>
-          </View>
-        </View>
-      </BrutalFrame>
-    );
-  };
+  // 아이콘 색: 분류색 말풍선 위에서도 대비를 유지하도록 onBubble 계열 알파만 얹는다.
+  const actionIconColor = hexAlpha(puffy.onBubble, 0.75);
+
+  // 말풍선 안 맨 아래 우측 정렬 아이콘 액션 줄: 상세보기·삭제만(사용자 확정 —
+  // 복사·공유는 ⋮ 메뉴 담당).
+  const renderActionRow = (wrapperStyle: StyleProp<ViewStyle>) => (
+    <View style={[styles.actionRow, wrapperStyle]}>
+      {onDetail ? (
+        <TouchableOpacity
+          onPress={onDetail}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={t('chat.menu.detail')}
+          style={styles.actionButton}
+        >
+          <Eye size={15} strokeWidth={2} color={actionIconColor} />
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
 
   // 세그먼트 하나 렌더: 텍스트(본문 스타일·공백뿐이면 생략) 또는 카드(자기 URL로 링크).
   const renderSegment = (seg: Segment, i: number) => {
@@ -354,7 +206,7 @@ export function MessageBubble({
         onLongPress={() => onLongPress(message)}
         accessibilityRole="link"
       >
-        {renderCard(seg.link)}
+        <LinkCard link={seg.link} />
       </TouchableOpacity>
     );
   };
@@ -428,8 +280,9 @@ export function MessageBubble({
               <View style={styles.segments}>{segments.map(renderSegment)}</View>
             ) : (
               // 단일 카드 폴백(구 메시지·links 없음) — 텍스트는 카드 안 코멘트로.
-              renderCard(messageLink, textBesidesUrl)
+              <LinkCard link={messageLink} comment={textBesidesUrl} />
             )}
+            {renderActionRow(styles.linkActionRow)}
           </View>
         ) : (
           <View
@@ -466,6 +319,7 @@ export function MessageBubble({
             >
               {message.content}
             </Text>
+            {renderActionRow(styles.textActionRow)}
           </View>
         )}
         </TouchableOpacity>
@@ -531,6 +385,25 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: 9,
     lineHeight: 21,
   },
+  // 말풍선 안 맨 아래 아이콘 액션 줄(상세보기·복사·공유·삭제) — 우측 정렬.
+  actionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 14,
+  },
+  actionButton: {
+    padding: 2,
+  },
+  // 텍스트 말풍선: 본문 아래 살짝 띄운다.
+  textActionRow: {
+    marginTop: 4,
+  },
+  // 링크 프레임: 카드 아래, 좌우로는 카드와 맞춰 살짝 들여쓴다.
+  linkActionRow: {
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
   // 말풍선 폭 캡 (재질은 BrutalFrame이 담당)
   // 컨테이너(패널)의 76%를 따라가되, 아무리 넓어도 캡에서 멈춤
   bubble: {
@@ -578,13 +451,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     right: 0,
     height: 14,
   },
-  // 링크 카드 안쪽: 배경색 + 클리핑 (썸네일이 보더 안에 들어가게)
-  // 라운드는 말풍선(24)과 결 맞추되 큰 면이라 한 단계 낮게
-  linkInner: {
-    backgroundColor: colors.background,
-    overflow: 'hidden',
-    borderRadius: 18,
-  },
   text: {
     lineHeight: 21,
   },
@@ -594,61 +460,5 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: 5,
     paddingTop: 5,
     paddingBottom: 5,
-  },
-  linkComment: {
-    lineHeight: 21,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
-  },
-  // 썸네일 래퍼 — 영상 길이 배지를 우하단에 얹기 위한 기준 컨테이너(비디오 아닐 땐 그냥 감싸기만).
-  thumbWrap: {
-    width: '100%',
-    position: 'relative',
-  },
-  // 고정 높이 대신 OG 표준 비율(1.91:1) — 카드 폭이 변해도 비율 유지
-  thumbnail: {
-    width: '100%',
-    aspectRatio: 1.91,
-    backgroundColor: colors.surface,
-  },
-  // 영상 길이 배지 — 이미지 위 오버레이라 테마와 무관한 고정 검정 스크림 + 흰 모노(라운드 0).
-  durationBadge: {
-    position: 'absolute',
-    right: 6,
-    bottom: 6,
-    backgroundColor: 'rgba(0,0,0,0.78)',
-    borderRadius: 0,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-  },
-  durationText: {
-    fontSize: 10,
-    lineHeight: 13,
-  },
-  linkBody: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  linkTitle: {
-    lineHeight: 19,
-  },
-  linkDescription: {
-    marginTop: 4,
-    lineHeight: 17,
-  },
-  // 출처 행: siteName은 왼쪽(길면 truncate), ✳ TAG는 오른쪽 끝.
-  sourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  sourceSite: {
-    flexShrink: 1,
-    paddingRight: 8,
-  },
-  sourceTag: {
-    letterSpacing: 0.8,
   },
 });

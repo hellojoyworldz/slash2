@@ -69,6 +69,12 @@ export class UpdateProfileDto {
   @IsHexColor()
   selfColor?: string;
 
+  // "전체" 방 설명(상태메시지). 빈 문자열을 보내면 지운다(null 저장) — 부분 갱신 의미론.
+  @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: '설명은 80자 이내로 입력해주세요.' })
+  selfDescription?: string;
+
   // 저장된 커스텀 프로필 색 목록(hex). 각 원소 hex 검증, 최대 16개.
   @IsOptional()
   @IsArray()

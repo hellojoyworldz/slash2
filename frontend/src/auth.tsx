@@ -15,6 +15,8 @@ interface AuthState {
   emailVerified: boolean;
   // "전체"(자기 자신) 방 프로필 색(hex). null이면 기본 검정으로 그린다.
   selfColor: string | null;
+  // "전체"(자기 자신) 방 설명(상태메시지). 없으면 null.
+  selfDescription: string | null;
   // 저장된 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors: string[];
   // 자동구분 표시 순서(6종 순열). null이면 기본 순서로 그린다.
@@ -29,6 +31,8 @@ interface AuthState {
   setDisplayName: (name: string | null) => void;
   // "전체" 프로필 색 변경 후 컨텍스트 갱신용.
   setSelfColor: (color: string | null) => void;
+  // "전체" 프로필 설명 변경 후 컨텍스트 갱신용.
+  setSelfDescription: (description: string | null) => void;
   // 커스텀 프로필 목록 추가/삭제 후 컨텍스트 갱신용.
   setCustomColors: (colors: string[]) => void;
   // 자동구분 순서 변경 후 컨텍스트 갱신용(낙관적).
@@ -44,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [selfColor, setSelfColor] = useState<string | null>(null);
+  const [selfDescription, setSelfDescription] = useState<string | null>(null);
   const [customColors, setCustomColors] = useState<string[]>([]);
   const [autoOrder, setAutoOrder] = useState<AutoKind[] | null>(null);
   const [providers, setProviders] = useState<string[]>([]);
@@ -61,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setDisplayName(user.displayName ?? null);
           setEmailVerified(!!user.emailVerified);
           setSelfColor(user.selfColor ?? null);
+          setSelfDescription(user.selfDescription ?? null);
           setCustomColors(user.customColors ?? []);
           setAutoOrder(user.autoOrder ?? null);
           setProviders(user.providers ?? []);
@@ -81,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setDisplayName(user.displayName ?? null);
     setEmailVerified(!!user.emailVerified);
     setSelfColor(user.selfColor ?? null);
+    setSelfDescription(user.selfDescription ?? null);
     setCustomColors(user.customColors ?? []);
     setAutoOrder(user.autoOrder ?? null);
     setProviders(user.providers ?? []);
@@ -95,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setDisplayName(null);
     setEmailVerified(false);
     setSelfColor(null);
+    setSelfDescription(null);
     setCustomColors([]);
     setAutoOrder(null);
     setProviders([]);
@@ -108,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setDisplayName(user.displayName ?? null);
       setEmailVerified(!!user.emailVerified);
       setSelfColor(user.selfColor ?? null);
+      setSelfDescription(user.selfDescription ?? null);
       setCustomColors(user.customColors ?? []);
       setAutoOrder(user.autoOrder ?? null);
       setProviders(user.providers ?? []);
@@ -126,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         displayName,
         emailVerified,
         selfColor,
+        selfDescription,
         customColors,
         autoOrder,
         providers,
@@ -134,6 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refresh,
         setDisplayName,
         setSelfColor,
+        setSelfDescription,
         setCustomColors,
         setAutoOrder,
       }}

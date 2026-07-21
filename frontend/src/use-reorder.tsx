@@ -1,12 +1,14 @@
 import {
+  ComponentType,
   MutableRefObject,
   ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
-import { Platform, ViewStyle } from 'react-native';
+import { Platform, StyleProp, View, ViewStyle } from 'react-native';
 import { Gesture } from 'react-native-gesture-handler';
 import Animated, {
   SharedValue,
@@ -26,6 +28,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 // 들린 행: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로.
 const LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
+// 들린 셀(형제 셀 위로): 셀 레벨 zIndex/elevation. elevation은 Android 그림자를 유발하므로
+// shadowColor 투명화로 최소화(DESIGN 그림자 금지에 대한 최선의 근사치).
+const LIFT_CELL = { zIndex: 20, elevation: 20, shadowColor: 'transparent' } as const;
 const SHIFT_TIMING = { duration: 130 } as const;
 
 // 웹에서만 그랩 커서(RN 타입에 없는 값이라 캐스팅).
@@ -33,6 +38,59 @@ export const grabCursor: ViewStyle | null =
   Platform.OS === 'web'
     ? ({ cursor: 'grab' } as unknown as ViewStyle)
     : null;
+
+// RNW(react-native-web) VirtualizedListCellRenderer가 CellRendererComponent에 내려주는 props.
+// 기본 셀은 `<View style={cellStyle} onFocusCapture onLayout>`이고(vertical 목록에선 style=undefined),
+// onLayout이 VirtualizedList의 셀 높이 측정·가상화·스크롤 콘텐츠 높이 산출의 유일한 경로다.
+type ReorderCellProps = {
+  index?: number;
+  item?: unknown;
+  cellKey?: string;
+  style?: StyleProp<ViewStyle>;
+  onFocusCapture?: (e: unknown) => void;
+  onLayout?: (e: unknown) => void;
+  children?: ReactNode;
+};
+
+// FlatList의 CellRendererComponent — 잡은 행이 속한 "셀" 자체(형제 뷰)에 zIndex/elevation을 준다.
+// 셀 자식(ReorderRow)에만 zIndex를 줘도 웹은 대체로 위로 뜨지만, 네이티브(iOS/Android)에선 실제
+// 형제 관계가 이 셀 레벨이라 셀 자체를 들어야 이웃 셀 위로 확실히 올라간다.
+//
+// ⚠️ 셀은 반드시 일반 View다 — reanimated Animated.View로 감싸지 않는다.
+//   RNW VirtualizedList는 각 셀에 onLayout(=onCellLayout)을 걸어 높이를 측정하는데, 셀을
+//   Animated.View로 감싸면 이 측정/셀 레이아웃 계약이 어긋나 리스트가 패널 높이를 무시하고
+//   전 행을 흘려버려 내부 스크롤이 죽는다(실측 회귀). 그래서 여기서는 기본 RNW 셀
+//   (`<View style onFocusCapture onLayout>`)을 그대로 재현하고, RNW가 내려주는 props를
+//   빠짐없이 보존한다(style·onFocusCapture·onLayout 전달, index/item/cellKey는 소비).
+//
+// 들림 표시는 reanimated 없이 상태 기반으로 처리한다: 드래그는 세션당 1회(setDraggingId) 리렌더를
+// 유발하고 그때 FlatList의 extraData로 셀도 다시 렌더되므로, 그 시점에 activeIndexRef.current를 읽어
+// 잡힌 셀에만 zIndex/elevation을 준다(세션당 1회 스타일 변경 — 위치 애니메이션은 ReorderRow 담당).
+// FriendsScreen(분류 탭)의 자체 useDragReorder도 이 헬퍼를 재사용한다(같은 number ref 계약).
+export function createReorderCellRenderer(
+  activeIndexRef: MutableRefObject<number>,
+): ComponentType<any> {
+  return function ReorderCellRenderer({
+    index,
+    // item·cellKey는 소비만 한다(기본 RNW 셀도 이 둘을 DOM에 넘기지 않는다).
+    item: _item,
+    cellKey: _cellKey,
+    style,
+    onFocusCapture,
+    onLayout,
+    children,
+  }: ReorderCellProps) {
+    const lifted = index != null && activeIndexRef.current === index;
+    // onFocusCapture는 RNW 전용 prop이라 RN View 타입엔 없다 — 기본 RNW 셀처럼 그대로 전달하되
+    // 스프레드로 타입을 우회한다(onLayout은 RN 타입에 존재).
+    const webProps = { onFocusCapture } as Record<string, unknown>;
+    return (
+      <View style={[style, lifted && LIFT_CELL]} onLayout={onLayout as never} {...webProps}>
+        {children}
+      </View>
+    );
+  };
+}
 
 export interface ReorderControls {
   /** 세션당 1회만 바뀌는 "들린 행" id(null=유휴) — 들린 스타일·scrollEnabled에 쓴다. */
@@ -45,6 +103,8 @@ export interface ReorderControls {
   getGesture: (id: string) => ReturnType<typeof Gesture.Pan>;
   /** 접근성 increment/decrement — 위/아래로 한 칸. */
   moveByOne: (id: string, delta: number) => void;
+  /** FlatList의 `CellRendererComponent`에 그대로 물린다 — 잡은 행의 셀을 이웃 위로 올린다. */
+  CellRendererComponent: ComponentType<any>;
 }
 
 export function useReorder(opts: {
@@ -57,6 +117,9 @@ export function useReorder(opts: {
   const { rowHeight, orderRef, onCommit } = opts;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const activeIndex = useSharedValue(-1);
+  // 셀 렌더러가 "잡힌 셀"을 판별하는 JS-스레드 값(SharedValue는 UI 스레드라 셀 리렌더에서 못 읽는다).
+  // 세션당 1회 리렌더 시점(draggingId 변경)에만 읽히므로 ref로 충분하다.
+  const activeIndexRef = useRef(-1);
   const targetIndex = useSharedValue(-1);
   const dragY = useSharedValue(0);
   // 균일 높이(상수) — ReorderRow 오프셋 애니메이션에서만 UI 스레드로 읽는다.
@@ -108,6 +171,7 @@ export function useReorder(opts: {
             max: (n - 1 - idx) * rowH.value,
           };
           activeIndex.value = idx;
+          activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
           dragY.value = 0;
           setDraggingId(id); // 세션당 1회 리렌더(들린 스타일 + scrollEnabled false)
@@ -134,6 +198,7 @@ export function useReorder(opts: {
           // 커밋과 동시에 리셋 — activeIndex=-1이면 offset이 즉시 0이 되어 새 데이터 순서와
           // 정확히 맞물려 시각 점프가 없다.
           activeIndex.value = -1;
+          activeIndexRef.current = -1;
           targetIndex.value = -1;
           dragY.value = 0;
           setDraggingId(null);
@@ -144,7 +209,21 @@ export function useReorder(opts: {
     [orderRef, activeIndex, targetIndex, dragY, rowH],
   );
 
-  return { draggingId, activeIndex, targetIndex, dragY, rowHeight: rowH, getGesture, moveByOne };
+  const CellRendererComponent = useMemo(
+    () => createReorderCellRenderer(activeIndexRef),
+    [],
+  );
+
+  return {
+    draggingId,
+    activeIndex,
+    targetIndex,
+    dragY,
+    rowHeight: rowH,
+    getGesture,
+    moveByOne,
+    CellRendererComponent,
+  };
 }
 
 // 재정렬 애니메이션 래퍼: 잡은 행은 dragY 추종, 나머지는 슬롯 비켜남(offset).

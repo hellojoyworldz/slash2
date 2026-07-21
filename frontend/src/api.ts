@@ -9,6 +9,8 @@ export interface User {
   emailVerified?: boolean;
   // "전체"(자기 자신) 방 프로필 색(hex). null이면 프론트가 기본 검정으로 표시.
   selfColor?: string | null;
+  // "전체"(자기 자신) 방 설명(상태메시지). 없으면 null.
+  selfDescription?: string | null;
   // 사용자가 저장한 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors?: string[];
   // 자동구분 표시 순서(6종 순열). null이면 프론트가 기본 순서로 표시.
@@ -224,13 +226,14 @@ export const api = {
 
   me: (token: string) => request<User>('/auth/me', { token }),
 
-  // 프로필 부분 갱신 (표시 이름 / "전체" 방 프로필 색 / 커스텀 프로필 목록 / 자동구분 순서).
+  // 프로필 부분 갱신 (표시 이름 / "전체" 방 프로필 색·설명 / 커스텀 프로필 목록 / 자동구분 순서).
   // 보낸 필드만 반영된다. autoOrder는 6종 순열이어야 하며, 잘못되면 400 code 'invalid_auto_order'.
   updateProfile: (
     token: string,
     changes: {
       displayName?: string;
       selfColor?: string;
+      selfDescription?: string;
       customColors?: string[];
       autoOrder?: AutoKind[];
     },
@@ -317,6 +320,19 @@ export const api = {
     request<Message>(`/messages/${id}`, {
       method: 'PATCH',
       body: { content, friendId },
+      token,
+    }),
+
+  // 메시지 통합 부분 갱신 — content·friendId·tagIds를 한 번의 PATCH로 보낸다(백엔드가 부분
+  // 의미론 지원: 보낸 필드만 반영). 수정 모드 [저장]이 내용·스테이징된 분류·태그를 함께 적용한다.
+  updateMessage: (
+    token: string,
+    id: string,
+    changes: { content?: string; friendId?: string | null; tagIds?: string[] },
+  ) =>
+    request<Message>(`/messages/${id}`, {
+      method: 'PATCH',
+      body: changes,
       token,
     }),
 

@@ -23,6 +23,8 @@ export default {
     resizeList: '목록 너비 조절',
     reorder: '순서 변경',
     cardDetail: '카드 상세',
+    editCategory: '분류 편집',
+    editTags: '태그 편집',
   },
   tabs: {
     friends: '분류',
@@ -93,6 +95,9 @@ export default {
     inputPlaceholderDesktop: '링크나 메모를 입력하세요 · Enter 전송, Shift+Enter 줄바꿈',
     categoryTag: '분류: {{name}}',
     noticeTag: '공지',
+    noTags: '태그 없음',
+    tagsNone: '없음',
+    tagsTag: '태그: {{names}}',
     changeFriend: '분류 변경',
     addFriendFirst: '분류 탭에서 먼저 분류를 추가해보세요',
     unassign: '분류 해제',
@@ -108,6 +113,9 @@ export default {
       address: '주소',
       phone: '전화',
       source: '출처',
+      channel: '채널',
+      duration: '길이',
+      author: '작성자',
     },
     // 카드 상세 패널의 지도/출처 액션
     linkSheet: {
@@ -117,13 +125,14 @@ export default {
     // 메시지 ⋮/long-press 액션 메뉴 (카톡 스타일 행 리스트)
     menu: {
       title: '메시지',
+      detail: '상세보기',
       copy: '복사',
       share: '공유',
       notice: '공지',
       noticeOff: '공지 해제',
       tags: '태그',
-      editContent: '내용 수정',
-      editCategory: '분류 수정',
+      editContent: '수정',
+      editCategory: '분류',
     },
     // 복사/공유 후 짧은 확인
     copied: '복사했어요',
@@ -174,6 +183,7 @@ export default {
     addProfile: '프로필 추가',
     removeProfile: '프로필 삭제',
     namePlaceholder: '이름 (예: 개발, 요리, 뉴스)',
+    newPlaceholder: '새 분류 이름',
     descriptionPlaceholder: '설명 (선택)',
     confirmDelete: "'{{name}}' 분류를 삭제할까요?",
     favoritesSection: '즐겨찾기',
@@ -239,6 +249,10 @@ export default {
     linkedGoogle: 'Google 연결됨',
   },
   // 백엔드가 보내는 에러 코드 → 표시 문구. code 매칭 실패 시 requestFailed로 폴백.
+  // 잘 알려진 서비스의 출처(siteName) 로케일 표시명
+  sites: {
+    googleMaps: '구글지도',
+  },
   errors: {
     email_taken: '이미 가입된 이메일입니다.',
     email_taken_social:

@@ -3,15 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { BackHandler, Platform, Pressable, StyleSheet, View } from 'react-native';
 import {
   Copy,
+  Eye,
+  Hash,
   Megaphone,
   Pencil,
   Share2,
   Slash,
-  Tag,
   Trash2,
 } from 'lucide-react-native';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { Button } from './Button';
 import { Text } from './Text';
 
 // lucide 아이콘 컴포넌트 타입.
@@ -25,6 +27,8 @@ interface Props {
   visible: boolean;
   /** 스크림 탭·Android 뒤로가기·웹 Esc로 닫기 */
   onClose: () => void;
+  /** 상세보기 — 메시지 상세 모달(채팅형)/카드 상세 패널(목록형)을 연다. */
+  onDetail: () => void;
   onCopy: () => void;
   onShare: () => void;
   /** 공지 토글. isNotice면 "공지 해제", 아니면 "공지". */
@@ -45,6 +49,7 @@ interface Props {
 export function MessageActionMenu({
   visible,
   onClose,
+  onDetail,
   onCopy,
   onShare,
   onNotice,
@@ -80,8 +85,9 @@ export function MessageActionMenu({
 
   if (!visible) return null;
 
-  // 삭제를 제외한 상단 항목(복사·공유·공지·태그·내용 수정·분류 수정).
+  // 삭제를 제외한 상단 항목 — 확정 순서: 상세보기·복사·공유·공지·분류·태그·수정.
   const items: { key: string; label: string; Icon: IconComponent; onPress: () => void }[] = [
+    { key: 'detail', label: t('chat.menu.detail'), Icon: Eye, onPress: onDetail },
     { key: 'copy', label: t('chat.menu.copy'), Icon: Copy, onPress: onCopy },
     { key: 'share', label: t('chat.menu.share'), Icon: Share2, onPress: onShare },
     {
@@ -90,9 +96,9 @@ export function MessageActionMenu({
       Icon: Megaphone,
       onPress: onNotice,
     },
-    { key: 'tags', label: t('chat.menu.tags'), Icon: Tag, onPress: onTags },
-    { key: 'editContent', label: t('chat.menu.editContent'), Icon: Pencil, onPress: onEditContent },
     { key: 'editCategory', label: t('chat.menu.editCategory'), Icon: Slash, onPress: onEditCategory },
+    { key: 'tags', label: t('chat.menu.tags'), Icon: Hash, onPress: onTags },
+    { key: 'editContent', label: t('chat.menu.editContent'), Icon: Pencil, onPress: onEditContent },
   ];
 
   const renderRow = (
@@ -138,6 +144,10 @@ export function MessageActionMenu({
             {/* 삭제는 점선 구분선 아래로 편집 액션과 떼어 놓는다(흑백 유지). */}
             <View style={styles.divider} />
             {renderRow('delete', t('common.delete'), Trash2, onDelete)}
+          </View>
+          {/* 모달 공통 문법: 우측 정렬 공용 Button(ghost) 닫기 — 손으로 그리지 않는다. */}
+          <View style={styles.closeRow}>
+            <Button label={t('common.close')} variant="ghost" onPress={onClose} />
           </View>
         </View>
       </View>
@@ -211,5 +221,11 @@ const makeStyles = (colors: ThemeColors) =>
       borderStyle: 'dotted',
       borderTopColor: colors.border,
       marginTop: 4,
+    },
+    // 우측 정렬 ghost 닫기 — ModalCard 액션 줄 문법과 통일.
+    closeRow: {
+      marginTop: 14,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
     },
   });

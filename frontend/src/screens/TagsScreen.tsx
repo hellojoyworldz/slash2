@@ -134,6 +134,9 @@ export function TagsScreen({ token, onOpenTag, onLogout }: Props) {
         contentContainerStyle={styles.listContent}
         scrollEnabled={reorder.draggingId === null}
         extraData={reorder.draggingId}
+        // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android — 셀 형제 레벨에서 zIndex/elevation 필요).
+        CellRendererComponent={reorder.CellRendererComponent}
+        removeClippedSubviews={false}
         renderItem={({ item, index }) => {
           const active = isDesktop && selectedTag?.id === item.id;
           const isDragging = reorder.draggingId === item.id;

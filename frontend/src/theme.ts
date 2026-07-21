@@ -149,6 +149,22 @@ export const CATEGORY_COLORS: { key: string; hex: string }[] = [
 // 검정(S0)이라 makePuffy는 미분류 기본과 같은 회색 파스텔을 내 시각 변화가 없다.
 export const SELF_DEFAULT_COLOR = '#1A1A1A';
 
+// 새 분류 생성 시 기본 색 자동 지정: CATEGORY_COLORS(8색) 순서대로 훑어
+// 아직 어떤 분류도 안 쓰는 첫 색을 고른다. 8색이 모두 쓰이는 중이면 개수로 순환.
+// existing은 색만 필요해 Friend 전체가 아니어도(RoomsSummary의 friend 요약 등) 받는다.
+export function pickDefaultCategoryColor(
+  existing: { color?: string | null }[],
+): string {
+  const used = new Set(
+    existing
+      .map((f) => f.color?.toUpperCase())
+      .filter((c): c is string => !!c),
+  );
+  const unused = CATEGORY_COLORS.find((c) => !used.has(c.hex.toUpperCase()));
+  if (unused) return unused.hex;
+  return CATEGORY_COLORS[existing.length % CATEGORY_COLORS.length].hex;
+}
+
 // 푹신한(puffy) 말풍선 세트만 따로 뽑은 타입.
 export interface PuffyColors {
   bubbleFill: string;

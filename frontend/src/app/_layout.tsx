@@ -15,6 +15,7 @@ import { Text } from '../components/Text';
 import { loadStoredLanguage } from '../i18n'; // import 시 i18n 초기화 실행
 import { CategoryEditProvider } from '../category-edit';
 import { MessageActionsHost, MessageActionsProvider } from '../message-actions';
+import { MessageDetailHost, MessageDetailProvider } from '../message-detail';
 import { NameEditProvider } from '../name-edit';
 import { SelectedRoomProvider } from '../selected-room';
 import { TagCreateProvider } from '../tag-create';
@@ -91,6 +92,9 @@ function Shell() {
               contentStyle: { backgroundColor: colors.background },
             }}
           />
+          {/* 메시지 상세 모달(공지 배너 탭) 루트 상주 호스트.
+              자체 ⋮ 메뉴가 없어 겹칠 일은 없지만, 액션 메뉴·확인창이 항상 위가 되게 맨 아래에 둔다. */}
+          <MessageDetailHost />
           {/* 메시지 액션(⋮ 메뉴·태그 선택·내용 수정) 루트 상주 호스트.
               NotifyHost보다 앞(=아래)에 둬야 태그 삭제 확인 다이얼로그가 위에 뜬다. */}
           <MessageActionsHost />
@@ -123,9 +127,11 @@ export default function RootLayout() {
               <NameEditProvider>
                 <CategoryEditProvider>
                   <TagCreateProvider>
-                    <MessageActionsProvider>
-                      <Shell />
-                    </MessageActionsProvider>
+                    <MessageDetailProvider>
+                      <MessageActionsProvider>
+                        <Shell />
+                      </MessageActionsProvider>
+                    </MessageDetailProvider>
                   </TagCreateProvider>
                 </CategoryEditProvider>
               </NameEditProvider>
