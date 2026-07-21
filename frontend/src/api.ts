@@ -16,9 +16,22 @@ export interface User {
   // 자동구분 표시 순서(6종 순열). null이면 프론트가 기본 순서로 표시.
   // 자동구분 탭·목록형 보드 섹션·자동구분 칩(전체 제외) 순서에 반영된다.
   autoOrder?: AutoKind[] | null;
+  // 자동구분 즐겨찾기(6종의 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
+  // 자동구분 탭 '즐겨찾기' 섹션의 원천. 종류가 정적이라 분류/태그와 달리 유저 프로필에 저장된다.
+  autoFavorites?: AutoKind[] | null;
+  // 탭(메뉴) 표시 순서(5키 순열). null이면 기본 순서. 더보기는 순서 밖(항상 맨끝).
+  tabOrder?: TabKey[] | null;
+  // 숨긴 탭 목록(HIDEABLE_TABS의 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
+  hiddenTabs?: HideableTab[] | null;
   // 연결된 소셜 provider 목록 (예: ['google']). /auth/me·로그인 응답에서 내려온다.
   providers?: string[];
 }
+
+// 탭(메뉴) 커스터마이즈: 순서를 바꿀 수 있는 5키(더보기는 순서 밖·맨끝 고정).
+export type TabKey = 'friends' | 'chats' | 'categories' | 'tags' | 'auto';
+
+// 노출/숨김 토글 가능한 탭(그룹·채팅·더보기는 항상 노출이라 제외).
+export type HideableTab = 'categories' | 'tags' | 'auto';
 
 // 링크 자동구분: 서버가 링크를 분류한 종류. 미분류/구버전 메시지는 null.
 export type LinkType = 'place' | 'video' | 'item' | 'article';
@@ -83,9 +96,17 @@ export interface Message {
 export interface Tag {
   id: string;
   name: string;
+  // 태그 프로필 색 (hex). # 타일 배경의 원천. null이면 기본 표면색. 말풍선 색은 분류의 것 — 태그는 자기 타일만.
+  color?: string | null;
   position: number;
+  // 태그 설명(분류 selfDescription/description과 같은 관례 — 빈 문자열은 null). 없으면 null.
+  description?: string | null;
   // 태그 탭 상단 고정. GET /tags 정렬 = 고정 먼저 → position → name. 서버 미배포면 없을 수 있어 optional.
   pinned?: boolean;
+  // 태그 탭 즐겨찾기(★). 고정(pinned)과 무관 — 본 목록 정렬엔 영향 없음. 분류 favorite과 동일 관례.
+  favorite?: boolean;
+  // 즐겨찾기 섹션 전용 순서(position과 독립). favorite=true 토글 시 서버가 맨 밑 위치 자동 부여, false 시 null.
+  favoritePosition?: number | null;
   // 이 태그가 붙은 메시지 개수 (GET /tags에서 내려줌). 서버 미배포/구버전이면 없을 수 있어 optional.
   messageCount?: number;
 }
@@ -232,10 +253,15 @@ export const api = {
     token: string,
     changes: {
       displayName?: string;
-      selfColor?: string;
+      selfColor?: string | null;
       selfDescription?: string;
       customColors?: string[];
       autoOrder?: AutoKind[];
+      // 자동구분 즐겨찾기(6종 부분집합). 잘못되면 400 code 'invalid_order'.
+      autoFavorites?: AutoKind[];
+      // 탭 순서(5키 순열)·숨김 탭(HIDEABLE_TABS 부분집합). 잘못되면 400 code 'invalid_order'.
+      tabOrder?: TabKey[];
+      hiddenTabs?: HideableTab[];
     },
   ) =>
     request<User>('/auth/me', {
@@ -286,10 +312,21 @@ export const api = {
   autoCounts: (token: string) =>
     request<AutoCounts>('/messages/auto-counts', { token }),
 
-  createMessage: (token: string, content: string, friendId?: string) =>
+  // tagIds: 태그 방에서 전송할 때 그 태그를 자동 부착한다(분류 없는 새 메시지 + 태그).
+  // 보낸 필드만 실린다 — friendId/tagIds가 없으면 body에서 생략.
+  createMessage: (
+    token: string,
+    content: string,
+    friendId?: string,
+    tagIds?: string[],
+  ) =>
     request<Message>('/messages', {
       method: 'POST',
-      body: friendId ? { content, friendId } : { content },
+      body: {
+        content,
+        ...(friendId ? { friendId } : {}),
+        ...(tagIds && tagIds.length ? { tagIds } : {}),
+      },
       token,
     }),
 
@@ -341,11 +378,12 @@ export const api = {
   createFriend: (
     token: string,
     name: string,
-    color?: string,
+    color?: string | null,
     description?: string,
   ) =>
     request<Friend>('/friends', {
       method: 'POST',
+      // 색은 있을 때만 보낸다 — 없으면(무채) 서버가 null로 생성.
       body: { name, ...(color ? { color } : {}), ...(description ? { description } : {}) },
       token,
     }),
@@ -354,10 +392,11 @@ export const api = {
     request<void>(`/friends/${id}`, { method: 'DELETE', token }),
 
   // 분류 수정 (이름·프로필색·설명). 부분 갱신이라 바뀐 필드만 보낸다.
+  // color: 키 없음=미변경, null=무채(색 없음)로 변경, hex=그 색으로 변경.
   updateFriend: (
     token: string,
     id: string,
-    changes: { name?: string; color?: string; description?: string },
+    changes: { name?: string; color?: string | null; description?: string },
   ) =>
     request<Friend>(`/friends/${id}`, {
       method: 'PATCH',
@@ -386,16 +425,33 @@ export const api = {
   listTags: (token: string) => request<Tag[]>('/tags', { token }),
 
   // 새 태그 생성. 이름 중복은 409 code 'tag_name_taken'.
-  createTag: (token: string, name: string) =>
-    request<Tag>('/tags', { method: 'POST', body: { name }, token }),
+  // 색·설명(선택)은 있을 때만 보낸다 — 빈 문자열은 서버가 null로 저장(friends 생성과 같은 관례).
+  createTag: (token: string, name: string, color?: string | null, description?: string) =>
+    request<Tag>('/tags', {
+      method: 'POST',
+      body: {
+        name,
+        ...(color ? { color } : {}),
+        ...(description ? { description } : {}),
+      },
+      token,
+    }),
 
-  // 태그 이름 수정.
-  updateTag: (token: string, id: string, name: string) =>
-    request<Tag>(`/tags/${id}`, { method: 'PATCH', body: { name }, token }),
+  // 태그 수정 (이름·프로필색·설명). 부분 갱신이라 바뀐 필드만 보낸다. 설명 빈 문자열은 서버가 null로 저장.
+  // color: 키 없음=미변경, null=무채(색 없음)로 변경, hex=그 색으로 변경.
+  updateTag: (
+    token: string,
+    id: string,
+    changes: { name?: string; color?: string | null; description?: string },
+  ) => request<Tag>(`/tags/${id}`, { method: 'PATCH', body: changes, token }),
 
   // 태그 탭 상단 고정 토글(분류 고정과 동일 관례).
   updateTagPinned: (token: string, id: string, pinned: boolean) =>
     request<Tag>(`/tags/${id}`, { method: 'PATCH', body: { pinned }, token }),
+
+  // 태그 탭 즐겨찾기(★) 토글. 정렬에는 영향 없음(수동 드래그 순서 유지). 분류 favorite과 동일 관례.
+  updateTagFavorite: (token: string, id: string, favorite: boolean) =>
+    request<Tag>(`/tags/${id}`, { method: 'PATCH', body: { favorite }, token }),
 
   // 태그 삭제(모든 메시지에서 제거된다).
   deleteTag: (token: string, id: string) =>
@@ -405,6 +461,11 @@ export const api = {
   // 분류 재정렬(reorderFriends)과 동일 관례 — 엔드포인트만 다르다. GET /tags는 position ASC.
   reorderTags: (token: string, ids: string[]) =>
     request<void>('/tags/order', { method: 'PATCH', body: { ids }, token }),
+
+  // 태그 즐겨찾기 섹션 수동 정렬 저장(태그 순서와 독립). ids = 즐겨찾기 섹션에 보이는 순서 그대로.
+  // 서버가 favoritePosition을 이 순서로 재부여한다. 응답은 204. 분류 reorderFavorites와 동일 관례.
+  reorderFavoriteTags: (token: string, ids: string[]) =>
+    request<void>('/tags/favorite-order', { method: 'PATCH', body: { ids }, token }),
 
   // 메시지 태그 전체 교체(부분 의미론 — tagIds만 반영).
   updateMessageTags: (token: string, id: string, tagIds: string[]) =>

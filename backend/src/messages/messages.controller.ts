@@ -28,7 +28,7 @@ export class MessagesController {
 
   @Post()
   create(@CurrentUser() user: { id: string }, @Body() dto: CreateMessageDto) {
-    return this.messages.create(user.id, dto.content, dto.friendId);
+    return this.messages.create(user.id, dto.content, dto.friendId, dto.tagIds);
   }
 
   @Get()

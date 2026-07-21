@@ -8,6 +8,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateFriendDto {
@@ -36,9 +37,12 @@ export class UpdateFriendDto {
   @MaxLength(30, { message: '이름은 30자 이내로 입력해주세요.' })
   name?: string;
 
-  @IsOptional()
+  // 색 부분 갱신 계약: 키 없음(undefined)=미변경, 명시적 null=무채(색 없음)로 변경, hex=그 색으로 변경.
+  // (@IsOptional은 null·undefined 둘 다 스킵하지만, "null=무채" 의도를 드러내려 ValidateIf로 null만 통과시키고
+  //  값이 있으면 hex로 검증한다.)
+  @ValidateIf((o) => o.color !== null && o.color !== undefined)
   @IsHexColor()
-  color?: string;
+  color?: string | null;
 
   // 상태메시지. 빈 문자열을 보내면 지운다(null 저장) — 부분 갱신 의미론.
   @IsOptional()

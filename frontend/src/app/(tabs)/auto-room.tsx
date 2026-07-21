@@ -1,14 +1,14 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useWindowDimensions } from 'react-native';
-import { AutoKind } from '../api';
-import { useAppStyle } from '../app-style';
-import { useAuth } from '../auth';
-import { ChatScreen } from '../screens/ChatScreen';
-import { useSelectedRoom } from '../selected-room';
-import { layout } from '../theme';
+import { AutoKind } from '../../api';
+import { useAppStyle } from '../../app-style';
+import { useAuth } from '../../auth';
+import { ChatScreen } from '../../screens/ChatScreen';
+import { useSelectedRoom } from '../../selected-room';
+import { layout } from '../../theme';
 
-// 모바일 전용 자동구분 방 라우트. 데스크톱에서는 스플릿뷰 오른쪽 패널이 담당하므로
+// 자동구분 방 라우트. 데스크톱에서는 스플릿뷰 오른쪽 패널이 담당하므로
 // 방 선택만 넘기고 자동구분 탭으로 돌려보낸다(친구 방의 /chat과 같은 구조).
 const AUTO_KINDS: readonly AutoKind[] = [
   'place',
@@ -47,11 +47,14 @@ export default function AutoRoomRoute() {
   if (!kind) return <Redirect href="/auto" />;
 
   return (
+    // key로 자동구분 종류마다 새 인스턴스를 강제(탭 유지로 언마운트 안 됨 → 상태 누수 방지).
     <ChatScreen
+      key={`auto:${kind}`}
       token={token}
       auto={kind}
       friendId={null}
       friendName={null}
+      bottomTabBar
       onBack={() => {
         if (router.canGoBack()) router.back();
         else router.replace('/auto');

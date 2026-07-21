@@ -11,13 +11,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Pencil, Search, X } from 'lucide-react-native';
+import { EllipsisVertical, Search, X } from 'lucide-react-native';
 import { api, ApiError, AutoKind, Friend, Message, Tag } from '../api';
 import { useAuth } from '../auth';
-import { ListFilter, matchesAutoFilter } from '../auto-filter';
 import { useCategoryEdit } from '../category-edit';
+import { useTagCreate } from '../tag-create';
 import { confirmDialog, notify } from '../notify';
-import { AutoChips } from '../components/AutoChips';
 import { MessageBubble } from '../components/MessageBubble';
 import { NoticeBanner } from '../components/NoticeBanner';
 import { Text } from '../components/Text';
@@ -46,6 +45,10 @@ interface Props {
    *  자동구분 방과 동일하게 friendId는 무시되고, 입력창·프로필 편집(펜)이 숨겨진다.
    *  헤더는 #태그명, 말풍선은 메시지별 자기 분류 색. */
   tag?: Tag | null;
+  /** 하단에 탭바가 깔린 채로(모바일 (tabs) 방 라우트) 렌더될 때 true.
+   *  이 경우 하단 safe-area는 탭바가 책임지므로 입력창은 안전영역 패딩을 빼
+   *  탭바와의 이중 여백(빈틈)을 없앤다. 데스크톱 상주 패널은 false(입력창이 창 바닥). */
+  bottomTabBar?: boolean;
 }
 
 export function ChatScreen({
@@ -57,26 +60,40 @@ export function ChatScreen({
   showBack = true,
   auto = null,
   tag = null,
+  bottomTabBar = false,
 }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 전송·삭제·분류 성공 시 채팅 목록 갱신 + 900px 교차용 draft 저장/복원.
   // roomsVersion은 분류 프로필(색) 편집 신호 — 열린 대화의 말풍선 색을 갱신하는 데 쓴다.
-  const { bumpRooms, roomsVersion, saveChatDraft, readChatDraft } = useSelectedRoom();
+  const { bumpRooms, roomsVersion, saveChatDraft, readChatDraft, setTag } =
+    useSelectedRoom();
   // 분류/전체 프로필 편집기(루트 상주) — 헤더 펜 아이콘에서 연다.
   const { open: openCategoryEditor } = useCategoryEdit();
+  // 태그 이름·설명 수정 폼(루트 상주) — 태그 방 헤더 펜에서 연다.
+  const { openTagRename } = useTagCreate();
   // 메시지 액션(⋮ 메뉴·태그 선택·내용 수정)은 루트 상주 호스트로 이동 — 여기선 열기만.
   const { openMessageMenu } = useMessageActions();
   // 메시지 상세 모달(공지 배너 탭)도 루트 상주 호스트 — 여기선 열기만.
   const { openMessageDetail } = useMessageDetail();
   // "전체" 방(미분류) 말풍선 색 + self 편집 프리필에 쓰는 전체 프로필 색.
   const { selfColor } = useAuth();
-  // 자동구분·태그 방은 입력창·펜·공지가 없는 "보기 전용" 방(전 방 통합 모음).
-  const viewOnly = !!auto || !!tag;
+  // 태그 방의 태그를 로컬 상태로 든다 — 헤더 펜으로 이름을 수정하면 즉시 갱신하기 위함.
+  // prop(tag)이 바뀌면(데스크톱: selected-room.setTag / 모바일: 라우트 재구성) 그 값으로 재시드한다.
+  const [roomTag, setRoomTag] = useState<Tag | null>(tag);
+  useEffect(() => {
+    setRoomTag(tag);
+  }, [tag]);
+  // 자동구분·태그 방은 입력창·펜(분류 프로필)·공지가 없는 "보기 전용" 방(전 방 통합 모음).
+  const viewOnly = !!auto || !!roomTag;
   // 방 구분 키. 저장된 draft가 이 값과 일치할 때만 복원한다(다른 방이면 빈 상태).
-  // 자동구분/태그 방은 friendId(null)로 'self'와 겹치지 않게 접두어로 태깅한다.
-  const roomKey = tag ? `tag:${tag.id}` : auto ? `auto:${auto}` : friendId ?? 'self';
+  // 자동구분/태그 방은 friendId(null)로 'self'와 겹치지 않게 접두어로 태깅한다(이름 수정엔 불변 — id 기준).
+  const roomKey = roomTag
+    ? `tag:${roomTag.id}`
+    : auto
+      ? `auto:${auto}`
+      : friendId ?? 'self';
   // 마운트 시 1회: 같은 방의 draft가 있으면 검색·입력 상태를 그걸로 시작한다.
   const [initialDraft] = useState(() => readChatDraft(roomKey));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -94,9 +111,6 @@ export function ChatScreen({
   const [tags, setTags] = useState<Tag[]>([]);
   // 이 방의 공지 메시지(없으면 null). 방 진입 시 GET notice로 로드, 등록/해제 시 즉시 갱신.
   const [noticeMessage, setNoticeMessage] = useState<Message | null>(null);
-  // 자동구분 칩 선택. 채팅 뷰·목록 모드가 공유해서(뷰 전환해도 유지) 방 레벨로 호이스트.
-  // ChatScreen이 방마다 key로 리마운트되므로(탭바/데스크톱 레일) 방 전환 시 자연히 '전체'로 초기화된다.
-  const [autoFilter, setAutoFilter] = useState<ListFilter>('all');
   const activeQuery = useRef('');
   // 첫 로드 여부: 첫 조회는 디바운스 없이 즉시(복원된 검색어로) 실행하기 위한 플래그
   const firstLoadRef = useRef(true);
@@ -104,6 +118,9 @@ export function ChatScreen({
   const desktopInput = useDesktopClassInput();
   const inputRef = useRef<TextInput>(null);
   const sendRef = useRef<() => void>(() => {});
+  // 전송 직후 방금 보낸 메시지(맨 아래)로 스크롤하기 위한 타임라인 ref.
+  // inverted 목록이라 화면 최하단 = offset 0. 모바일·데스크톱 패널 공용.
+  const listRef = useRef<FlatList<Message>>(null);
 
   // 태그 저장·내용 수정 성공 시 목록의 해당 메시지를 최신본으로 교체(루트 호스트가 콜백 호출).
   const applyUpdated = (updated: Message) => {
@@ -247,8 +264,8 @@ export function ChatScreen({
         const page = await api.listMessages(token, {
           q: query || undefined,
           // 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합, 일반 방은 friendId로 조회.
-          ...(tag
-            ? { tagId: tag.id }
+          ...(roomTag
+            ? { tagId: roomTag.id }
             : auto
               ? { auto }
               : { friendId: friendId ?? undefined }),
@@ -267,7 +284,7 @@ export function ChatScreen({
         setLoading(false);
       }
     },
-    [token, friendId, auto, tag, onLogout, t],
+    [token, friendId, auto, roomTag, onLogout, t],
   );
 
   // 분류 시트와 친구 이름 태그·말풍선 색에 쓸 친구 목록.
@@ -339,8 +356,8 @@ export function ChatScreen({
       const page = await api.listMessages(token, {
         q: activeQuery.current || undefined,
         before: oldest.id,
-        ...(tag
-          ? { tagId: tag.id }
+        ...(roomTag
+          ? { tagId: roomTag.id }
           : auto
             ? { auto }
             : { friendId: friendId ?? undefined }),
@@ -363,11 +380,21 @@ export function ChatScreen({
     setInput('');
     setInputHeight(40); // 비웠으니 한 줄 높이로 복귀
     try {
-      const message = await api.createMessage(token, content, friendId ?? undefined);
+      // 태그 방에서 전송하면 분류 없는(friendId 없음) 새 메시지에 그 태그를 자동 부착 →
+      // 지금 보는 태그 방 목록에 바로 나타난다. 그 외 방은 기존대로 friendId만.
+      const message = await api.createMessage(
+        token,
+        content,
+        friendId ?? undefined,
+        roomTag ? [roomTag.id] : undefined,
+      );
       setMessages((prev) => [message, ...prev]);
-      // 필터가 걸린 채로 보내면 방금 보낸 메시지가 가려질 수 있어 '전체'로 되돌린다.
-      setAutoFilter('all');
       bumpRooms();
+      // 새 메시지가 반영된 다음 프레임에 최하단(방금 보낸 메시지)으로 스크롤.
+      // inverted라 offset 0이 화면 아래. 검색 중이라 새 메시지가 결과에 없어도 안전(맨 아래로).
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
     } catch {
       setInput(content);
       notify(t('chat.sendFailedTitle'), t('chat.tryAgainLater'));
@@ -430,6 +457,17 @@ export function ChatScreen({
     if (ok) void performDelete(message);
   };
 
+  // 태그 방 헤더 펜 — 이름·설명 수정 폼을 연다. 저장되면 헤더를 즉시 갱신한다:
+  //  - setRoomTag: 로컬 상태(모바일 /tag-room 라우트 포함) 즉시 반영.
+  //  - setTag: 데스크톱 selected-room 동기화(모바일에선 쓰이지 않아 무해). bumpRooms는 폼이 수행.
+  const openTagEditor = () => {
+    if (!roomTag) return;
+    openTagRename(roomTag, (updated) => {
+      setRoomTag(updated);
+      setTag(updated);
+    });
+  };
+
   const friendNameById = new Map(friends.map((f) => [f.id, f.name]));
   // 메시지별 말풍선 색: 그 메시지가 속한 분류의 color.
   // 분류 방에서는 모든 메시지가 이 방 분류라 한 색으로 통일되고,
@@ -443,18 +481,32 @@ export function ChatScreen({
     : null;
   // 자동구분 방이면 종류 이름(장소/영상/…)을 헤더·빈상태에 쓴다.
   const autoName = auto ? t(`auto.names.${auto}`) : null;
-  // 태그 방이면 #태그명을 헤더 제목으로 쓴다.
-  const tagTitle = tag ? `#${tag.name}` : null;
+  // 태그 방이면 #태그명을 헤더 제목으로 쓴다(로컬 roomTag라 이름 수정 즉시 반영).
+  const tagTitle = roomTag ? `#${roomTag.name}` : null;
   const roomName = tagTitle ?? autoName ?? currentFriend?.name ?? friendName;
+
+  // 헤더 우측 편집(⋮) 대상 — 태그 방=태그 수정, 전체 방=전체 프로필, 분류 방=그 분류.
+  // 자동구분 방(편집 대상 없음)은 없음. 동작·a11y 라벨은 기존 연필과 동일, 표현만 ⋮로.
+  const headerEdit = roomTag
+    ? { onPress: openTagEditor, label: t('tags.editTitle') }
+    : viewOnly
+      ? null
+      : friendId === null
+        ? {
+            onPress: () => openCategoryEditor({ self: true }),
+            label: t('friends.profileLabel'),
+          }
+        : currentFriend
+          ? {
+              onPress: () => openCategoryEditor(currentFriend),
+              label: t('friends.editTitle'),
+            }
+          : null;
 
   const canSend = !!input.trim() && !sending;
 
-  // 채팅 뷰(말풍선 타임라인)용 클라이언트 필터: 자동구분 방은 이미 한 종류라 대상이 아니고,
-  // '전체' 칩이면 원본 그대로. 방은 항상 말풍선 타임라인이다(방 내부 보기 전환 없음).
-  const chatMessages =
-    auto || autoFilter === 'all'
-      ? messages
-      : messages.filter((m) => matchesAutoFilter(m, autoFilter));
+  // 방은 항상 말풍선 타임라인 원본 그대로(자동구분 필터 칩 제거됨 — 사용자 확정).
+  const chatMessages = messages;
 
   return (
     <View style={styles.container}>
@@ -484,29 +536,6 @@ export function ChatScreen({
             <Text variant="heading" numberOfLines={1} style={styles.headerTitleText}>
               {roomName ?? t('chat.myRoom')}
             </Text>
-            {/* 펜(프로필 수정): 전체 방(friendId=null) → 전체 프로필, 분류 방 → 그 분류.
-                자동구분·태그 방은 편집할 프로필이 없어 펜을 숨긴다. */}
-            {viewOnly ? null : friendId === null ? (
-              <TouchableOpacity
-                style={styles.headerEdit}
-                onPress={() => openCategoryEditor({ self: true })}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel={t('friends.profileLabel')}
-              >
-                <Pencil size={16} strokeWidth={2} color={colors.textSecondary} />
-              </TouchableOpacity>
-            ) : currentFriend ? (
-              <TouchableOpacity
-                style={styles.headerEdit}
-                onPress={() => openCategoryEditor(currentFriend)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                accessibilityRole="button"
-                accessibilityLabel={t('friends.editTitle')}
-              >
-                <Pencil size={16} strokeWidth={2} color={colors.textSecondary} />
-              </TouchableOpacity>
-            ) : null}
           </View>
         )}
         <TouchableOpacity
@@ -525,6 +554,18 @@ export function ChatScreen({
             <Search size={22} strokeWidth={2} color={colors.ink} />
           )}
         </TouchableOpacity>
+        {/* 편집(⋮) — 돋보기 오른쪽 맨 끝. 동작은 기존 연필과 동일(방 종류별 편집기). 검색 중엔 숨김. */}
+        {!searchOpen && headerEdit ? (
+          <TouchableOpacity
+            style={styles.headerAction}
+            onPress={headerEdit.onPress}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel={headerEdit.label}
+          >
+            <EllipsisVertical size={16} strokeWidth={2} color={colors.textSecondary} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* 채팅방 상단 공지 배너 — 자동구분·태그 방 제외. 탭 = 링크면 원본 열기, X = 확인 후 해제. */}
@@ -552,7 +593,7 @@ export function ChatScreen({
               <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
                 {activeQuery.current
                   ? t('chat.noResults')
-                  : tag
+                  : roomTag
                     ? t('tags.roomEmpty')
                     : auto
                       ? t('auto.empty', { name: autoName })
@@ -561,20 +602,10 @@ export function ChatScreen({
             </View>
           </View>
         ) : (
-          // 채팅 뷰(말풍선 타임라인). 자동구분 칩으로 종류 필터. 자동구분 방은 칩 없음.
-          <>
-            {auto ? null : <AutoChips value={autoFilter} onChange={setAutoFilter} />}
-            {chatMessages.length === 0 ? (
-              // 필터 결과 0건: 목록 모드와 같은 dotted 빈상태 문구를 재사용.
-              <View style={styles.center}>
-                <View style={styles.emptyBox}>
-                  <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
-                    {t('viewMode.emptyFilter')}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <FlatList
+          // 채팅 뷰(말풍선 타임라인). 자동구분 필터 칩은 제거됨(사용자 확정) —
+          // 종류별 보기는 자동구분 방(전 방 통합 모음)이 담당한다.
+          <FlatList
+                ref={listRef}
                 data={chatMessages}
                 inverted
                 keyExtractor={(item) => item.id}
@@ -627,13 +658,13 @@ export function ChatScreen({
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
               />
-            )}
-          </>
         )}
 
-        {/* 자동구분·태그 방은 어느 방으로 보낼지 정의가 없어 입력창을 숨긴다(보기 전용 모음). */}
-        {viewOnly ? null : (
-        <View style={styles.inputBar}>
+        {/* 자동구분 방만 입력창을 숨긴다(어느 방으로 보낼지 정의가 없는 보기 전용 모음).
+            태그 방은 입력창을 연다 — 전송 시 분류 없는 새 메시지에 이 태그가 자동 부착된다.
+            (펜·공지 배너 등 나머지 편집 UI는 viewOnly로 태그 방에서도 계속 숨김) */}
+        {auto ? null : (
+        <View style={[styles.inputBar, bottomTabBar && styles.inputBarWithTabBar]}>
           <TextInput
             ref={inputRef}
             style={[
@@ -710,13 +741,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  // 이름은 줄여서(numberOfLines) 펜 아이콘 자리를 늘 남긴다.
+  // 이름은 줄여서(numberOfLines) 우측 액션(돋보기·⋮) 자리를 늘 남긴다.
   headerTitleText: {
     flexShrink: 1,
-  },
-  headerEdit: {
-    marginLeft: 8,
-    paddingVertical: 2,
   },
   headerAction: {
     paddingHorizontal: 6,
@@ -770,6 +797,10 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: layout.bottomPad,
+  },
+  // 하단 탭바가 안전영역을 책임질 때: 입력창은 작은 여백만 둬 탭바와 이중 여백을 없앤다.
+  inputBarWithTabBar: {
+    paddingBottom: 10,
   },
   // 한 줄일 때 전송 버튼과 같은 40 높이, 개행되면 최대 120까지 자란다.
   input: {

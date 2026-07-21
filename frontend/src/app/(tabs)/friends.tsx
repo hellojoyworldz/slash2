@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useWindowDimensions } from 'react-native';
+import { AutoKind, Tag } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
 import { FriendsScreen } from '../../screens/FriendsScreen';
@@ -15,7 +16,8 @@ export default function FriendsRoute() {
   const { appStyle } = useAppStyle();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { setRoom } = useSelectedRoom();
+  // 분류 캡슐이 태그/자동구분으로 전환되면 그 행 탭도 각 화면과 동일하게 방을 연다.
+  const { setRoom, setTag, setAutoKind } = useSelectedRoom();
   // 데스크톱(스플릿뷰)에서는 화면 이동 대신 오른쪽 대화 패널을 교체한다.
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -52,6 +54,18 @@ export default function FriendsRoute() {
             pathname: '/chat',
             params: { friendId: friend.id, name: friend.name },
           });
+      }}
+      onOpenTag={(tag: Tag) => {
+        if (isDesktop) setTag(tag);
+        else
+          router.push({
+            pathname: '/tag-room',
+            params: { tagId: tag.id, name: tag.name },
+          });
+      }}
+      onOpenAuto={(kind: AutoKind) => {
+        if (isDesktop) setAutoKind(kind);
+        else router.push({ pathname: '/auto-room', params: { kind } });
       }}
       onLogout={onLogout}
     />

@@ -9,7 +9,11 @@ import {
   useState,
 } from 'react';
 import { Platform, StyleProp, View, ViewStyle } from 'react-native';
-import { Gesture } from 'react-native-gesture-handler';
+import {
+  ComposedGesture,
+  Gesture,
+  GestureType,
+} from 'react-native-gesture-handler';
 import Animated, {
   SharedValue,
   useAnimatedStyle,
@@ -28,16 +32,89 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 // 들린 행: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로.
 const LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
+// 드래그 세션 동안 web 전역 커서를 grabbing으로 강제한다. 래퍼에만 grabbing을 얹으면
+// 포인터 아래 자식(행 Pressable·Touchable·onPress Text 등 RNW cursor:pointer)이 이겨서
+// 사용자에겐 grabbing이 안 보인다 — body/documentElement에 !important로 박아 무엇이든 덮는다.
+// 리스트·탭 재정렬(useReorder·useVarReorder·useDragReorder·useTabReorder)의 onStart/onFinalize에서
+// 짝으로 호출한다. 물리적으로 한 번에 한 포인터라 refcount로 겹침도 안전하게 처리한다.
+let grabbingCursorLocks = 0;
+export function beginGlobalGrabbingCursor() {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+  grabbingCursorLocks += 1;
+  if (grabbingCursorLocks === 1) {
+    document.body?.style.setProperty('cursor', 'grabbing', 'important');
+    document.documentElement?.style.setProperty('cursor', 'grabbing', 'important');
+  }
+}
+export function endGlobalGrabbingCursor() {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+  if (grabbingCursorLocks === 0) return;
+  grabbingCursorLocks -= 1;
+  if (grabbingCursorLocks === 0) {
+    document.body?.style.removeProperty('cursor');
+    document.documentElement?.style.removeProperty('cursor');
+  }
+}
 // 들린 셀(형제 셀 위로): 셀 레벨 zIndex/elevation. elevation은 Android 그림자를 유발하므로
 // shadowColor 투명화로 최소화(DESIGN 그림자 금지에 대한 최선의 근사치).
 const LIFT_CELL = { zIndex: 20, elevation: 20, shadowColor: 'transparent' } as const;
 const SHIFT_TIMING = { duration: 130 } as const;
 
-// 웹에서만 그랩 커서(RN 타입에 없는 값이라 캐스팅).
-export const grabCursor: ViewStyle | null =
-  Platform.OS === 'web'
-    ? ({ cursor: 'grab' } as unknown as ViewStyle)
+// 행 아무데나 꾹 눌렀다 끌면 재정렬되는 롱프레스 시간(ms). 이 시간 전에 손가락이 움직이면
+// 드래그는 활성되지 않고 리스트 스크롤(세로)·스와이프(가로)에 양보한다.
+export const LONG_PRESS_MS = 250;
+// 더블탭 두 번째 탭을 기다리는 최대 지연(ms) — 싱글탭(방 열기)이 이만큼만 늦어지도록 짧게.
+const DOUBLE_TAP_MAX_DELAY = 200;
+
+// GestureDetector의 gesture prop에 넣을 수 있는 형태(단일 or 합성).
+export type RowGesture = ComposedGesture | GestureType;
+
+// 탭 제스처 합성: 싱글탭(활성/열기)·더블탭(수정). 더블탭이 있으면 Exclusive로 싱글탭이 더블탭
+// 실패를 기다린다(오열림 방지, maxDelay로 지연 최소화). 둘 다 없으면 null(탭 없는 행 — 더보기 메뉴).
+export function buildTapGesture(
+  activate?: () => void,
+  edit?: () => void,
+): RowGesture | null {
+  const doubleTap = edit
+    ? Gesture.Tap()
+        .numberOfTaps(2)
+        .maxDelay(DOUBLE_TAP_MAX_DELAY)
+        .runOnJS(true)
+        .onEnd((_e, success) => {
+          if (success) edit();
+        })
     : null;
+  const singleTap = activate
+    ? Gesture.Tap()
+        .numberOfTaps(1)
+        .runOnJS(true)
+        .onEnd((_e, success) => {
+          if (success) activate();
+        })
+    : null;
+  if (doubleTap && singleTap) return Gesture.Exclusive(doubleTap, singleTap);
+  return doubleTap ?? singleTap;
+}
+
+// 행 제스처: 롱프레스 드래그(세로) + 탭(열기/수정)을 Race로 묶는다. 방향(세로 드래그 vs 가로
+// 스와이프)·타이밍(꾹 누름 vs 빠른 탭)으로 갈려 한 번에 하나만 활성된다. 탭이 없으면 드래그만.
+export function composeRowGesture(
+  dragPan: GestureType,
+  handlers: { activate?: () => void; edit?: () => void },
+): RowGesture {
+  const taps = buildTapGesture(handlers.activate, handlers.edit);
+  return taps ? Gesture.Race(dragPan, taps) : dragPan;
+}
+
+// 롱프레스 드래그로 활성되는 세로 Pan 제스처의 공통 방향 설정(재정렬 물리는 caller가 붙인다).
+export function withDragActivation<T extends ReturnType<typeof Gesture.Pan>>(pan: T): T {
+  return pan
+    // 세로 드래그(재정렬)로만 활성 — 가로 움직임엔 실패해 스와이프에 양보한다.
+    .activeOffsetY([-6, 6])
+    .failOffsetX([-12, 12])
+    // 행 아무데나 꾹 눌렀다(≈250ms) 끌면 재정렬 — 리스트 세로 스크롤과 충돌하지 않는다.
+    .activateAfterLongPress(LONG_PRESS_MS) as T;
+}
 
 // RNW(react-native-web) VirtualizedListCellRenderer가 CellRendererComponent에 내려주는 props.
 // 기본 셀은 `<View style={cellStyle} onFocusCapture onLayout>`이고(vertical 목록에선 style=undefined),
@@ -99,8 +176,8 @@ export interface ReorderControls {
   targetIndex: SharedValue<number>;
   dragY: SharedValue<number>;
   rowHeight: SharedValue<number>;
-  /** id별 Pan 제스처(캐시됨) — 그립 GestureDetector에 물린다. */
-  getGesture: (id: string) => ReturnType<typeof Gesture.Pan>;
+  /** id별 행 제스처(캐시됨) — 롱프레스 드래그 + 탭(열기/수정). 행 전체 GestureDetector에 물린다. */
+  getGesture: (id: string) => RowGesture;
   /** 접근성 increment/decrement — 위/아래로 한 칸. */
   moveByOne: (id: string, delta: number) => void;
   /** FlatList의 `CellRendererComponent`에 그대로 물린다 — 잡은 행의 셀을 이웃 위로 올린다. */
@@ -113,6 +190,10 @@ export function useReorder(opts: {
   orderRef: MutableRefObject<string[]>;
   /** 확정된 새 순서(id 배열)를 저장. 낙관적 반영·서버 저장은 caller가 한다. */
   onCommit: (ids: string[]) => void;
+  /** 싱글탭(행 열기) — 넘기면 행에 탭 열기가 붙는다. 없으면 탭 없는 행(더보기 메뉴). */
+  onActivate?: (id: string) => void;
+  /** 더블탭(수정) — 넘기면 행 더블탭에 수정이 붙는다. 없으면 수정 없음(자동구분). */
+  onEditRequest?: (id: string) => void;
 }): ReorderControls {
   const { rowHeight, orderRef, onCommit } = opts;
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -133,6 +214,11 @@ export function useReorder(opts: {
 
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
+  // 탭 콜백은 캐시된 제스처가 최신을 읽도록 ref로 보관(제스처는 id별 1회만 생성).
+  const onActivateRef = useRef(opts.onActivate);
+  const onEditRef = useRef(opts.onEditRequest);
+  onActivateRef.current = opts.onActivate;
+  onEditRef.current = opts.onEditRequest;
 
   const moveByOne = useCallback(
     (id: string, delta: number) => {
@@ -152,15 +238,13 @@ export function useReorder(opts: {
 
   // 제스처는 id별로 한 번만 만들어 캐시한다 — 목록 재정렬로 리렌더돼도 같은 객체를 받아
   // 드래그 도중 재부착되지 않는다(FriendsScreen과 동일 관례).
-  const gesturesRef = useRef(new Map<string, ReturnType<typeof Gesture.Pan>>());
+  const gesturesRef = useRef(new Map<string, RowGesture>());
   const getGesture = useCallback(
     (id: string) => {
       const cache = gesturesRef.current;
       const cached = cache.get(id);
       if (cached) return cached;
-      const gesture = Gesture.Pan()
-        .runOnJS(true)
-        .activeOffsetY([-6, 6])
+      const dragPan = withDragActivation(Gesture.Pan().runOnJS(true))
         .onStart(() => {
           const idx = orderRef.current.indexOf(id);
           if (idx < 0) return;
@@ -174,6 +258,7 @@ export function useReorder(opts: {
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
           dragY.value = 0;
+          beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
           setDraggingId(id); // 세션당 1회 리렌더(들린 스타일 + scrollEnabled false)
         })
         .onUpdate((event) => {
@@ -201,10 +286,15 @@ export function useReorder(opts: {
           activeIndexRef.current = -1;
           targetIndex.value = -1;
           dragY.value = 0;
+          endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
           setDraggingId(null);
         });
-      cache.set(id, gesture);
-      return gesture;
+      const composite = composeRowGesture(dragPan, {
+        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+      });
+      cache.set(id, composite);
+      return composite;
     },
     [orderRef, activeIndex, targetIndex, dragY, rowH],
   );
@@ -255,6 +345,222 @@ export function ReorderRow({
     return { transform: [{ translateY: grabbed ? dragY.value : offset.value }] };
   });
   return (
-    <Animated.View style={[rowStyle, isDragging && LIFT]}>{children}</Animated.View>
+    <Animated.View
+      style={[
+        rowStyle,
+        isDragging && LIFT,
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+// ── 가변 높이 재정렬 ────────────────────────────────────────────────────
+// 위 useReorder는 "균일 높이" 목록용(자동구분 탭). 설명(상태메시지)이 있는 행만 더 높은
+// 목록(분류·태그 탭)에서는 index*고정높이 계산이 어긋나므로, 누적 높이 기반의 가변 높이 버전을
+// 쓴다. FriendsScreen이 원래 로컬로 갖고 있던 useDragReorder/AnimatedRow와 동일한 아키텍처를
+// 아이템 타입에 무관하게 일반화한 것이다(태그 탭이 분류 탭과 같은 드래그 문법을 공유하도록).
+//  · getOrder: 현재 순서의 원천(드래그 중 불변, 놓을 때만 커밋).
+//  · getId/getHeight: 각 아이템의 id·실제 행 높이(설명 유무로 가변).
+//  · onCommit(next): 놓을 때(또는 접근성 이동) 재정렬된 배열 — 호출부가 상태 반영·서버 저장.
+
+export interface VarReorderControls {
+  draggingId: string | null;
+  activeIndex: SharedValue<number>;
+  targetIndex: SharedValue<number>;
+  dragY: SharedValue<number>;
+  /** 잡은 행 "자신"의 실제 높이(설명 유무로 가변) — 다른 행이 비켜나는 폭. */
+  draggedHeight: SharedValue<number>;
+  getGesture: (id: string) => RowGesture;
+  moveByOne: (id: string, delta: number) => void;
+  CellRendererComponent: ComponentType<any>;
+}
+
+export function useVarReorder<T>(opts: {
+  getOrder: () => T[];
+  getId: (item: T) => string;
+  getHeight: (item: T) => number;
+  onCommit: (next: T[]) => void;
+  /** 싱글탭(행 열기). 없으면 탭 없는 행. */
+  onActivate?: (id: string) => void;
+  /** 더블탭(수정). 없으면 수정 없음. */
+  onEditRequest?: (id: string) => void;
+}): VarReorderControls {
+  const activeIndex = useSharedValue(-1);
+  const activeIndexRef = useRef(-1);
+  const targetIndex = useSharedValue(-1);
+  const dragY = useSharedValue(0);
+  const draggedHeight = useSharedValue(0);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const startIndexRef = useRef(0);
+  const dragBoundsRef = useRef({ min: 0, max: 0 });
+  const dragTopOffsetRef = useRef(0);
+  const othersHeightsRef = useRef<number[]>([]);
+  const gesturesRef = useRef(new Map<string, RowGesture>());
+
+  // 제스처는 한 번만 생성·캐시되므로 최신 getters/onCommit을 ref로 읽는다.
+  const getOrderRef = useRef(opts.getOrder);
+  const getIdRef = useRef(opts.getId);
+  const getHeightRef = useRef(opts.getHeight);
+  const onCommitRef = useRef(opts.onCommit);
+  const onActivateRef = useRef(opts.onActivate);
+  const onEditRef = useRef(opts.onEditRequest);
+  getOrderRef.current = opts.getOrder;
+  getIdRef.current = opts.getId;
+  getHeightRef.current = opts.getHeight;
+  onCommitRef.current = opts.onCommit;
+  onActivateRef.current = opts.onActivate;
+  onEditRef.current = opts.onEditRequest;
+
+  const getGesture = useCallback(
+    (id: string) => {
+      const cache = gesturesRef.current;
+      const cached = cache.get(id);
+      if (cached) return cached;
+      const dragPan = withDragActivation(Gesture.Pan().runOnJS(true))
+        .onStart(() => {
+          const list = getOrderRef.current();
+          const getId = getIdRef.current;
+          const idx = list.findIndex((f) => getId(f) === id);
+          if (idx < 0) return;
+          startIndexRef.current = idx;
+          const heights = list.map(getHeightRef.current);
+          const h = heights[idx];
+          draggedHeight.value = h;
+          const topOffset = heights.slice(0, idx).reduce((s, v) => s + v, 0);
+          const total = heights.reduce((s, v) => s + v, 0);
+          dragTopOffsetRef.current = topOffset;
+          dragBoundsRef.current = { min: -topOffset, max: total - h - topOffset };
+          othersHeightsRef.current = heights.filter((_, i) => i !== idx);
+          activeIndex.value = idx;
+          activeIndexRef.current = idx;
+          targetIndex.value = idx;
+          dragY.value = 0;
+          beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
+          setDraggingId(id);
+        })
+        .onUpdate((event) => {
+          const n = getOrderRef.current().length;
+          if (n === 0) return;
+          const { min, max } = dragBoundsRef.current;
+          dragY.value = clamp(event.translationY, min, max);
+          const draggedTop = dragTopOffsetRef.current + dragY.value;
+          const draggedCenter = draggedTop + draggedHeight.value / 2;
+          const others = othersHeightsRef.current;
+          let target: number;
+          if (dragY.value <= min) {
+            target = 0;
+          } else if (dragY.value >= max) {
+            target = others.length;
+          } else {
+            let cum = 0;
+            target = others.length;
+            for (let i = 0; i < others.length; i++) {
+              const mid = cum + others[i] / 2;
+              if (draggedCenter < mid) {
+                target = i;
+                break;
+              }
+              cum += others[i];
+            }
+          }
+          targetIndex.value = clamp(target, 0, n - 1);
+        })
+        .onFinalize(() => {
+          const start = startIndexRef.current;
+          const target = targetIndex.value;
+          const list = getOrderRef.current();
+          const n = list.length;
+          if (target !== start && target >= 0 && target < n && activeIndex.value !== -1) {
+            const next = [...list];
+            const [moved] = next.splice(start, 1);
+            next.splice(target, 0, moved);
+            onCommitRef.current(next);
+          }
+          activeIndex.value = -1;
+          activeIndexRef.current = -1;
+          targetIndex.value = -1;
+          dragY.value = 0;
+          endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
+          setDraggingId(null);
+        });
+      const composite = composeRowGesture(dragPan, {
+        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+      });
+      cache.set(id, composite);
+      return composite;
+    },
+    [activeIndex, targetIndex, dragY, draggedHeight],
+  );
+
+  const moveByOne = useCallback((id: string, delta: number) => {
+    const arr = getOrderRef.current();
+    const getId = getIdRef.current;
+    const idx = arr.findIndex((f) => getId(f) === id);
+    if (idx < 0) return;
+    const target = clamp(idx + delta, 0, arr.length - 1);
+    if (target === idx) return;
+    const next = [...arr];
+    const [moved] = next.splice(idx, 1);
+    next.splice(target, 0, moved);
+    onCommitRef.current(next);
+  }, []);
+
+  const CellRendererComponent = useMemo(
+    () => createReorderCellRenderer(activeIndexRef),
+    [],
+  );
+
+  return {
+    draggingId,
+    activeIndex,
+    targetIndex,
+    dragY,
+    draggedHeight,
+    getGesture,
+    moveByOne,
+    CellRendererComponent,
+  };
+}
+
+// 가변 높이용 재정렬 애니메이션 래퍼(FriendsScreen의 AnimatedRow와 동일):
+// 잡은 행은 dragY 추종, 나머지는 잡은 행 "자신"의 높이(draggedHeight)만큼 슬롯 비켜남.
+export function VarReorderRow({
+  index,
+  isDragging,
+  controls,
+  children,
+}: {
+  index: number;
+  isDragging: boolean;
+  controls: VarReorderControls;
+  children: ReactNode;
+}) {
+  const { activeIndex, targetIndex, dragY, draggedHeight } = controls;
+  const offset = useDerivedValue(() => {
+    const ai = activeIndex.value;
+    if (ai === -1) return 0;
+    if (index === ai) return 0;
+    const ti = targetIndex.value;
+    const h = draggedHeight.value;
+    if (ai < ti && index > ai && index <= ti) return withTiming(-h, SHIFT_TIMING);
+    if (ai > ti && index >= ti && index < ai) return withTiming(h, SHIFT_TIMING);
+    return withTiming(0, SHIFT_TIMING);
+  });
+  const rowStyle = useAnimatedStyle(() => {
+    const grabbed = activeIndex.value === index;
+    return { transform: [{ translateY: grabbed ? dragY.value : offset.value }] };
+  });
+  return (
+    <Animated.View
+      style={[
+        rowStyle,
+        isDragging && LIFT,
+      ]}
+    >
+      {children}
+    </Animated.View>
   );
 }

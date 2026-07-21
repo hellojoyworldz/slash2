@@ -55,6 +55,7 @@ export class LinkClassifierService {
       const place = this.classifyPlace(url, preview, nodes);
       if (place) {
         await this.enrichGeo(place); // 좌표 없으면 지오코딩(키 있을 때만)
+        await this.enrichPlaceDetails(place); // 주소·전화 없으면 카카오 장소검색으로 보완(키 있을 때만)
         return { linkType: 'place', linkMeta: this.nullIfEmpty(place) };
       }
 
@@ -288,27 +289,89 @@ export class LinkClassifierService {
     }
   }
 
+  /** 지도 공유 링크(좌표·이름만 있는 SPA 페이지)의 빈 주소·전화를 카카오 장소검색으로 채운다.
+   *  좌표가 있으면 그 근처(반경 1km, 거리순)로 좁혀 오탐을 줄인다. 영업시간은 카카오 로컬에
+   *  없어서 JSON-LD가 있는 페이지에서만 온다(placeByJsonLd). 실패는 조용히 무시. */
+  private async enrichPlaceDetails(meta: LinkMeta): Promise<void> {
+    if (meta.address && meta.phone) return;
+    const name = meta.placeName?.trim();
+    if (!name) return;
+    const key = this.config.get<string>('KAKAO_REST_API_KEY');
+    if (!key) return; // enrichGeo와 동일 — 키 없으면 스킵(디버그 로그는 거기서 이미 남김)
+    try {
+      const docs = await this.kakaoLocalSearch('keyword', name, key, {
+        lat: meta.lat,
+        lng: meta.lng,
+      });
+      const doc = docs[0];
+      if (!doc) return;
+      if (!meta.address) {
+        const address =
+          (typeof doc.road_address_name === 'string' && doc.road_address_name.trim()) ||
+          (typeof doc.address_name === 'string' && doc.address_name.trim()) ||
+          '';
+        if (address) meta.address = address;
+      }
+      if (!meta.phone && typeof doc.phone === 'string' && doc.phone.trim()) {
+        meta.phone = doc.phone.trim();
+      }
+    } catch (error) {
+      this.logger.debug(`장소 상세 보완 실패: ${String(error)}`);
+    }
+  }
+
   private async kakaoGeocode(
     kind: 'address' | 'keyword',
     query: string,
     key: string,
   ): Promise<{ lat: number; lng: number } | null> {
-    const endpoint = `https://dapi.kakao.com/v2/local/search/${kind}.json?query=${encodeURIComponent(
-      query,
-    )}`;
-    const res = await fetch(endpoint, {
-      headers: { Authorization: `KakaoAK ${key}` },
-      signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      documents?: Array<{ x?: string; y?: string }>;
-    };
-    const doc = data.documents?.[0];
+    const docs = await this.kakaoLocalSearch(kind, query, key);
+    const doc = docs[0];
     if (!doc?.x || !doc?.y) return null;
     const lng = Number(doc.x); // 카카오는 x=경도, y=위도
     const lat = Number(doc.y);
     return this.validLatLng(lat, lng) ? { lat, lng } : null;
+  }
+
+  /** 카카오 로컬 검색 공통 호출 — 지오코딩(enrichGeo)과 상세 보완(enrichPlaceDetails)이 공유.
+   *  near가 있으면 그 좌표 반경 1km 거리순으로 정렬해 동명 장소 오탐을 줄인다. */
+  private async kakaoLocalSearch(
+    kind: 'address' | 'keyword',
+    query: string,
+    key: string,
+    near?: { lat?: number; lng?: number },
+  ): Promise<
+    Array<{
+      x?: string;
+      y?: string;
+      road_address_name?: string;
+      address_name?: string;
+      phone?: string;
+    }>
+  > {
+    const params = new URLSearchParams({ query });
+    if (kind === 'keyword' && near?.lat != null && near?.lng != null) {
+      params.set('x', String(near.lng));
+      params.set('y', String(near.lat));
+      params.set('radius', '1000');
+      params.set('sort', 'distance');
+    }
+    const endpoint = `https://dapi.kakao.com/v2/local/search/${kind}.json?${params.toString()}`;
+    const res = await fetch(endpoint, {
+      headers: { Authorization: `KakaoAK ${key}` },
+      signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      documents?: Array<{
+        x?: string;
+        y?: string;
+        road_address_name?: string;
+        address_name?: string;
+        phone?: string;
+      }>;
+    };
+    return data.documents ?? [];
   }
 
   // ── video ────────────────────────────────────────────────────────────────

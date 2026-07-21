@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { api, AutoKind, User } from './api';
+import { api, AutoKind, HideableTab, TabKey, User } from './api';
 
 const TOKEN_KEY = 'slash.token';
 const EMAIL_KEY = 'slash.email';
@@ -21,6 +21,12 @@ interface AuthState {
   customColors: string[];
   // 자동구분 표시 순서(6종 순열). null이면 기본 순서로 그린다.
   autoOrder: AutoKind[] | null;
+  // 자동구분 즐겨찾기(6종 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
+  autoFavorites: AutoKind[] | null;
+  // 탭(메뉴) 표시 순서(5키 순열). null이면 기본 순서. 탭바/레일이 이 값으로 배열된다.
+  tabOrder: TabKey[] | null;
+  // 숨긴 탭 목록(HIDEABLE_TABS 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
+  hiddenTabs: HideableTab[] | null;
   // 연결된 소셜 provider 목록 (예: ['google']). 더보기 화면 배지 등에 사용.
   providers: string[];
   loggedIn: (token: string, user: User) => Promise<void>;
@@ -37,6 +43,12 @@ interface AuthState {
   setCustomColors: (colors: string[]) => void;
   // 자동구분 순서 변경 후 컨텍스트 갱신용(낙관적).
   setAutoOrder: (order: AutoKind[] | null) => void;
+  // 자동구분 즐겨찾기 변경 후 컨텍스트 갱신용(낙관적).
+  setAutoFavorites: (favorites: AutoKind[] | null) => void;
+  // 탭 순서 변경 후 컨텍스트 갱신용(낙관적).
+  setTabOrder: (order: TabKey[] | null) => void;
+  // 탭 노출/숨김 변경 후 컨텍스트 갱신용(낙관적).
+  setHiddenTabs: (tabs: HideableTab[] | null) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -51,6 +63,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [selfDescription, setSelfDescription] = useState<string | null>(null);
   const [customColors, setCustomColors] = useState<string[]>([]);
   const [autoOrder, setAutoOrder] = useState<AutoKind[] | null>(null);
+  const [autoFavorites, setAutoFavorites] = useState<AutoKind[] | null>(null);
+  const [tabOrder, setTabOrder] = useState<TabKey[] | null>(null);
+  const [hiddenTabs, setHiddenTabs] = useState<HideableTab[] | null>(null);
   const [providers, setProviders] = useState<string[]>([]);
 
   // 앱 시작 시 저장된 토큰으로 자동 로그인
@@ -69,6 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSelfDescription(user.selfDescription ?? null);
           setCustomColors(user.customColors ?? []);
           setAutoOrder(user.autoOrder ?? null);
+          setAutoFavorites(user.autoFavorites ?? null);
+          setTabOrder(user.tabOrder ?? null);
+          setHiddenTabs(user.hiddenTabs ?? null);
           setProviders(user.providers ?? []);
         } else if (savedEmail) {
           setEmail(savedEmail);
@@ -90,6 +108,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSelfDescription(user.selfDescription ?? null);
     setCustomColors(user.customColors ?? []);
     setAutoOrder(user.autoOrder ?? null);
+    setAutoFavorites(user.autoFavorites ?? null);
+    setTabOrder(user.tabOrder ?? null);
+    setHiddenTabs(user.hiddenTabs ?? null);
     setProviders(user.providers ?? []);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, newToken],
@@ -105,6 +126,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSelfDescription(null);
     setCustomColors([]);
     setAutoOrder(null);
+    setAutoFavorites(null);
+    setTabOrder(null);
+    setHiddenTabs(null);
     setProviders([]);
     await AsyncStorage.removeItem(TOKEN_KEY);
   };
@@ -119,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSelfDescription(user.selfDescription ?? null);
       setCustomColors(user.customColors ?? []);
       setAutoOrder(user.autoOrder ?? null);
+      setAutoFavorites(user.autoFavorites ?? null);
       setProviders(user.providers ?? []);
       return !!user.emailVerified;
     } catch {
@@ -138,6 +163,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         selfDescription,
         customColors,
         autoOrder,
+        autoFavorites,
+        tabOrder,
+        hiddenTabs,
         providers,
         loggedIn,
         logout,
@@ -147,6 +175,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSelfDescription,
         setCustomColors,
         setAutoOrder,
+        setAutoFavorites,
+        setTabOrder,
+        setHiddenTabs,
       }}
     >
       {children}

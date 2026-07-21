@@ -86,7 +86,8 @@ export class FriendsService {
       pinned?: boolean;
       favorite?: boolean;
       name?: string;
-      color?: string;
+      // 색 계약: 키 없음(undefined)=미변경, null=무채(컬럼 null), hex=그 색.
+      color?: string | null;
       description?: string;
     },
   ): Promise<Friend> {
@@ -105,6 +106,7 @@ export class FriendsService {
       }
       friend.name = trimmed;
     }
+    // 키가 있을 때만 반영 — null이면 무채(컬럼 null)로, hex면 그 색으로.
     if (changes.color !== undefined) {
       friend.color = changes.color;
     }

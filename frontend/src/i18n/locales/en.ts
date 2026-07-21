@@ -10,6 +10,7 @@ export default {
     me: 'Me',
     notice: 'Notice',
     close: 'Close',
+    listSection: 'List',
   },
   // Screen-reader labels (not visible on screen)
   a11y: {
@@ -27,8 +28,9 @@ export default {
     editTags: 'Edit tags',
   },
   tabs: {
+    group: 'Groups',
     friends: 'Categories',
-    chats: 'Chats',
+    chats: 'Notes',
     auto: 'Auto',
     tags: 'Tags',
     more: 'More',
@@ -80,7 +82,7 @@ export default {
     resendFailed: 'Couldn’t resend the email. Please try again in a moment.',
   },
   chats: {
-    title: 'Chats',
+    title: 'Notes',
     firstMessage: 'Send your first message',
     myRoom: 'All',
   },
@@ -157,6 +159,8 @@ export default {
     removeLabel: 'Delete tag {{name}}',
     deleteTitle: 'Delete tag',
     deleteMessage: 'Remove “{{name}}” from all messages?',
+    deleteAllTitle: 'Delete all tags',
+    deleteAllMessage: 'Remove all tags from every message?',
   },
   friends: {
     title: 'Categories',
@@ -178,6 +182,7 @@ export default {
     colorPurple: 'Purple',
     colorBlack: 'Black',
     colorWhite: 'White',
+    colorNone: 'Neutral',
     colorCustom: 'Custom',
     pickerHue: 'Hue',
     pickerLightness: 'Lightness',
@@ -187,6 +192,8 @@ export default {
     newPlaceholder: 'New category name',
     descriptionPlaceholder: 'Description (optional)',
     confirmDelete: 'Delete “{{name}}”?',
+    deleteAllTitle: 'Delete all categories',
+    deleteAllMessage: 'Delete all categories? Messages will stay uncategorized.',
     favoritesSection: 'Favorites',
   },
   auto: {
@@ -247,6 +254,7 @@ export default {
     modeDark: 'Dark',
     modeSystem: 'System',
     linkedGoogle: 'Linked with Google',
+    menu: 'Menu',
   },
   sites: {
     googleMaps: 'Google Maps',

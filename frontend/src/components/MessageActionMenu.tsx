@@ -85,17 +85,18 @@ export function MessageActionMenu({
 
   if (!visible) return null;
 
-  // 삭제를 제외한 상단 항목 — 확정 순서: 상세보기·복사·공유·공지·분류·태그·수정.
+  // 삭제를 제외한 상단 항목 — 확정 순서: 상세보기·복사·공유·(공지 보류)·분류·태그·수정.
   const items: { key: string; label: string; Icon: IconComponent; onPress: () => void }[] = [
     { key: 'detail', label: t('chat.menu.detail'), Icon: Eye, onPress: onDetail },
     { key: 'copy', label: t('chat.menu.copy'), Icon: Copy, onPress: onCopy },
     { key: 'share', label: t('chat.menu.share'), Icon: Share2, onPress: onShare },
-    {
-      key: 'notice',
-      label: isNotice ? t('chat.menu.noticeOff') : t('chat.menu.notice'),
-      Icon: Megaphone,
-      onPress: onNotice,
-    },
+    // 공지 지정 — 기능 재설계 전까지 보류(사용자 확정, 2026-07). 배선(onNotice·isNotice)은 유지.
+    // {
+    //   key: 'notice',
+    //   label: isNotice ? t('chat.menu.noticeOff') : t('chat.menu.notice'),
+    //   Icon: Megaphone,
+    //   onPress: onNotice,
+    // },
     { key: 'editCategory', label: t('chat.menu.editCategory'), Icon: Slash, onPress: onEditCategory },
     { key: 'tags', label: t('chat.menu.tags'), Icon: Hash, onPress: onTags },
     { key: 'editContent', label: t('chat.menu.editContent'), Icon: Pencil, onPress: onEditContent },

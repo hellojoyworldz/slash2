@@ -43,6 +43,22 @@ export class User {
   @Column({ type: 'jsonb', nullable: true })
   autoOrder: string[] | null;
 
+  // 자동구분 즐겨찾기(AUTO_ORDER_CATEGORIES의 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
+  @Column({ type: 'simple-array', nullable: true })
+  autoFavorites: string[] | null;
+
+  // 탭(메뉴) 표시 순서(더보기 화면에서 드래그 저장). TAB_ORDER_KEYS의 순열.
+  // null이면 프론트가 기본 순서로 표시. 더보기는 순서 밖(항상 맨끝 고정).
+  // (nullable union이라 타입 명시 — 백엔드 규칙. 콤마 join되는 simple-array — 키엔 콤마 없음)
+  @Column({ type: 'simple-array', nullable: true })
+  tabOrder: string[] | null;
+
+  // 숨긴 탭 목록(더보기 화면 토글). HIDEABLE_TABS('categories'|'tags'|'auto')의 부분집합.
+  // null/빈 = 전부 노출. 숨겨도 라우트는 살아있고 탭바/레일에서만 사라진다.
+  // (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'simple-array', nullable: true })
+  hiddenTabs: string[] | null;
+
   // 이 유저에게 보낼 메일·페이지 언어 (ko | en | ja). 앱이 보낸 언어로 갱신.
   @Column({ default: 'ko' })
   locale: string;

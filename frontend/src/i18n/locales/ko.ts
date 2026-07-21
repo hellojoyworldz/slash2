@@ -10,6 +10,8 @@ export default {
     me: '나',
     notice: '알림',
     close: '닫기',
+    // 분류·태그·자동구분 리스트의 두 번째(본) 섹션 제목 공통 라벨. 즐겨찾기 섹션과 짝.
+    listSection: '목록',
   },
   // 스크린리더용 라벨 (화면에 표시되지 않음)
   a11y: {
@@ -27,8 +29,9 @@ export default {
     editTags: '태그 편집',
   },
   tabs: {
+    group: '그룹',
     friends: '분류',
-    chats: '채팅',
+    chats: '메모',
     auto: '자동구분',
     tags: '태그',
     more: '더보기',
@@ -80,7 +83,7 @@ export default {
     resendFailed: '메일 재전송에 실패했어요. 잠시 후 다시 시도해주세요.',
   },
   chats: {
-    title: '채팅',
+    title: '메모',
     firstMessage: '첫 메시지를 보내보세요',
     myRoom: '전체',
   },
@@ -156,6 +159,8 @@ export default {
     removeLabel: '{{name}} 태그 삭제',
     deleteTitle: '태그 삭제',
     deleteMessage: "'{{name}}' 태그를 모든 메시지에서 제거할까요?",
+    deleteAllTitle: '태그 전체 삭제',
+    deleteAllMessage: '모든 태그를 모든 메시지에서 제거할까요?',
   },
   friends: {
     title: '분류',
@@ -177,6 +182,7 @@ export default {
     colorPurple: '보라',
     colorBlack: '검정',
     colorWhite: '흰색',
+    colorNone: '무채색',
     colorCustom: '직접선택',
     pickerHue: '색조',
     pickerLightness: '명도',
@@ -186,6 +192,8 @@ export default {
     newPlaceholder: '새 분류 이름',
     descriptionPlaceholder: '설명 (선택)',
     confirmDelete: "'{{name}}' 분류를 삭제할까요?",
+    deleteAllTitle: '분류 전체 삭제',
+    deleteAllMessage: '모든 분류를 삭제할까요? 메시지는 미분류로 남습니다.',
     favoritesSection: '즐겨찾기',
   },
   auto: {
@@ -196,7 +204,7 @@ export default {
       place: '장소',
       video: '영상',
       item: '상품',
-      article: '글',
+      article: '아티클',
       memo: '메모',
       link: '링크',
     },
@@ -247,6 +255,7 @@ export default {
     modeDark: '다크',
     modeSystem: '시스템',
     linkedGoogle: 'Google 연결됨',
+    menu: '메뉴',
   },
   // 백엔드가 보내는 에러 코드 → 표시 문구. code 매칭 실패 시 requestFailed로 폴백.
   // 잘 알려진 서비스의 출처(siteName) 로케일 표시명

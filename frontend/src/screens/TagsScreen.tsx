@@ -1,5 +1,6 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
@@ -9,14 +10,27 @@ import {
   View,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
-import { GripVertical, Pencil, Pin, PinOff, Plus, Trash2 } from 'lucide-react-native';
+import {
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Plus,
+  Star,
+  StarOff,
+  Trash2,
+} from 'lucide-react-native';
 import { api, Tag } from '../api';
+import { HashTile } from '../components/HashTile';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { useSelectedRoom } from '../selected-room';
 import { useTagCreate } from '../tag-create';
-import { grabCursor, ReorderRow, useReorder } from '../use-reorder';
+import {
+  useVarReorder,
+  VarReorderControls,
+  VarReorderRow,
+} from '../use-reorder';
 import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { useTagCrud } from '../use-tags';
@@ -26,54 +40,64 @@ interface Props {
   /** 행 탭 → 태그 방 열기(모바일 push / 데스크톱 스플릿뷰 패널 교체). */
   onOpenTag: (tag: Tag) => void;
   onLogout: () => void;
+  /** 그룹 탭 캡슐 아래에 임베드될 때 true — 헤더는 그룹 컨테이너가 지므로 여기선 렌더하지 않는다. */
+  embedded?: boolean;
 }
 
-// 행 높이 균일(그립 드래그 재정렬의 전제) — # 타일 44 + 세로 패딩.
+// 행 높이 — 설명(상태메시지) 유무와 무관하게 모든 행이 같은 높이(분류 탭과 동일 관례,
+// 사용자 확정). 설명은 행 안에서 이름 아래 한 줄(numberOfLines=1 ellipsis)로 들어간다.
 const ROW_HEIGHT = 68;
 
-// 태그 탭(채팅형) — 분류 탭과 완전히 동일한 행 문법.
-// 행 = [# 글리프 타일(무채색 surface)][태그명(+고정 핀)][우측 messageCount(micro 모노)][그립].
-// + 버튼 = 태그 추가(루트 상주 호스트). 왼→오 스와이프 [고정][삭제][수정](분류 탭과 동일),
-// 오른쪽 그립 드래그 = 순서 변경(position 저장). 색은 분류의 것이라 태그는 색을 갖지 않는다.
-export function TagsScreen({ token, onOpenTag, onLogout }: Props) {
+// 태그 탭(채팅형) — 분류 탭(FriendsScreen)과 완전히 동일한 문법.
+// 접이식 '즐겨찾기' 섹션(★ 태그, 전용 순서 드래그) + 접이식 '태그' 섹션(전체, position 순서 드래그).
+// 행 = [# 타일][태그명(+★+고정 핀)(+설명 한 줄)][우측 messageCount][그립]. 색은 분류의 것이라 태그는 색 없음.
+// 왼→오 스와이프 [즐겨찾기][삭제][수정] — 태그엔 고정 없음(사용자 확정).
+// 즐겨찾기해도 '태그' 섹션에서 빠지지 않는다(분류와 동일).
+export function TagsScreen({ token, onOpenTag, onLogout, embedded = false }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { tags, setTags, reload, removeTag } = useTagCrud(token);
-  // 데스크톱 스플릿뷰 강조 + 목록 갱신 신호(bumpRooms) — 고정/수정이 보드·선택모달에 반영되게.
+  // 데스크톱 스플릿뷰 강조 + 목록 갱신 신호(bumpRooms) — 고정/수정/추가가 보드·선택모달에 반영되게.
   const { tag: selectedTag, roomsVersion, bumpRooms } = useSelectedRoom();
-  // 태그 추가·이름수정은 루트 상주 호스트 — 여기선 열기만.
+  // 태그 추가(관리 모달)·이름수정은 루트 상주 호스트 — 여기선 열기만.
   const { openTagCreate, openTagRename } = useTagCreate();
   const { width } = useWindowDimensions();
   const isDesktop = width >= layout.desktopBreakpoint;
 
+  // 두 섹션(즐겨찾기·태그) 접기/펼치기 — 화면 로컬 state로 충분(분류 탭과 동일).
+  const [favoritesExpanded, setFavoritesExpanded] = useState(true);
+  const [tagsExpanded, setTagsExpanded] = useState(true);
+
+  // 즐겨찾기 섹션 = favorite=true인 태그만, favoritePosition 오름차순(없으면 맨 뒤)으로 정렬.
+  // 본 목록(태그) 순서와 독립 — 즐겨찾기해도 '태그' 섹션에서 빠지지 않고 두 섹션 모두에 보인다.
+  const favorites = useMemo(
+    () =>
+      tags
+        .filter((x) => x.favorite)
+        .sort(
+          (a, b) =>
+            (a.favoritePosition ?? Number.MAX_SAFE_INTEGER) -
+            (b.favoritePosition ?? Number.MAX_SAFE_INTEGER),
+        ),
+    [tags],
+  );
+
+  // 드래그가 읽을 현재 순서 — 매 렌더 최신으로 동기화(드래그 콜백이 lazy하게 읽음).
+  const tagsRef = useRef<Tag[]>(tags);
+  tagsRef.current = tags;
+  const favoritesRef = useRef<Tag[]>(favorites);
+  favoritesRef.current = favorites;
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
   // 스와이프 상태(웹에서 드래그 후 탭 무시 · 한 번에 하나만 열기) — 분류 탭과 동일 관례.
+  // 태그는 두 섹션에 동시에 나타날 수 있어 refKey(섹션 포함)로 구분한다.
   const swipeDragging = useRef(false);
   const openRowId = useRef<string | null>(null);
   const swipeRefs = useRef(new Map<string, SwipeableRowMethods | null>());
 
-  // 그립 드래그 재정렬 — orderRef(태그 id 순서)를 목록과 동기화한다.
-  const orderRef = useRef<string[]>([]);
-  orderRef.current = tags.map((tg) => tg.id);
-  const tokenRef = useRef(token);
-  tokenRef.current = token;
-
-  // 확정된 순서를 낙관적으로 반영 + 서버 저장(reorderFriends와 동일 관례 — 실패 시 서버 순서로 복원).
-  const commitOrder = useCallback(
-    (ids: string[]) => {
-      setTags((prev) => {
-        const byId = new Map(prev.map((tg) => [tg.id, tg]));
-        return ids.map((id) => byId.get(id)).filter((x): x is Tag => !!x);
-      });
-      const tk = tokenRef.current;
-      if (tk) api.reorderTags(tk, ids).catch(() => reload());
-    },
-    [setTags, reload],
-  );
-
-  const reorder = useReorder({ rowHeight: ROW_HEIGHT, orderRef, onCommit: commitOrder });
-
-  // 탭 진입·메시지 태그 변경(roomsVersion)마다 목록·개수 최신화.
+  // 탭 진입·메시지 태그 변경·추가(roomsVersion)마다 목록·개수 최신화.
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
@@ -81,30 +105,7 @@ export function TagsScreen({ token, onOpenTag, onLogout }: Props) {
     }, [token, reload, roomsVersion]),
   );
 
-  // 고정 토글 — 낙관적으로 고정 항목을 상단으로 재배치(그룹 내 순서는 유지). 실패 시 서버로 복원.
-  const togglePin = useCallback(
-    async (tag: Tag) => {
-      if (!token) return;
-      const nextPinned = !tag.pinned;
-      setTags((prev) => {
-        const updated = prev.map((x) =>
-          x.id === tag.id ? { ...x, pinned: nextPinned } : x,
-        );
-        const pinned = updated.filter((x) => x.pinned);
-        const rest = updated.filter((x) => !x.pinned);
-        return [...pinned, ...rest];
-      });
-      try {
-        await api.updateTagPinned(token, tag.id, nextPinned);
-        bumpRooms();
-      } catch {
-        reload();
-      }
-    },
-    [token, setTags, reload, bumpRooms],
-  );
-
-  // 수정 = 이름 변경(루트 상주 모달). 성공 시 목록의 해당 태그를 최신본으로 교체.
+  // 수정 = 이름·설명 변경(루트 상주 모달). 성공 시 목록의 해당 태그를 최신본으로 교체.
   const onEdit = useCallback(
     (tag: Tag) => {
       openTagRename(tag, (updated) => {
@@ -114,163 +115,368 @@ export function TagsScreen({ token, onOpenTag, onLogout }: Props) {
     [openTagRename, setTags],
   );
 
+  // 행 싱글탭 = 방 열기(열린 스와이프면 닫기, 스와이프 드래그 직후면 무시) — 예전 onPress 로직.
+  const openRow = useCallback(
+    (refKey: string, tag: Tag) => {
+      if (swipeDragging.current) return;
+      if (openRowId.current === refKey) {
+        swipeRefs.current.get(refKey)?.close();
+        return;
+      }
+      onOpenTag(tag);
+    },
+    [onOpenTag],
+  );
+
+  // ── 본 목록(태그) 드래그 ────────────────────────────────────────────
+  // 커밋: 새 순서를 낙관적으로 반영 + position 저장(reorderTags). 실패 시 서버 순서로 복원.
+  // 행 탭=열기(onActivate), 행 더블탭=수정(onEditRequest). refKey는 섹션(tag:/favtag:)으로 구분.
+  const mainDrag = useVarReorder<Tag>({
+    getOrder: () => tagsRef.current,
+    getId: (x) => x.id,
+    getHeight: () => ROW_HEIGHT,
+    onCommit: useCallback(
+      (next: Tag[]) => {
+        setTags(next);
+        const tk = tokenRef.current;
+        if (tk) api.reorderTags(tk, next.map((x) => x.id)).catch(() => reload());
+      },
+      [setTags, reload],
+    ),
+    onActivate: (id) => {
+      const tag = tagsRef.current.find((x) => x.id === id);
+      if (tag) openRow(`tag:${id}`, tag);
+    },
+    onEditRequest: (id) => {
+      const tag = tagsRef.current.find((x) => x.id === id);
+      if (tag) onEdit(tag);
+    },
+  });
+
+  // ── 즐겨찾기 섹션 드래그(본 목록과 독립) ──────────────────────────────
+  // 커밋: 새 즐겨찾기 순서로 favoritePosition을 재부여(본 목록 배열 순서는 불변). 저장은 reorderFavoriteTags.
+  const favDrag = useVarReorder<Tag>({
+    getOrder: () => favoritesRef.current,
+    getId: (x) => x.id,
+    getHeight: () => ROW_HEIGHT,
+    onCommit: useCallback(
+      (nextFavs: Tag[]) => {
+        const posById = new Map(nextFavs.map((x, i) => [x.id, i] as const));
+        setTags((prev) =>
+          prev.map((x) =>
+            posById.has(x.id) ? { ...x, favoritePosition: posById.get(x.id)! } : x,
+          ),
+        );
+        const tk = tokenRef.current;
+        if (tk) {
+          api
+            .reorderFavoriteTags(tk, nextFavs.map((x) => x.id))
+            .catch(() => reload());
+        }
+      },
+      [setTags, reload],
+    ),
+    onActivate: (id) => {
+      const tag = tagsRef.current.find((x) => x.id === id);
+      if (tag) openRow(`favtag:${id}`, tag);
+    },
+    onEditRequest: (id) => {
+      const tag = tagsRef.current.find((x) => x.id === id);
+      if (tag) onEdit(tag);
+    },
+  });
+
+  // 즐겨찾기(★) 토글 — 고정(pinned)과는 무관한 별개 표시. 본 목록(태그) 정렬엔 영향 없음.
+  // 낙관 갱신: 별 추가 시 즐겨찾기 섹션 맨 밑(현재 최대 favoritePosition+1)에 오도록 값을 부여, 해제 시 null.
+  const toggleFavorite = useCallback(
+    async (tag: Tag) => {
+      if (!token) return;
+      const nextFavorite = !tag.favorite;
+      const maxPos = tagsRef.current.reduce(
+        (m, x) =>
+          x.favorite && x.favoritePosition != null ? Math.max(m, x.favoritePosition) : m,
+        -1,
+      );
+      setTags((prev) =>
+        prev.map((x) =>
+          x.id === tag.id
+            ? {
+                ...x,
+                favorite: nextFavorite,
+                favoritePosition: nextFavorite ? maxPos + 1 : null,
+              }
+            : x,
+        ),
+      );
+      try {
+        await api.updateTagFavorite(token, tag.id, nextFavorite);
+      } catch {
+        reload();
+      }
+    },
+    [token, setTags, reload],
+  );
+
+  // 태그 행 하나를 렌더한다. 두 섹션(즐겨찾기·태그) 모두 VarReorderRow로 드래그 재정렬하며,
+  // 각자 독립된 drag 컨텍스트를 받는다. 즐겨찾기한 태그는 두 섹션에 동시에 나타날 수 있어,
+  // swipeRefs·openRowId는 item.id가 아니라 섹션까지 포함한 refKey로 구분한다.
+  const renderTagRow = (
+    item: Tag,
+    opts: { refKey: string; drag: VarReorderControls; index: number; isDragging: boolean },
+  ) => {
+    const { refKey, drag, index, isDragging } = opts;
+    const active = isDesktop && selectedTag?.id === item.id;
+    return (
+      <VarReorderRow
+        index={index}
+        isDragging={isDragging}
+        controls={drag}
+      >
+        {/* 왼→오 스와이프로 [즐겨찾기][삭제][수정] — 태그엔 고정 없음(사용자 확정). 그립(세로)과 방향으로 공존. */}
+        <SwipeableRow
+          ref={(ref) => {
+            swipeRefs.current.set(refKey, ref);
+          }}
+          actions={[
+            {
+              key: 'favorite',
+              icon: item.favorite ? StarOff : Star,
+              label: item.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+              onPress: () => toggleFavorite(item),
+            },
+            {
+              key: 'delete',
+              icon: Trash2,
+              label: t('common.delete'),
+              onPress: () => removeTag(item),
+            },
+            {
+              key: 'edit',
+              icon: Pencil,
+              label: t('tags.editTitle'),
+              onPress: () => onEdit(item),
+            },
+          ]}
+          onDragStateChange={(dragging) => {
+            swipeDragging.current = dragging;
+          }}
+          onOpenChange={(open) => {
+            if (open) {
+              const prev = openRowId.current;
+              if (prev && prev !== refKey) swipeRefs.current.get(prev)?.close();
+              openRowId.current = refKey;
+            } else if (openRowId.current === refKey) {
+              openRowId.current = null;
+            }
+          }}
+        >
+          {/* 행 전체가 제스처 대상: 탭=열기 / 더블탭=수정 / 꾹 눌러 세로로 끌기=재정렬(그립 없음).
+              접근성은 행에 통합 — 열기(activate) + 수정(edit) + 위/아래 이동(increment/decrement). */}
+          <GestureDetector gesture={drag.getGesture(item.id)}>
+            <View
+              style={[
+                styles.row,
+                active && styles.rowActive,
+                isDragging && styles.rowLifted,
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              accessibilityLabel={item.name}
+              accessibilityActions={[
+                { name: 'activate' },
+                { name: 'edit', label: t('tags.editTitle') },
+                { name: 'increment' },
+                { name: 'decrement' },
+              ]}
+              onAccessibilityAction={(e) => {
+                switch (e.nativeEvent.actionName) {
+                  case 'edit':
+                    onEdit(item);
+                    break;
+                  case 'increment':
+                    drag.moveByOne(item.id, -1);
+                    break;
+                  case 'decrement':
+                    drag.moveByOne(item.id, 1);
+                    break;
+                  default:
+                    openRow(refKey, item);
+                }
+              }}
+              onAccessibilityTap={() => openRow(refKey, item)}
+            >
+              <View style={styles.rowMain}>
+                {/* # 글리프 타일 — 태그 프로필색 배경(없으면 무채 surface). 말풍선 색은 분류의 것. */}
+                <HashTile color={item.color ?? null} size={44} />
+                <View style={styles.nameCol}>
+                  <View style={styles.nameRow}>
+                    <Text
+                      variant="subheading"
+                      style={styles.nameText}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    {item.favorite ? (
+                      <MaterialCommunityIcons
+                        name="star"
+                        size={12}
+                        color={colors.ink}
+                        style={styles.badgeIcon}
+                      />
+                    ) : null}
+                  </View>
+                  {item.description ? (
+                    <Text
+                      variant="caption"
+                      color={colors.textTertiary}
+                      numberOfLines={1}
+                      style={styles.descriptionText}
+                    >
+                      {item.description}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text variant="micro" color={colors.textTertiary}>
+                  {item.messageCount ?? 0}
+                </Text>
+              </View>
+            </View>
+          </GestureDetector>
+        </SwipeableRow>
+      </VarReorderRow>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <TabHeader
-        title={t('tags.tabTitle')}
-        actions={[
-          {
-            key: 'add',
-            icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
-            label: t('tags.addTitle'),
-            onPress: () => openTagCreate(() => reload()),
-          },
-        ]}
-      />
+      {!embedded ? (
+        <TabHeader
+          title={t('tags.tabTitle')}
+          actions={[
+            {
+              key: 'add',
+              icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
+              label: t('tags.addTitle'),
+              onPress: () => openTagCreate(() => reload()),
+            },
+          ]}
+        />
+      ) : null}
 
       <FlatList
-        data={tags}
+        data={tagsExpanded ? tags : []}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
-        scrollEnabled={reorder.draggingId === null}
-        extraData={reorder.draggingId}
-        // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android — 셀 형제 레벨에서 zIndex/elevation 필요).
-        CellRendererComponent={reorder.CellRendererComponent}
+        // 드래그 중(어느 섹션이든)에는 목록 스크롤을 멈춰 손가락 이동이 재정렬에만 쓰이게 한다.
+        scrollEnabled={mainDrag.draggingId === null && favDrag.draggingId === null}
+        extraData={[mainDrag.draggingId, tagsExpanded]}
+        // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android).
+        CellRendererComponent={mainDrag.CellRendererComponent}
         removeClippedSubviews={false}
-        renderItem={({ item, index }) => {
-          const active = isDesktop && selectedTag?.id === item.id;
-          const isDragging = reorder.draggingId === item.id;
-          return (
-            <ReorderRow index={index} isDragging={isDragging} controls={reorder}>
-              {/* 왼→오 스와이프로 [고정][삭제][수정](분류 탭과 동일). 그립(세로)과 방향으로 공존. */}
-              <SwipeableRow
-                ref={(ref) => {
-                  swipeRefs.current.set(item.id, ref);
-                }}
-                actions={[
-                  {
-                    key: 'pin',
-                    icon: item.pinned ? PinOff : Pin,
-                    label: item.pinned ? t('a11y.unpin') : t('a11y.pin'),
-                    onPress: () => togglePin(item),
-                  },
-                  {
-                    key: 'delete',
-                    icon: Trash2,
-                    label: t('common.delete'),
-                    onPress: () => removeTag(item),
-                  },
-                  {
-                    key: 'edit',
-                    icon: Pencil,
-                    label: t('tags.editTitle'),
-                    onPress: () => onEdit(item),
-                  },
-                ]}
-                onDragStateChange={(dragging) => {
-                  swipeDragging.current = dragging;
-                }}
-                onOpenChange={(open) => {
-                  if (open) {
-                    const prev = openRowId.current;
-                    if (prev && prev !== item.id) swipeRefs.current.get(prev)?.close();
-                    openRowId.current = item.id;
-                  } else if (openRowId.current === item.id) {
-                    openRowId.current = null;
-                  }
-                }}
-              >
-                <View
-                  style={[
-                    styles.row,
-                    active && styles.rowActive,
-                    isDragging && styles.rowLifted,
-                  ]}
+        // 즐겨찾기 드래그 중엔 헤더를 본문 셀 위로 — 아래로 끌 때 본문에 가려지지 않게(분류 탭과 통일).
+        ListHeaderComponentStyle={
+          favDrag.draggingId !== null ? styles.headerLifted : undefined
+        }
+        ListHeaderComponent={
+          <>
+            {/* 즐겨찾기 섹션 — favorite=true인 태그만, favoritePosition 순. 하나도 없으면 렌더 안 함. */}
+            {favorites.length > 0 ? (
+              <>
+                <TouchableOpacity
+                  style={styles.sectionRow}
+                  onPress={() => setFavoritesExpanded((v) => !v)}
+                  activeOpacity={0.6}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: favoritesExpanded }}
+                  accessibilityLabel={t('friends.favoritesSection')}
                 >
-                  {/* 탭 = 방 열기(열린 스와이프면 닫기) / long-press = 이름 수정 모달. */}
-                  <TouchableOpacity
-                    style={styles.rowMain}
-                    activeOpacity={0.6}
-                    onPress={() => {
-                      if (swipeDragging.current) return;
-                      if (openRowId.current === item.id) {
-                        swipeRefs.current.get(item.id)?.close();
-                        return;
-                      }
-                      onOpenTag(item);
-                    }}
-                    onLongPress={() => onEdit(item)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: active }}
-                    accessibilityLabel={item.name}
+                  {favoritesExpanded ? (
+                    <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
+                  ) : (
+                    <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
+                  )}
+                  <Text
+                    variant="caption"
+                    color={colors.textSecondary}
+                    style={styles.sectionTitle}
                   >
-                    {/* # 글리프 타일 — 무채색 surface(색은 분류의 것). */}
-                    <View style={styles.tile}>
-                      <Text variant="subheading" color={colors.ink}>
-                        #
-                      </Text>
+                    {t('friends.favoritesSection')}
+                  </Text>
+                  <Text variant="micro" color={colors.textSecondary}>
+                    {favorites.length}
+                  </Text>
+                </TouchableOpacity>
+                {favoritesExpanded &&
+                  favorites.map((f, i) => (
+                    <View key={`favtag:${f.id}`}>
+                      {renderTagRow(f, {
+                        refKey: `favtag:${f.id}`,
+                        drag: favDrag,
+                        index: i,
+                        isDragging: favDrag.draggingId === f.id,
+                      })}
                     </View>
-                    <View style={styles.nameWrap}>
-                      <Text
-                        variant="subheading"
-                        style={styles.nameText}
-                        numberOfLines={1}
-                      >
-                        {item.name}
-                      </Text>
-                      {item.pinned ? (
-                        <Pin
-                          size={12}
-                          strokeWidth={2}
-                          color={colors.textTertiary}
-                          style={styles.pinIcon}
-                        />
-                      ) : null}
-                    </View>
-                    <Text variant="micro" color={colors.textTertiary}>
-                      {item.messageCount ?? 0}
-                    </Text>
-                  </TouchableOpacity>
-                  {/* 그립 = 세로 드래그 재정렬(분류 탭과 동일). */}
-                  <GestureDetector gesture={reorder.getGesture(item.id)}>
-                    <View
-                      style={[styles.dragHandle, grabCursor]}
-                      accessibilityRole="adjustable"
-                      accessibilityLabel={t('a11y.reorder')}
-                      accessibilityActions={[
-                        { name: 'increment' },
-                        { name: 'decrement' },
-                      ]}
-                      onAccessibilityAction={(e) =>
-                        reorder.moveByOne(
-                          item.id,
-                          e.nativeEvent.actionName === 'increment' ? -1 : 1,
-                        )
-                      }
-                    >
-                      <GripVertical size={18} strokeWidth={2} color={colors.textTertiary} />
-                    </View>
-                  </GestureDetector>
-                </View>
-              </SwipeableRow>
-            </ReorderRow>
-          );
-        }}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={styles.emptyBox}>
-              <Text style={styles.emptyGlyph} color={colors.ink}>
-                #
-              </Text>
-              <Text
-                variant="label"
-                color={colors.textTertiary}
-                style={styles.emptyText}
+                  ))}
+                <View style={styles.divider} />
+              </>
+            ) : null}
+
+            {/* '목록' 섹션 헤더 — 전체 태그. 하나라도 있으면 렌더(분류·자동구분 본 섹션과 공통 라벨). */}
+            {tags.length > 0 ? (
+              <TouchableOpacity
+                style={styles.sectionRow}
+                onPress={() => setTagsExpanded((v) => !v)}
+                activeOpacity={0.6}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: tagsExpanded }}
+                accessibilityLabel={t('common.listSection')}
               >
-                {t('tags.emptyHint')}
-              </Text>
+                {tagsExpanded ? (
+                  <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
+                ) : (
+                  <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
+                )}
+                <Text
+                  variant="caption"
+                  color={colors.textSecondary}
+                  style={styles.sectionTitle}
+                >
+                  {t('common.listSection')}
+                </Text>
+                <Text variant="micro" color={colors.textSecondary}>
+                  {tags.length}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
+        }
+        renderItem={({ item, index }) =>
+          renderTagRow(item, {
+            refKey: `tag:${item.id}`,
+            drag: mainDrag,
+            index,
+            isDragging: mainDrag.draggingId === item.id,
+          })
+        }
+        ListEmptyComponent={
+          // 접기(data=[])로도 비므로, "첫 태그" 힌트는 정말 태그가 0개일 때만.
+          tags.length === 0 ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyGlyph} color={colors.ink}>
+                  #
+                </Text>
+                <Text
+                  variant="label"
+                  color={colors.textTertiary}
+                  style={styles.emptyText}
+                >
+                  {t('tags.emptyHint')}
+                </Text>
+              </View>
             </View>
-          </View>
+          ) : null
         }
       />
     </View>
@@ -283,10 +489,33 @@ const makeStyles = (colors: ThemeColors) =>
       flex: 1,
       backgroundColor: colors.background,
     },
+    // 즐겨찾기 드래그 중 헤더(즐겨찾기 섹션)를 본문 셀 위로 — 잡은 행이 본문에 가려지지 않게.
+    headerLifted: {
+      zIndex: 10,
+      elevation: 10,
+    },
     listContent: {
       flexGrow: 1,
       paddingTop: 4,
       paddingBottom: 20,
+    },
+    sectionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 4,
+      gap: 10,
+    },
+    sectionTitle: {
+      flex: 1,
+    },
+    divider: {
+      borderTopWidth: 1,
+      borderStyle: 'dotted' as const,
+      borderTopColor: colors.border,
+      marginHorizontal: 20,
+      marginTop: 8,
     },
     row: {
       flexDirection: 'row',
@@ -310,34 +539,24 @@ const makeStyles = (colors: ThemeColors) =>
       flexDirection: 'row',
       alignItems: 'center',
     },
-    // 무채색 # 타일(보더 없음) — 색은 분류의 것이라 태그는 색을 갖지 않는다.
-    tile: {
-      width: 44,
-      height: 44,
-      borderRadius: 0,
-      backgroundColor: colors.surface,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    nameWrap: {
+    nameCol: {
       flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
       marginLeft: 14,
       marginRight: 10,
+    },
+    nameRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     nameText: {
       flexShrink: 1,
     },
-    pinIcon: {
+    badgeIcon: {
       marginLeft: 5,
     },
-    dragHandle: {
-      alignSelf: 'stretch',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingLeft: 12,
-      paddingRight: 2,
+    // 설명(상태메시지) 캡션 — 이름 아래 한 줄. 있는 행만 렌더되어 그 행만 2줄이 된다(분류 탭과 동일).
+    descriptionText: {
+      marginTop: 2,
     },
     empty: {
       flex: 1,

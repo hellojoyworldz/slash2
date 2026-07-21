@@ -10,7 +10,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { IsNull, Repository } from 'typeorm';
-import { isValidAutoOrder } from '../users/auto-order';
+import { isValidAutoFavorites, isValidAutoOrder } from '../users/auto-order';
+import { isValidHiddenTabs, isValidTabOrder } from '../users/tab-order';
 import { SocialAccount } from '../users/social-account.entity';
 import { User } from '../users/user.entity';
 import { AuthToken, AuthTokenPurpose } from './auth-token.entity';
@@ -127,6 +128,9 @@ export class AuthService {
       selfDescription: user.selfDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
+      autoFavorites: user.autoFavorites ?? null,
+      tabOrder: user.tabOrder ?? null,
+      hiddenTabs: user.hiddenTabs ?? null,
       providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
   }
@@ -140,6 +144,9 @@ export class AuthService {
       selfDescription?: string;
       customColors?: string[];
       autoOrder?: string[];
+      autoFavorites?: string[];
+      tabOrder?: string[];
+      hiddenTabs?: string[];
     },
   ) {
     const user = await this.users.findOne({ where: { id: userId } });
@@ -174,6 +181,36 @@ export class AuthService {
       }
       user.autoOrder = changes.autoOrder;
     }
+    if (changes.autoFavorites !== undefined) {
+      if (!isValidAutoFavorites(changes.autoFavorites)) {
+        throw new BadRequestException({
+          code: 'invalid_order',
+          message: '자동구분 즐겨찾기가 올바르지 않습니다.',
+        });
+      }
+      user.autoFavorites = changes.autoFavorites.length
+        ? changes.autoFavorites
+        : null;
+    }
+    if (changes.tabOrder !== undefined) {
+      if (!isValidTabOrder(changes.tabOrder)) {
+        throw new BadRequestException({
+          code: 'invalid_order',
+          message: '메뉴 순서가 올바르지 않습니다.',
+        });
+      }
+      user.tabOrder = changes.tabOrder;
+    }
+    if (changes.hiddenTabs !== undefined) {
+      if (!isValidHiddenTabs(changes.hiddenTabs)) {
+        throw new BadRequestException({
+          code: 'invalid_order',
+          message: '메뉴 노출 설정이 올바르지 않습니다.',
+        });
+      }
+      // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
+      user.hiddenTabs = changes.hiddenTabs.length ? changes.hiddenTabs : null;
+    }
     await this.users.save(user);
     return {
       id: user.id,
@@ -184,6 +221,9 @@ export class AuthService {
       selfDescription: user.selfDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
+      autoFavorites: user.autoFavorites ?? null,
+      tabOrder: user.tabOrder ?? null,
+      hiddenTabs: user.hiddenTabs ?? null,
     };
   }
 
@@ -481,6 +521,9 @@ export class AuthService {
         selfDescription: user.selfDescription ?? null,
         customColors: user.customColors ?? [],
         autoOrder: user.autoOrder ?? null,
+        autoFavorites: user.autoFavorites ?? null,
+        tabOrder: user.tabOrder ?? null,
+        hiddenTabs: user.hiddenTabs ?? null,
         providers: accounts.map((a) => a.provider),
       },
     };

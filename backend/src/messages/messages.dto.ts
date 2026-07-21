@@ -18,6 +18,13 @@ export class CreateMessageDto {
   @IsOptional()
   @IsUUID()
   friendId?: string;
+
+  // tagIds: 키가 있으면 생성 시 이 태그들을 부착(중복 id는 합침, 빈 배열이면 미부착).
+  // 내 소유가 아닌/없는 태그 id가 섞이면 서비스에서 400. (UpdateMessageDto.tagIds와 동일 검증 관례)
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  tagIds?: string[];
 }
 
 export class UpdateMessageDto {

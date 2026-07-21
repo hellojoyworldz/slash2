@@ -24,10 +24,13 @@ interface Props {
   onConfirm: () => void;
   /** 있으면 취소(ghost) 버튼 노출 — 없으면 확인 버튼만(알림형) */
   cancelLabel?: string;
-  /** 확인 버튼을 outline(파괴적)으로 — 삭제 확인 등 */
+  /** 파괴적 확정(삭제 등) 표식 — 렌더는 여전히 primary(검정 채움 = 확정 액션 규칙).
+   *  의미 표식으로만 남긴다(현재 버튼 색은 바꾸지 않음). */
   destructive?: boolean;
   /** 저장/처리 중: 확인은 스피너, 두 버튼 비활성 */
   busy?: boolean;
+  /** 타이틀 행 오른쪽 슬롯(선택) — 수정 모달의 휴지통 아이콘 등 보조 액션. */
+  titleAccessory?: ReactNode;
 }
 
 // 앱의 모든 모달·다이얼로그가 공유하는 단일 시각 문법.
@@ -45,8 +48,9 @@ export function ModalCard({
   confirmLabel,
   onConfirm,
   cancelLabel,
-  destructive = false,
+  // destructive는 의미 표식으로만 받는다(렌더는 항상 primary). 구조분해에서 읽지 않는다.
   busy = false,
+  titleAccessory,
 }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -79,9 +83,19 @@ export function ModalCard({
         accessibilityViewIsModal
       >
         <View style={styles.card}>
-          <Text variant="heading" accessibilityRole="header">
-            {title}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text
+              variant="heading"
+              accessibilityRole="header"
+              style={styles.titleText}
+            >
+              {title}
+            </Text>
+            {/* 타이틀 오른쪽 보조 슬롯(휴지통 등) — 없으면 자리 차지 안 함. */}
+            {titleAccessory ? (
+              <View style={styles.titleAccessory}>{titleAccessory}</View>
+            ) : null}
+          </View>
 
           <ScrollView
             style={styles.scroll}
@@ -104,7 +118,7 @@ export function ModalCard({
             ) : null}
             <Button
               label={confirmLabel}
-              variant={destructive ? 'outline' : 'primary'}
+              variant="primary"
               onPress={onConfirm}
               loading={busy}
               style={styles.actionButton}
@@ -158,6 +172,18 @@ const makeStyles = (colors: ThemeColors) =>
     },
     scrollContent: {
       paddingBottom: 4,
+    },
+    // 타이틀 + 오른쪽 보조 슬롯(휴지통 등)을 한 줄에 양끝 정렬.
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    titleText: {
+      flexShrink: 1,
+    },
+    titleAccessory: {
+      marginLeft: 8,
     },
     actions: {
       flexDirection: 'row',

@@ -28,6 +28,10 @@ export interface ChatDraft {
   inputHeight: number;
 }
 
+// 분류 탭(FriendsScreen) 상단 캡슐이 고른 리스트. 900px 트리 스왑에도 살아남아야 하므로
+// 화면 로컬 useState가 아니라 루트에 둔다(검색·입력 draft와 같은 원리).
+export type ClassifyTab = 'friends' | 'tags' | 'auto';
+
 interface SelectedRoomState {
   room: SelectedRoom | null;
   setRoom: (room: SelectedRoom | null) => void;
@@ -41,6 +45,9 @@ interface SelectedRoomState {
   /** 방 목록에 영향 주는 변경(전송·삭제·분류)의 카운터 — 목록 새로고침 신호 */
   roomsVersion: number;
   bumpRooms: () => void;
+  /** 분류 탭 상단 캡슐이 고른 리스트(분류/태그/자동구분). 900px 스왑에도 살아남는다. */
+  classifyTab: ClassifyTab;
+  setClassifyTab: (tab: ClassifyTab) => void;
   /** 현재 방의 채팅 draft를 저장(덮어쓰기). ref라 리렌더를 일으키지 않는다. */
   saveChatDraft: (draft: ChatDraft) => void;
   /** roomKey가 일치할 때만 draft를 돌려준다. 아니면 null(빈 상태로 시작). */
@@ -72,6 +79,7 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
   }, []);
   const [roomsVersion, setRoomsVersion] = useState(0);
   const bumpRooms = useCallback(() => setRoomsVersion((v) => v + 1), []);
+  const [classifyTab, setClassifyTab] = useState<ClassifyTab>('friends');
 
   // draft는 화면 마운트 시 1회만 읽으므로 state가 아니라 ref에 둔다.
   // (검색어·입력 키 입력마다 루트가 리렌더되면 앱 전체가 다시 그려지니 방지)
@@ -94,6 +102,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setTag,
       roomsVersion,
       bumpRooms,
+      classifyTab,
+      setClassifyTab,
       saveChatDraft,
       readChatDraft,
     }),
@@ -106,6 +116,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setTag,
       roomsVersion,
       bumpRooms,
+      classifyTab,
+      setClassifyTab,
       saveChatDraft,
       readChatDraft,
     ],

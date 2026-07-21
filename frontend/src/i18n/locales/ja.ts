@@ -10,6 +10,7 @@ export default {
     me: '自分',
     notice: 'お知らせ',
     close: '閉じる',
+    listSection: '一覧',
   },
   // スクリーンリーダー用ラベル（画面には表示されない）
   a11y: {
@@ -27,8 +28,9 @@ export default {
     editTags: 'タグを編集',
   },
   tabs: {
+    group: 'グループ',
     friends: 'カテゴリ',
-    chats: 'チャット',
+    chats: 'メモ',
     auto: '自動分類',
     tags: 'タグ',
     more: 'その他',
@@ -80,7 +82,7 @@ export default {
     resendFailed: 'メールの再送に失敗しました。しばらくしてからもう一度お試しください。',
   },
   chats: {
-    title: 'チャット',
+    title: 'メモ',
     firstMessage: '最初のメッセージを送ってみましょう',
     myRoom: 'すべて',
   },
@@ -157,6 +159,8 @@ export default {
     removeLabel: 'タグ「{{name}}」を削除',
     deleteTitle: 'タグを削除',
     deleteMessage: '「{{name}}」をすべてのメッセージから削除しますか？',
+    deleteAllTitle: 'タグを全削除',
+    deleteAllMessage: 'すべてのタグをすべてのメッセージから削除しますか？',
   },
   friends: {
     title: 'カテゴリ',
@@ -178,6 +182,7 @@ export default {
     colorPurple: '紫',
     colorBlack: '黒',
     colorWhite: '白',
+    colorNone: '無彩色',
     colorCustom: 'カスタム',
     pickerHue: '色相',
     pickerLightness: '明るさ',
@@ -187,6 +192,8 @@ export default {
     newPlaceholder: '新しいカテゴリ名',
     descriptionPlaceholder: '説明（任意）',
     confirmDelete: '「{{name}}」を削除しますか？',
+    deleteAllTitle: 'カテゴリを全削除',
+    deleteAllMessage: 'すべてのカテゴリを削除しますか？メッセージは未分類のまま残ります。',
     favoritesSection: 'お気に入り',
   },
   auto: {
@@ -247,6 +254,7 @@ export default {
     modeDark: 'ダーク',
     modeSystem: 'システム',
     linkedGoogle: 'Google連携済み',
+    menu: 'メニュー',
   },
   sites: {
     googleMaps: 'Googleマップ',

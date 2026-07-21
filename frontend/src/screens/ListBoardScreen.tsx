@@ -48,7 +48,9 @@ import { confirmDialog, notify } from '../notify';
 import { AutoChips } from '../components/AutoChips';
 import { CardDetailPanel } from '../components/CardDetailPanel';
 import { CategoryAvatar } from '../components/CategoryAvatar';
+import { HashTile } from '../components/HashTile';
 import { GalleryCard } from '../components/GalleryCard';
+import { Logo } from '../components/Logo';
 import { ModalCard } from '../components/ModalCard';
 import { Text } from '../components/Text';
 import { useMessageActions } from '../message-actions';
@@ -56,7 +58,7 @@ import { useMessageDetail } from '../message-detail';
 import { useTagCreate } from '../tag-create';
 import { copyToClipboard, messagePayload, shareContent } from '../share';
 import { useSelectedRoom } from '../selected-room';
-import { layout, pickDefaultCategoryColor, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
+import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 
 // 미분류(전체) 섹션 키 — 실제 friendId와 겹치지 않게 접두어 형태로.
@@ -137,8 +139,8 @@ export function ListBoardScreen({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 미분류(전체) 섹션 아바타·카드 점에 쓸 "전체" 프로필 색 + 자동구분 표시 순서.
   const { selfColor, autoOrder } = useAuth();
-  // 헤더 + 버튼 = 분류 추가(채팅형 분류 탭 +와 동일 경로, 루트 상주 편집기).
-  const { open: openCategoryEditor } = useCategoryEdit();
+  // 헤더 + 버튼 = 분류 추가(채팅형 분류 탭 +와 동일 경로 — 픽커 관리 모드).
+  const { openManage: openCategoryManage } = useCategoryEdit();
   // 메시지 액션·태그 추가 모달은 루트 상주 호스트 — 여기선 열기만.
   const { openMessageMenu } = useMessageActions();
   // ⋮ 메뉴 [내용 수정] 전용 — 목록형의 카드 탭 상세(CardDetailPanel)와는 별개로,
@@ -323,7 +325,8 @@ export function ListBoardScreen({
             key: `tag:${tg.id}`,
             // 제목엔 접두 #를 붙이지 않는다 — 섹션 글리프 슬롯의 # 타일이 그 역할을 한다.
             title: tg.name,
-            color: null,
+            // 태그 프로필색을 섹션 글리프(# 타일) 배경으로. 무색이면 무채 surface 폴백.
+            color: tg.color ?? null,
             items,
             tagSection: true,
           });
@@ -682,12 +685,8 @@ export function ListBoardScreen({
           >
             <Chevron size={18} strokeWidth={2} color={colors.textSecondary} />
             {item.tagSection ? (
-              // 태그 섹션 — 무채색 # 글리프(색은 분류의 것이라 태그는 색이 없다).
-              <View style={styles.sectionIcon}>
-                <Text variant="bodyStrong" color={colors.ink}>
-                  #
-                </Text>
-              </View>
+              // 태그 섹션 — 태그 프로필색 # 타일(무색이면 무채 surface). 말풍선 색은 분류의 것.
+              <HashTile color={item.color} size={22} />
             ) : AutoIcon ? (
               <View style={styles.sectionIcon}>
                 <AutoIcon size={18} strokeWidth={2} color={colors.ink} />
@@ -765,7 +764,7 @@ export function ListBoardScreen({
 
   return (
     <View style={styles.container} onLayout={onContainerLayout}>
-      {/* 헤더: ✳ slash 워드마크(검색 열리면 입력) · 검색 · [+ 분류] · ⋯ */}
+      {/* 헤더: slash 워드마크(검색 열리면 입력) · 검색 · [+ 분류] · ⋯ */}
       <View style={styles.header}>
         {searchOpen ? (
           <TextInput
@@ -777,9 +776,9 @@ export function ListBoardScreen({
             autoFocus
           />
         ) : (
-          <Text variant="heading" color={colors.ink} style={styles.wordmark}>
-            ✳ slash
-          </Text>
+          <View style={styles.wordmark}>
+            <Logo size={38} />
+          </View>
         )}
         <TouchableOpacity
           style={styles.iconButton}
@@ -806,7 +805,7 @@ export function ListBoardScreen({
               // 태그 추가는 루트 상주 호스트 — 생성 후 이 보드의 태그 목록만 갱신.
               openTagCreate(() => reloadTags());
             } else {
-              openCategoryEditor(undefined, pickDefaultCategoryColor(friends));
+              openCategoryManage();
             }
           }}
           activeOpacity={0.85}

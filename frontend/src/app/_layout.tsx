@@ -10,15 +10,15 @@ import { Platform, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppStyleProvider, useAppStyle } from '../app-style';
 import { AuthProvider, useAuth } from '../auth';
+import { Logo } from '../components/Logo';
 import { NotifyHost } from '../components/NotifyHost';
-import { Text } from '../components/Text';
 import { loadStoredLanguage } from '../i18n'; // import 시 i18n 초기화 실행
-import { CategoryEditProvider } from '../category-edit';
+import { CategoryEditHost, CategoryEditProvider } from '../category-edit';
 import { MessageActionsHost, MessageActionsProvider } from '../message-actions';
 import { MessageDetailHost, MessageDetailProvider } from '../message-detail';
 import { NameEditProvider } from '../name-edit';
 import { SelectedRoomProvider } from '../selected-room';
-import { TagCreateProvider } from '../tag-create';
+import { TagCreateHost, TagCreateProvider } from '../tag-create';
 import { ThemeColors } from '../theme';
 import { ThemeProvider, useTheme } from '../theme-context';
 
@@ -75,7 +75,7 @@ function Shell() {
       <>
         <StatusBar style={resolvedScheme === 'dark' ? 'light' : 'dark'} />
         <View style={[styles.viewport, styles.boot]}>
-          <Text variant="heading" color={colors.ink}>✳ slash</Text>
+          <Logo size={72} />
         </View>
       </>
     );
@@ -98,6 +98,9 @@ function Shell() {
           {/* 메시지 액션(⋮ 메뉴·태그 선택·내용 수정) 루트 상주 호스트.
               NotifyHost보다 앞(=아래)에 둬야 태그 삭제 확인 다이얼로그가 위에 뜬다. */}
           <MessageActionsHost />
+          {/* 분류·태그 모달 호스트(추가 픽커·수정 폼) — 같은 이유로 NotifyHost보다 앞(=아래). */}
+          <CategoryEditHost />
+          <TagCreateHost />
           {/* 전역 알림/확인 모달 (alert 대체) — 항상 최상위 */}
           <NotifyHost />
         </BottomSheetModalProvider>

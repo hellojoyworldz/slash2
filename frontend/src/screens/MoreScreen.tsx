@@ -1,12 +1,45 @@
-import { ReactNode, useMemo } from 'react';
+import {
+  ComponentType,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pencil } from 'lucide-react-native';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  Asterisk,
+  Eye,
+  EyeOff,
+  Hash,
+  LayoutGrid,
+  EllipsisVertical,
+  MessageSquare,
+  Slash,
+} from 'lucide-react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
+import { api, HideableTab, TabKey } from '../api';
 import { AppStyle, useAppStyle } from '../app-style';
+import { useAuth } from '../auth';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
+import { Logo } from '../components/Logo';
 import { Text } from '../components/Text';
 import { useNameEdit } from '../name-edit';
+import {
+  isHideableTab,
+  resolveHiddenTabs,
+  resolveTabOrder,
+} from '../tab-menu';
+import { ReorderRow, useReorder } from '../use-reorder';
 import {
   LANGUAGE_NAMES,
   Language,
@@ -15,6 +48,32 @@ import {
 } from '../i18n';
 import { layout, ThemeColors } from '../theme';
 import { ThemeMode, useTheme } from '../theme-context';
+
+// lucide 아이콘 컴포넌트 타입(색·크기는 호출부가 결정) — AutoScreen과 같은 표기.
+type IconComponent = ComponentType<{
+  size?: number;
+  color?: string;
+  strokeWidth?: number;
+}>;
+
+// 메뉴(탭) 5종의 아이콘·라벨 — (tabs)/_layout.tsx의 트리거 정의와 같은 매핑을 재사용한다.
+// (categories 라우트는 역사적 사정으로 라벨 키가 tabs.friends='분류'.)
+const MENU_ICONS: Record<TabKey, IconComponent> = {
+  friends: LayoutGrid,
+  chats: MessageSquare,
+  categories: Slash,
+  tags: Hash,
+  auto: Asterisk,
+};
+const MENU_LABEL_KEYS: Record<TabKey, string> = {
+  friends: 'tabs.group',
+  chats: 'tabs.chats',
+  categories: 'tabs.friends',
+  tags: 'tabs.tags',
+  auto: 'tabs.auto',
+};
+// 행 높이 균일(그립 드래그 재정렬의 전제) — AutoScreen과 같은 관례.
+const MENU_ROW_HEIGHT = 52;
 
 // 다크모드 3택. key는 setMode에 그대로 전달.
 const MODE_OPTIONS: { key: ThemeMode; labelKey: string }[] = [
@@ -49,6 +108,9 @@ export function MoreScreen({
   const { t, i18n } = useTranslation();
   const { colors, mode, setMode } = useTheme();
   const { appStyle, setAppStyle } = useAppStyle();
+  const { width } = useWindowDimensions();
+  // 데스크톱은 레일에 심볼이 이미 있어 중복 금지 — 모바일(< desktopBreakpoint)에서만 로고 노출.
+  const isMobile = width < layout.desktopBreakpoint;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const current = i18n.language as Language;
 
@@ -65,6 +127,59 @@ export function MoreScreen({
   // 이름 편집: 연필 아이콘 → 루트 상주 오버레이 (900px 교차 리마운트에도 유지)
   const { openNameEditor } = useNameEdit();
 
+  // ── 메뉴(탭) 커스터마이즈 ── 순서·노출은 로그인 상태(컨텍스트)에서 읽어 저장한다.
+  // AutoScreen의 자동구분 재정렬 문법을 그대로 미러링(드래그 낙관 반영 + 서버 저장).
+  const { token, tabOrder, hiddenTabs, setTabOrder, setHiddenTabs } = useAuth();
+  const menuResolved = useMemo(() => resolveTabOrder(tabOrder), [tabOrder]);
+  const hiddenSet = useMemo(() => resolveHiddenTabs(hiddenTabs), [hiddenTabs]);
+
+  // 화면에 보이는 순서(드래그 낙관 반영). 컨텍스트 tabOrder가 바뀌면 동기화.
+  const [menuOrder, setMenuOrder] = useState<TabKey[]>(menuResolved);
+  const menuOrderRef = useRef<string[]>(menuOrder);
+  menuOrderRef.current = menuOrder;
+  useEffect(() => {
+    setMenuOrder(menuResolved);
+    menuOrderRef.current = menuResolved;
+  }, [menuResolved]);
+
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+
+  // 확정된 순서를 낙관적으로 반영(컨텍스트 → 탭바/레일 전파) + 서버 저장.
+  // 실패해도 로컬(컨텍스트)은 유지 — 세션 내 재정렬 보존(AutoScreen과 동일 관례).
+  const commitMenuOrder = useCallback(
+    (ids: string[]) => {
+      const next = ids as TabKey[];
+      setMenuOrder(next);
+      setTabOrder(next);
+      const tk = tokenRef.current;
+      if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => {});
+    },
+    [setTabOrder],
+  );
+
+  const reorder = useReorder({
+    rowHeight: MENU_ROW_HEIGHT,
+    orderRef: menuOrderRef,
+    onCommit: commitMenuOrder,
+  });
+
+  // 노출/숨김 토글(분류·태그·자동구분만). 낙관 반영 + 실패 시 직전 값으로 복원.
+  const toggleHidden = useCallback(
+    (key: HideableTab) => {
+      const currently = hiddenSet.includes(key);
+      const next = currently
+        ? hiddenSet.filter((k) => k !== key)
+        : [...hiddenSet, key];
+      const prev = hiddenTabs ?? null;
+      setHiddenTabs(next);
+      if (token) {
+        api.updateProfile(token, { hiddenTabs: next }).catch(() => setHiddenTabs(prev));
+      }
+    },
+    [hiddenSet, hiddenTabs, setHiddenTabs, token],
+  );
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -72,10 +187,15 @@ export function MoreScreen({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        // 메뉴 행을 드래그하는 동안엔 바깥 스크롤을 멈춰 제스처 충돌을 막는다.
+        scrollEnabled={reorder.draggingId === null}
       >
         <View style={styles.header}>
           {leading ? <View style={styles.headerLeading}>{leading}</View> : null}
-          <Text variant="title">{t('more.title')}</Text>
+          <View style={styles.titleRow}>
+            {isMobile ? <Logo size={38} /> : null}
+            <Text variant="title">{t('more.title')}</Text>
+          </View>
         </View>
 
         {/* 프로필 — 연필을 누르면 이름 편집 오버레이 */}
@@ -113,7 +233,7 @@ export function MoreScreen({
             accessibilityRole="button"
             accessibilityLabel={t('more.editName')}
           >
-            <Pencil size={18} strokeWidth={2} color={colors.textTertiary} />
+            <EllipsisVertical size={18} strokeWidth={2} color={colors.textTertiary} />
           </TouchableOpacity>
         </View>
 
@@ -207,6 +327,86 @@ export function MoreScreen({
           </View>
         </View>
 
+        {/* 메뉴(탭) — 순서 변경(그립 드래그·접근성 이동) + 노출 토글(분류·태그·자동구분).
+            그룹·채팅은 항상 노출(토글 없음), 더보기는 순서 밖·항상 맨끝이라 목록에 없다. */}
+        <View style={styles.sectionCard}>
+          <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
+            {t('more.menu')}
+          </Text>
+          <View>
+            {menuOrder.map((key, index) => {
+              const Icon = MENU_ICONS[key];
+              const hideable = isHideableTab(key);
+              const isHidden = hideable && hiddenSet.includes(key);
+              const isDragging = reorder.draggingId === key;
+              const label = t(MENU_LABEL_KEYS[key]);
+              const fg = isHidden ? colors.textTertiary : colors.ink;
+              return (
+                <ReorderRow
+                  key={key}
+                  index={index}
+                  isDragging={isDragging}
+                  controls={reorder}
+                >
+                  {/* 행 전체를 꾹 눌러 세로로 끌면 재정렬(그립 없음). 눈 토글은 빠른 탭으로 그대로 동작. */}
+                  <GestureDetector gesture={reorder.getGesture(key)}>
+                    <View style={[styles.menuRow, isDragging && styles.menuRowLifted]}>
+                      {/* 라벨 영역 = 재정렬 접근성 요소(위/아래 이동) — 예전 그립이 갖던 a11y를 행에 통합. */}
+                      <View
+                        style={styles.menuLabelArea}
+                        accessible
+                        accessibilityRole="adjustable"
+                        accessibilityLabel={label}
+                        accessibilityActions={[
+                          { name: 'increment' },
+                          { name: 'decrement' },
+                        ]}
+                        onAccessibilityAction={(e) =>
+                          reorder.moveByOne(
+                            key,
+                            e.nativeEvent.actionName === 'increment' ? -1 : 1,
+                          )
+                        }
+                      >
+                        <View style={styles.menuTile}>
+                          <Icon size={20} strokeWidth={2} color={fg} />
+                        </View>
+                        <Text
+                          variant="label"
+                          color={fg}
+                          style={styles.menuLabel}
+                          numberOfLines={1}
+                        >
+                          {label}
+                        </Text>
+                      </View>
+                      {hideable ? (
+                        <TouchableOpacity
+                          style={styles.menuToggle}
+                          onPress={() => toggleHidden(key)}
+                          activeOpacity={0.6}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          accessibilityRole="switch"
+                          accessibilityState={{ checked: !isHidden }}
+                          accessibilityLabel={label}
+                        >
+                          {isHidden ? (
+                            <EyeOff size={18} strokeWidth={2} color={colors.textTertiary} />
+                          ) : (
+                            <Eye size={18} strokeWidth={2} color={colors.ink} />
+                          )}
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.menuToggle} />
+                      )}
+                    </View>
+                  </GestureDetector>
+                </ReorderRow>
+              );
+            })}
+          </View>
+        </View>
+
         {/* 보조 액션이라 outline */}
         <Button
           label={t('more.logout')}
@@ -240,6 +440,11 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   headerLeading: {
     marginRight: 8,
     marginLeft: -6,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   profileRow: {
     flexDirection: 'row',
@@ -300,6 +505,45 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   pillActive: {
     backgroundColor: colors.accent,
     borderColor: colors.accent,
+  },
+  // ── 메뉴(탭) 행 ── 균일 높이(드래그 재정렬의 전제). 카드 위라 배경은 투명.
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: MENU_ROW_HEIGHT,
+  },
+  // 드래그로 들린 행: background 채움 + 1px ink 보더(선택 표시 문법). 그림자 금지.
+  menuRowLifted: {
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.ink,
+  },
+  // 무채색 아이콘 타일(보더 없음) — 메뉴 아이콘은 색을 갖지 않는다(색은 분류의 것).
+  menuTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 0,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 아이콘+라벨 영역 — 남는 폭을 채우고(눈 토글은 고정 폭) 재정렬 접근성 요소를 겸한다.
+  menuLabelArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  menuLabel: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  // 눈 아이콘 토글(분류·태그·자동구분). 항상 노출 행에선 빈 View로 자리만 맞춘다.
+  menuToggle: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   logoutBtn: {
     marginHorizontal: 20,

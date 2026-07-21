@@ -62,10 +62,26 @@ export class MessagesService {
     return { ...rest, tagIds };
   }
 
+  /** tagIds(중복 허용)를 내 소유 Tag[]로 변환한다. 생략/빈 배열이면 []. 남의/없는 id가
+   *  섞이면 400(code: invalid_tag). create·update가 공유하는 태그 소유 검증 경로. */
+  private async resolveTags(userId: string, tagIds?: string[]): Promise<Tag[]> {
+    const uniqueIds = [...new Set(tagIds ?? [])];
+    if (uniqueIds.length === 0) return [];
+    const tags = await this.tags.findBy({ id: In(uniqueIds), userId });
+    if (tags.length !== uniqueIds.length) {
+      throw new BadRequestException({
+        code: 'invalid_tag',
+        message: '유효하지 않은 태그입니다.',
+      });
+    }
+    return tags;
+  }
+
   async create(
     userId: string,
     content: string,
     friendId?: string,
+    tagIds?: string[],
   ): Promise<MessageResponse> {
     // 다른 유저의 친구 id로 보내는 것을 막는다.
     if (friendId) {
@@ -74,6 +90,9 @@ export class MessagesService {
         throw new NotFoundException('친구를 찾을 수 없습니다.');
       }
     }
+
+    // 태그가 있으면 소유 검증 후 부착한다(전송 전 실패하게 먼저 검증).
+    const tags = await this.resolveTags(userId, tagIds);
 
     const trimmed = content.trim();
     // content에 등장한 URL을 순서대로 최대 MAX_LINKS개 추출(동일 URL은 첫 등장만).
@@ -85,6 +104,8 @@ export class MessagesService {
       content: trimmed,
       kind: urls.length ? 'link' : 'text',
       url: urls[0] ?? null,
+      // ManyToMany 조인행(message_tags)은 save 시 관계 배열로 동기화된다(update 경로와 동일).
+      tags,
     });
 
     if (urls.length) {
@@ -110,8 +131,8 @@ export class MessagesService {
     }
 
     const saved = await this.messages.save(message);
-    // 새 메시지는 태그가 없다 → tagIds: [].
-    return this.toResponse(saved, []);
+    // 부착된 태그가 있으면 그 id들을, 없으면 빈 배열을 tagIds로 돌려준다.
+    return this.toResponse(saved, tags.map((tag) => tag.id));
   }
 
   /** content에서 http(s) URL을 등장 순서대로 뽑되, 동일 URL은 첫 등장만 남기고
@@ -188,15 +209,38 @@ export class MessagesService {
     if (options.tagId) {
       query.innerJoin('m.tags', 't', 't.id = :tagId', { tagId: options.tagId });
     } else if (options.auto) {
-      // memo: kind='text' / link: 자동구분 안 된 링크 / 나머지: 그 linkType의 링크
+      // 멀티링크 메시지는 links 배열의 각 원소 linkType으로 매칭 — 여러 종류가 섞여 있으면
+      // 매칭되는 모든 방에 나타난다. links가 비었거나 null인 레거시 행은 단일 필드(m.linkType)로 폴백.
+      // memo: kind='text' / link: 자동구분 안 된 링크(linkType null) / 나머지: 그 linkType의 링크
       if (options.auto === 'memo') {
         query.andWhere("m.kind = 'text'");
       } else if (options.auto === 'link') {
-        query.andWhere("m.kind = 'link'").andWhere('m.linkType IS NULL');
+        query.andWhere(
+          `(
+            EXISTS (
+              SELECT 1 FROM jsonb_array_elements(coalesce(m."links", '[]'::jsonb)) e
+              WHERE e->>'linkType' IS NULL
+            )
+            OR (
+              (m."links" IS NULL OR jsonb_array_length(m."links") = 0)
+              AND m.kind = 'link' AND m."linkType" IS NULL
+            )
+          )`,
+        );
       } else {
-        query
-          .andWhere("m.kind = 'link'")
-          .andWhere('m.linkType = :linkType', { linkType: options.auto });
+        query.andWhere(
+          `(
+            EXISTS (
+              SELECT 1 FROM jsonb_array_elements(coalesce(m."links", '[]'::jsonb)) e
+              WHERE e->>'linkType' = :autoType
+            )
+            OR (
+              (m."links" IS NULL OR jsonb_array_length(m."links") = 0)
+              AND m.kind = 'link' AND m."linkType" = :autoType
+            )
+          )`,
+          { autoType: options.auto },
+        );
       }
     } else if (options.friendId) {
       // friendId가 있으면 그 친구 방만, 없으면 "나에게" 방 = 전체 메시지
@@ -230,7 +274,9 @@ export class MessagesService {
   }
 
   /** "자동구분" 탭별 개수(전 방 통합). 여섯 키 항상 전부 포함(0 포함).
-   *  kind='link' 그룹은 GROUP BY 한 번으로, memo는 COUNT 한 번으로 처리한다. */
+   *  멀티링크 메시지는 담고 있는 종류마다 각각 1로 잡힌다(종류별 DISTINCT 메시지 수) —
+   *  상품+장소 링크가 든 메시지는 item·place 양쪽에서 +1. 한 메시지 안에 같은 종류가
+   *  여러 번 있어도 그 종류에선 1(COUNT DISTINCT m.id). memo(kind='text')는 별도 COUNT. */
   async autoCounts(userId: string): Promise<Record<AutoFilter, number>> {
     const counts: Record<AutoFilter, number> = {
       place: 0,
@@ -241,19 +287,31 @@ export class MessagesService {
       link: 0,
     };
 
-    // linkType이 null인 행은 "자동구분 안 된 링크" = 'link' 버킷으로 묶는다.
-    const linkRows = await this.messages
-      .createQueryBuilder('m')
-      .select('m.linkType', 'linkType')
-      .addSelect('COUNT(*)', 'count')
-      .where('m.userId = :userId', { userId })
-      .andWhere("m.kind = 'link'")
-      .groupBy('m.linkType')
-      .getRawMany<{ linkType: string | null; count: string }>();
+    // links 배열이 있으면 각 원소를 펼쳐(linkType null→'link') 종류별 DISTINCT 메시지 수를 센다.
+    // links가 비었거나 null인 레거시 링크 행은 단일 필드(m."linkType")로 폴백(두 갈래는 상호배타).
+    const rows = await this.messages.query<{ key: string; count: string }[]>(
+      `SELECT key, COUNT(DISTINCT id) AS count
+       FROM (
+         SELECT m.id, coalesce(e->>'linkType', 'link') AS key
+         FROM messages m
+         CROSS JOIN LATERAL jsonb_array_elements(m."links") e
+         WHERE m."userId" = $1
+           AND m."links" IS NOT NULL
+           AND jsonb_array_length(m."links") > 0
+         UNION ALL
+         SELECT m.id, coalesce(m."linkType", 'link') AS key
+         FROM messages m
+         WHERE m."userId" = $1
+           AND m.kind = 'link'
+           AND (m."links" IS NULL OR jsonb_array_length(m."links") = 0)
+       ) sub
+       GROUP BY key`,
+      [userId],
+    );
 
-    for (const row of linkRows) {
-      const key = (row.linkType ?? 'link') as AutoFilter;
-      counts[key] = Number(row.count);
+    for (const row of rows) {
+      const key = row.key as AutoFilter;
+      if (key in counts) counts[key] = Number(row.count);
     }
 
     counts.memo = await this.messages.count({
@@ -361,20 +419,8 @@ export class MessagesService {
     }
 
     if (dto.tagIds !== undefined) {
-      // 전체 교체. 중복 id는 합치고, 내 소유가 아닌/없는 id가 있으면 400.
-      const uniqueIds = [...new Set(dto.tagIds)];
-      if (uniqueIds.length === 0) {
-        message.tags = [];
-      } else {
-        const tags = await this.tags.findBy({ id: In(uniqueIds), userId });
-        if (tags.length !== uniqueIds.length) {
-          throw new BadRequestException({
-            code: 'invalid_tag',
-            message: '유효하지 않은 태그입니다.',
-          });
-        }
-        message.tags = tags;
-      }
+      // 전체 교체. 중복 id는 합치고, 내 소유가 아닌/없는 id가 있으면 400(create와 동일 경로).
+      message.tags = await this.resolveTags(userId, dto.tagIds);
     }
 
     if (dto.notice !== undefined) {

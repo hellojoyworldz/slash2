@@ -1,22 +1,35 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Redirect, useRouter } from 'expo-router';
 import { TabList, TabSlot, Tabs, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  GestureResponderEvent,
   Platform,
   Pressable,
   PressableStateCallbackType,
   StyleSheet,
+  TouchableOpacity,
   useWindowDimensions,
   View,
   ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { Asterisk, Ellipsis, Hash, MessageSquare, Slash } from 'lucide-react-native';
+import Animated from 'react-native-reanimated';
+import { Asterisk, Ellipsis, Hash, LayoutGrid, MessageSquare, Slash } from 'lucide-react-native';
+import { api, HideableTab, TabKey } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { Logo } from '../../components/Logo';
 import { Text } from '../../components/Text';
+import { resolveHiddenTabs, resolveTabOrder } from '../../tab-menu';
+import {
+  ReorderAxis,
+  TAB_LIFT,
+  TabReorderControls,
+  useTabItemAnimatedStyle,
+  useTabReorder,
+} from '../../tab-reorder';
 import { ChatScreen } from '../../screens/ChatScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout, ThemeColors } from '../../theme';
@@ -42,7 +55,10 @@ const resizeCursor =
 
 // 탭 아이콘 (카카오처럼 아이콘 네비, 라벨은 스크린리더용)
 const TAB_ICONS = {
+  // 그룹(캡슐 컨테이너: 분류|태그|자동구분) — 격자 아이콘.
+  group: LayoutGrid,
   chats: MessageSquare,
+  // 분류(신설, 캡슐 없는 순수 리스트) — 그룹이 새 아이콘을 가져간 대신 예전 분류 탭 아이콘을 잇는다.
   slashes: Slash,
   // 자동구분 — ✳ 글리프(카드 꼬리표·워드마크)와 정체성을 잇는 asterisk.
   auto: Asterisk,
@@ -51,6 +67,44 @@ const TAB_ICONS = {
   more: Ellipsis,
 } as const;
 type TabIconKey = keyof typeof TAB_ICONS;
+
+// 재정렬 대상 5탭의 정의(라우트·아이콘·라벨 i18n 키). 순서·노출은 users.tabOrder/hiddenTabs로
+// 결정하고 여기서 실제 트리거를 배열한다. 더보기는 이 목록 밖에서 항상 맨끝에 붙는다.
+// (label 키는 기존 tabs.* 재사용 — categories 라우트는 역사적 사정으로 tabs.friends='분류'를 쓴다.)
+const TAB_DEFS: Record<TabKey, { href: string; icon: TabIconKey; labelKey: string }> = {
+  friends: { href: '/friends', icon: 'group', labelKey: 'tabs.group' },
+  chats: { href: '/chats', icon: 'chats', labelKey: 'tabs.chats' },
+  categories: { href: '/categories', icon: 'slashes', labelKey: 'tabs.friends' },
+  tags: { href: '/tags', icon: 'tags', labelKey: 'tabs.tags' },
+  auto: { href: '/auto', icon: 'auto', labelKey: 'tabs.auto' },
+};
+
+// 방 화면 라우트(개별 채팅·태그 방·자동구분 방). (tabs) 그룹 안에 살아
+// 모바일에서 방에 들어가도 하단 탭바가 유지되게 한다. 탭바/레일엔 버튼이 없는
+// "숨김 트리거"로만 등록한다((tabs) 그룹이라 URL은 /chat·/tag-room·/auto-room 그대로).
+const ROOM_ROUTES: readonly { name: string; href: string }[] = [
+  { name: 'chat', href: '/chat' },
+  { name: 'tag-room', href: '/tag-room' },
+  { name: 'auto-room', href: '/auto-room' },
+];
+
+// 탭 버튼 Pressable 스타일(탭바=가로, 레일=세로 공통) — TabButton·ReorderTabButton이 공유.
+type TabPressOpts = { rail: boolean; isFocused?: boolean; pushBottom?: boolean };
+const tabPressableStyle =
+  (styles: ReturnType<typeof makeStyles>, { rail, isFocused, pushBottom }: TabPressOpts) =>
+  (state: PressState): ViewStyle[] =>
+    [
+      rail ? styles.railItem : styles.tabItem,
+      rail && pushBottom && styles.railItemBottom,
+      rail && state.hovered && styles.railItemHover,
+      rail && isFocused && styles.railItemActive,
+      // 모바일 하단 탭도 데스크톱 레일과 같은 문법: 활성 = accent 잉크 채움(라운드 0).
+      !rail && isFocused && styles.tabItemActive,
+    ].filter(Boolean) as ViewStyle[];
+
+// 탭 아이콘 잉크 — 활성은 레일·탭바 공통 onAccent(잉크 위 반전), 비활성만 레일/탭바가 다르다.
+const tabIconColor = (colors: ThemeColors, rail: boolean, isFocused?: boolean) =>
+  isFocused ? colors.onAccent : rail ? colors.textSecondary : colors.textTertiary;
 
 // 탭 버튼 — 좁은 화면은 하단 가로 탭, 넓은 화면은 왼쪽 세로 레일 항목.
 const TabButton = forwardRef<
@@ -61,47 +115,105 @@ const TabButton = forwardRef<
     rail?: boolean;
     /** 레일에서 바닥에 붙임 (설정류 — 데스크톱 사이드바 문법) */
     pushBottom?: boolean;
+    /** 숨긴 탭 — 라우트(트리거)는 등록해 두되(직접 URL·캡슐 경유 접근) 바/레일에선 치운다. */
+    hidden?: boolean;
   }
 >(function TabButton(
-  { icon, label, rail = false, pushBottom = false, isFocused, ...props },
+  { icon, label, rail = false, pushBottom = false, hidden = false, isFocused, ...props },
   ref,
 ) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const Icon = TAB_ICONS[icon];
+  // 숨긴 탭: 트리거 자체는 살려 라우팅을 유지하되(제거하면 "no screens"·라우트 소실),
+  // 흐름 밖 0크기·접근성 숨김으로 화면에서만 뺀다. position:absolute라 flex 배분에도 안 낀다.
+  if (hidden) {
+    return (
+      <Pressable
+        ref={ref}
+        {...props}
+        style={styles.tabHidden}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        focusable={false}
+      />
+    );
+  }
   return (
     <Pressable
       ref={ref}
       {...props}
-      style={(state: PressState) => [
-        rail ? styles.railItem : styles.tabItem,
-        rail && pushBottom && styles.railItemBottom,
-        rail && state.hovered && styles.railItemHover,
-        rail && isFocused && styles.railItemActive,
-      ]}
+      style={tabPressableStyle(styles, { rail, isFocused, pushBottom })}
       accessibilityRole="tab"
       accessibilityState={{ selected: !!isFocused }}
       accessibilityLabel={label}
     >
-      <Icon
-        size={rail ? 20 : 24}
-        strokeWidth={2}
-        color={
-          rail
-            ? isFocused
-              ? colors.onAccent
-              : colors.textSecondary
-            : isFocused
-              ? colors.accent
-              : colors.textTertiary
-        }
-      />
+      <Icon size={rail ? 20 : 24} strokeWidth={2} color={tabIconColor(colors, rail, isFocused)} />
     </Pressable>
   );
 });
 
+// 재정렬 가능한 탭 버튼(보이는 5탭) — 꾹(250ms) 눌렀다 끌면 그 자리에서 순서가 바뀐다.
+// TabTrigger가 주는 onPress(네비)는 그대로 살리되(롱프레스 전엔 탭=이동), GestureDetector로
+// 롱프레스 드래그를 겹쳐 얹는다. 잡은 탭은 손가락 추종(가로 탭바=X, 세로 레일=Y), 나머지는 비켜남.
+const ReorderTabButton = forwardRef<
+  View,
+  TabTriggerSlotProps & {
+    icon: TabIconKey;
+    label: string;
+    rail: boolean;
+    reorder: TabReorderControls;
+    /** 보이는 탭들 안에서의 인덱스(숨긴 탭 제외). */
+    index: number;
+    tabKey: TabKey;
+    axis: ReorderAxis;
+  }
+>(function ReorderTabButton(
+  { icon, label, rail, reorder, index, tabKey, axis, isFocused, onPress, ...props },
+  ref,
+) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const Icon = TAB_ICONS[icon];
+  const animStyle = useTabItemAnimatedStyle(reorder, index, axis);
+  const isDragging = reorder.draggingKey === tabKey;
+  // 드래그 세션이면(롱프레스 활성) 그 뒤 따라오는 탭/클릭의 네비게이션을 눌러 무시한다.
+  const guardedPress = useCallback(
+    (e: GestureResponderEvent) => {
+      if (reorder.didDragRef.current) return;
+      onPress?.(e);
+    },
+    [onPress, reorder],
+  );
+  return (
+    <GestureDetector gesture={reorder.getGesture(tabKey)}>
+      <Animated.View
+        onLayout={(e) => reorder.onItemLayout(index, e)}
+        style={[
+          // 탭바(가로)는 flex:1로 균등폭. 레일(세로)은 자연 크기.
+          !rail && styles.tabItemFlex,
+          animStyle,
+          isDragging && TAB_LIFT,
+        ]}
+      >
+        <Pressable
+          ref={ref}
+          {...props}
+          onPress={guardedPress}
+          style={tabPressableStyle(styles, { rail, isFocused })}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: !!isFocused }}
+          accessibilityLabel={label}
+        >
+          <Icon size={rail ? 20 : 24} strokeWidth={2} color={tabIconColor(colors, rail, isFocused)} />
+        </Pressable>
+      </Animated.View>
+    </GestureDetector>
+  );
+});
+
 export default function TabsLayout() {
-  const { token, emailVerified, logout } = useAuth();
+  const { token, emailVerified, logout, tabOrder, hiddenTabs, setTabOrder } = useAuth();
   const { t } = useTranslation();
   const { appStyle } = useAppStyle();
   const { colors } = useTheme();
@@ -171,27 +283,86 @@ export default function TabsLayout() {
     [],
   );
 
+  // 사용자 순서·노출을 방어 정규화(null·오염이면 기본값). 로그인 상태(컨텍스트)에서 읽으므로
+  // 900px 트리 스왑에도 생존한다(화면 로컬 state 아님).
+  const order = resolveTabOrder(tabOrder);
+  const hidden = resolveHiddenTabs(hiddenTabs);
+  // 바/레일에 실제로 배열되는(보이는) 탭들 — 재정렬 대상. 숨긴 탭은 여기 없다.
+  const visibleOrder = order.filter((k) => !hidden.includes(k as HideableTab));
+
+  // ── 탭바/레일 아이콘 직접 드래그 재정렬 ──
+  // 방향: 모바일 하단 탭바=가로(x), 데스크톱 레일=세로(y). 스왑 시 갱신(제스처는 ref로 축을 읽음).
+  const reorderAxis: ReorderAxis = isDesktop ? 'y' : 'x';
+  // 드래그 중 불변, 놓을 때만 커밋되는 "보이는 탭 순서"의 원천(제스처가 ref로 읽는다).
+  const visibleOrderRef = useRef<string[]>(visibleOrder);
+  visibleOrderRef.current = visibleOrder;
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  // 확정된 보이는 탭 순서로 tabOrder 전체를 재구성 — 숨긴 탭은 원래 슬롯에 그대로 두고
+  // 보이는 슬롯만 새 순서로 치환한다(숨긴 탭 상대 위치 보존). MoreScreen과 같은 낙관+서버 계약.
+  const commitVisibleOrder = (newVisible: string[]) => {
+    let vi = 0;
+    const next = order.map((k) =>
+      hidden.includes(k as HideableTab) ? k : (newVisible[vi++] as TabKey),
+    );
+    setTabOrder(next);
+    const tk = tokenRef.current;
+    if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => {});
+  };
+  const reorder = useTabReorder({
+    axis: reorderAxis,
+    visibleOrderRef,
+    onCommit: commitVisibleOrder,
+  });
+
   // 앱 내부는 로그인 + 이메일 인증을 마친 유저만 접근 가능.
   if (!token) return <Redirect href="/login" />;
   if (!emailVerified) return <Redirect href="/verify" />;
 
-  const triggers = (rail: boolean) => (
+  // 순서대로 5탭 트리거를 깔고, 더보기는 항상 맨끝. 숨긴 탭도 트리거는 유지(라우팅용)하되
+  // hidden으로 바/레일에서만 뺀다 — 순서 목록에는 그대로 있어 노출 시 그 자리로 돌아온다.
+  // reorderEnabled면 보이는 탭은 ReorderTabButton(꾹 눌러 드래그 재정렬)으로 얹는다.
+  const triggers = (rail: boolean, reorderEnabled: boolean) => (
     <>
-      <TabTrigger name="friends" href="/friends" asChild>
-        <TabButton icon="slashes" label={t('tabs.friends')} rail={rail} />
-      </TabTrigger>
-      <TabTrigger name="chats" href="/chats" asChild>
-        <TabButton icon="chats" label={t('tabs.chats')} rail={rail} />
-      </TabTrigger>
-      <TabTrigger name="auto" href="/auto" asChild>
-        <TabButton icon="auto" label={t('tabs.auto')} rail={rail} />
-      </TabTrigger>
-      <TabTrigger name="tags" href="/tags" asChild>
-        <TabButton icon="tags" label={t('tabs.tags')} rail={rail} />
-      </TabTrigger>
+      {order.map((key) => {
+        const def = TAB_DEFS[key];
+        const isHidden = hidden.includes(key as HideableTab);
+        if (reorderEnabled && !isHidden) {
+          return (
+            <TabTrigger key={key} name={key} href={def.href} asChild>
+              <ReorderTabButton
+                icon={def.icon}
+                label={t(def.labelKey)}
+                rail={rail}
+                reorder={reorder}
+                index={visibleOrder.indexOf(key)}
+                tabKey={key}
+                axis={rail ? 'y' : 'x'}
+              />
+            </TabTrigger>
+          );
+        }
+        return (
+          <TabTrigger key={key} name={key} href={def.href} asChild>
+            <TabButton
+              icon={def.icon}
+              label={t(def.labelKey)}
+              rail={rail}
+              hidden={isHidden}
+            />
+          </TabTrigger>
+        );
+      })}
       <TabTrigger name="more" href="/more" asChild>
         <TabButton icon="more" label={t('tabs.more')} rail={rail} pushBottom />
       </TabTrigger>
+      {/* 방 라우트: (tabs) 안에 등록만 유지(라우팅·탭바 생존)하고 바/레일에선 숨긴다.
+          모든 레이아웃 분기(모바일·데스크톱·목록형)가 이 triggers()를 쓰므로 항상 등록된다. */}
+      {ROOM_ROUTES.map((r) => (
+        <TabTrigger key={r.name} name={r.name} href={r.href} asChild>
+          <TabButton icon="chats" label="" rail={rail} hidden />
+        </TabTrigger>
+      ))}
     </>
   );
 
@@ -202,13 +373,13 @@ export default function TabsLayout() {
   // 다만 0크기·접근성 숨김으로 화면에서 치운다. 보드 자체가 세그먼트·⋯로 네비게이션한다.
   if (appStyle === 'list') {
     return (
-      <Tabs style={styles.container}>
+      <Tabs style={styles.container} options={{ backBehavior: 'history' }}>
         <TabList
           style={styles.hiddenTabList}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
-          {triggers(false)}
+          {triggers(false, false)}
         </TabList>
         <TabSlot style={styles.slot} />
       </Tabs>
@@ -219,9 +390,9 @@ export default function TabsLayout() {
   // 헤드리스 파서가 트리거를 못 찾아 "no screens" 에러).
   if (isDesktop) {
     return (
-      <Tabs style={styles.containerRail}>
+      <Tabs style={styles.containerRail} options={{ backBehavior: 'history' }}>
         {/* ① 네비 레일 (상단은 워드마크 오버레이 자리) */}
-        <TabList style={styles.rail}>{triggers(true)}</TabList>
+        <TabList style={styles.rail}>{triggers(true, true)}</TabList>
 
         {/* ② 목록 패널: 탭 화면(채팅/친구/더보기)이 여기 들어옴 */}
         <View style={[styles.listPane, { width: paneWidth }]}>
@@ -254,7 +425,8 @@ export default function TabsLayout() {
         </GestureDetector>
 
         {/* ③ 대화 패널: 항상 상주, 남은 폭 전부. 방 선택 시 여기만 교체.
-            렌더 우선순위: tag > autoKind > room(일반). 태그·자동구분은 보기 전용 방. */}
+            렌더 우선순위: tag > autoKind > room(일반). 태그·자동구분은 보기 전용 방.
+            뒤로가기는 데스크톱에선 숨긴다(왼쪽 리스트가 상주 — 사용자 확정). 워드마크 탭=전체. */}
         <View style={styles.chatPane}>
           {tag ? (
             <ChatScreen
@@ -263,7 +435,7 @@ export default function TabsLayout() {
               tag={tag}
               friendId={null}
               friendName={null}
-              showBack
+              showBack={false}
               onBack={() => setTag(null)}
               onLogout={async () => {
                 await logout();
@@ -277,7 +449,7 @@ export default function TabsLayout() {
               auto={autoKind}
               friendId={null}
               friendName={null}
-              showBack
+              showBack={false}
               onBack={() => setAutoKind(null)}
               onLogout={async () => {
                 await logout();
@@ -290,7 +462,7 @@ export default function TabsLayout() {
               token={token}
               friendId={room?.friendId ?? null}
               friendName={room?.name ?? null}
-              showBack={room !== null}
+              showBack={false}
               onBack={() => setRoom(null)}
               onLogout={async () => {
                 await logout();
@@ -300,9 +472,20 @@ export default function TabsLayout() {
           )}
         </View>
 
-        {/* 워드마크 오버레이 */}
-        <View pointerEvents="none" style={styles.railBrandWrap}>
-          <Text variant="heading" color={colors.ink}>✳ slash</Text>
+        {/* 워드마크 오버레이 — 탭하면 전체(자기 자신) 방으로 (홈 워드마크 관례) */}
+        <View pointerEvents="box-none" style={styles.railBrandWrap}>
+          <TouchableOpacity
+            onPress={() => {
+              setTag(null);
+              setAutoKind(null);
+              setRoom(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={t('chat.myRoom')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Logo size={42} />
+          </TouchableOpacity>
         </View>
       </Tabs>
     );
@@ -336,9 +519,9 @@ export default function TabsLayout() {
   }
 
   return (
-    <Tabs style={styles.container}>
+    <Tabs style={styles.container} options={{ backBehavior: 'history' }}>
       <TabSlot style={styles.slot} />
-      <TabList style={styles.tabBar}>{triggers(false)}</TabList>
+      <TabList style={styles.tabBar}>{triggers(false, true)}</TabList>
     </Tabs>
   );
 }
@@ -355,6 +538,14 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   slot: {
     flex: 1,
     minHeight: 0,
+  },
+  // 숨긴 탭 트리거 — 등록만 유지하고 흐름 밖 0크기로 바/레일에서 뺀다.
+  tabHidden: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+    overflow: 'hidden',
   },
   // 목록형에서 등록만 유지하고 화면에선 치우는 TabList (0크기·흐름 밖).
   hiddenTabList: {
@@ -381,6 +572,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 13,
+    borderRadius: 0,
+  },
+  // 재정렬 래퍼(Animated.View)가 탭바에서 균등폭을 차지하도록 — 안의 Pressable(tabItem)이 채운다.
+  tabItemFlex: {
+    flex: 1,
+  },
+  // 활성 탭: 데스크톱 레일(railItemActive)과 동일 — accent 배경 잉크 채움, 라운드 0.
+  tabItemActive: {
+    backgroundColor: colors.accent,
   },
   tabLabelActive: {
     fontWeight: '800',
@@ -397,10 +597,13 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: colors.background,
   },
+  // 레일 폭 전체를 차지하고 가운데 정렬 — 로고가 레일 아이콘 열과 축이 맞는다(사용자 확정).
   railBrandWrap: {
     position: 'absolute',
-    top: 26,
-    left: 18,
+    top: 22,
+    left: 0,
+    width: RAIL_WIDTH,
+    alignItems: 'center',
   },
   // 레일 항목: 보더 없이 조용하게, 활성만 accent로 채운다
   railItem: {

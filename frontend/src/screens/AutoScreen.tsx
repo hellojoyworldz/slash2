@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import {
   ComponentType,
@@ -17,21 +18,25 @@ import {
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import {
+  ChevronDown,
+  ChevronRight,
   FileText,
-  GripVertical,
   Link as LinkIcon,
   MapPin,
   Play,
   ShoppingBag,
+  Star,
+  StarOff,
   StickyNote,
 } from 'lucide-react-native';
 import { api, ApiError, AutoCounts, AutoKind } from '../api';
 import { useAuth } from '../auth';
-import { resolveAutoOrder } from '../auto-filter';
+import { resolveAutoFavorites, resolveAutoOrder } from '../auto-filter';
+import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { useSelectedRoom } from '../selected-room';
-import { grabCursor, ReorderRow, useReorder } from '../use-reorder';
+import { ReorderControls, ReorderRow, useReorder } from '../use-reorder';
 import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 
@@ -60,36 +65,60 @@ interface Props {
   token: string | null;
   onOpenAuto: (kind: AutoKind) => void;
   onLogout: () => void;
+  /** 그룹 탭 캡슐 아래에 임베드될 때 true — 헤더는 그룹 컨테이너가 지므로 여기선 렌더하지 않는다. */
+  embedded?: boolean;
 }
 
-export function AutoScreen({ token, onOpenAuto, onLogout }: Props) {
+// 자동구분 탭 — 분류·태그 탭과 동일한 문법. 종류 6종은 정적이라 즐겨찾기는 users.autoFavorites에 저장한다.
+// 접이식 '즐겨찾기' 섹션(★ 종류, 전용 순서 드래그) + 접이식 '자동구분' 섹션(전체 6종, autoOrder 드래그).
+// 왼→오 스와이프 [즐겨찾기] 하나. 즐겨찾기해도 '자동구분' 섹션에서 빠지지 않는다(분류·태그와 동일).
+export function AutoScreen({ token, onOpenAuto, onLogout, embedded = false }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 데스크톱 스플릿뷰에서만 현재 선택된 자동구분을 강조한다.
   const { autoKind } = useSelectedRoom();
-  // 자동구분 순서(사용자 순서 우선) + 저장 후 컨텍스트 갱신.
-  const { autoOrder, setAutoOrder } = useAuth();
+  // 자동구분 순서·즐겨찾기(사용자 값 우선) + 저장 후 컨텍스트 갱신.
+  const { autoOrder, setAutoOrder, autoFavorites, setAutoFavorites } = useAuth();
   const { width } = useWindowDimensions();
   const isDesktop = width >= layout.desktopBreakpoint;
 
   const [counts, setCounts] = useState<AutoCounts | null>(null);
-  // 화면에 보이는 순서(드래그 낙관 반영). 컨텍스트 autoOrder가 바뀌면 동기화.
+  // 두 섹션(즐겨찾기·자동구분) 접기/펼치기 — 화면 로컬 state(분류·태그 탭과 동일).
+  const [favoritesExpanded, setFavoritesExpanded] = useState(true);
+  const [autoExpanded, setAutoExpanded] = useState(true);
+
+  // 본 목록 순서(드래그 낙관 반영). 컨텍스트 autoOrder가 바뀌면 동기화.
   const [order, setOrder] = useState<AutoKind[]>(() => resolveAutoOrder(autoOrder));
   const orderRef = useRef<string[]>(order);
   orderRef.current = order;
-
   useEffect(() => {
     const next = resolveAutoOrder(autoOrder);
     setOrder(next);
     orderRef.current = next;
   }, [autoOrder]);
 
+  // 즐겨찾기 순서(부분집합, 배열 순서=즐겨찾기 순서). 컨텍스트 autoFavorites가 바뀌면 동기화.
+  const [favOrder, setFavOrder] = useState<AutoKind[]>(() =>
+    resolveAutoFavorites(autoFavorites),
+  );
+  const favOrderRef = useRef<string[]>(favOrder);
+  favOrderRef.current = favOrder;
+  useEffect(() => {
+    const next = resolveAutoFavorites(autoFavorites);
+    setFavOrder(next);
+    favOrderRef.current = next;
+  }, [autoFavorites]);
+
   const tokenRef = useRef(token);
   tokenRef.current = token;
 
-  // 확정된 순서를 낙관적으로 반영(컨텍스트 → 칩·보드·탭 전파) + 서버 저장.
-  // 엔드포인트 미배포/실패여도 로컬(컨텍스트)은 유지한다(조용히) — 세션 내 재정렬 보존.
+  // 스와이프 상태(웹에서 드래그 후 탭 무시 · 한 번에 하나만 열기). 두 섹션 공존 → refKey로 구분.
+  const swipeDragging = useRef(false);
+  const openRowId = useRef<string | null>(null);
+  const swipeRefs = useRef(new Map<string, SwipeableRowMethods | null>());
+
+  // 본 목록 순서 확정 → 낙관 반영(컨텍스트 → 칩·보드·탭 전파) + 서버 저장.
   const commitOrder = useCallback(
     (ids: string[]) => {
       const next = ids as AutoKind[];
@@ -101,7 +130,58 @@ export function AutoScreen({ token, onOpenAuto, onLogout }: Props) {
     [setAutoOrder],
   );
 
-  const reorder = useReorder({ rowHeight: ROW_HEIGHT, orderRef, onCommit: commitOrder });
+  // 즐겨찾기 순서 확정 → 낙관 반영 + 서버 저장. 빈 배열은 컨텍스트/서버에서 null로 통일.
+  const commitFavOrder = useCallback(
+    (ids: string[]) => {
+      const next = ids as AutoKind[];
+      setFavOrder(next);
+      setAutoFavorites(next.length ? next : null);
+      const tk = tokenRef.current;
+      if (tk) api.updateProfile(tk, { autoFavorites: next }).catch(() => {});
+    },
+    [setAutoFavorites],
+  );
+
+  // 행 싱글탭 = 방 열기(열린 스와이프면 닫기, 스와이프 드래그 직후면 무시) — 예전 onPress 로직.
+  const openRow = useCallback(
+    (refKey: string, item: AutoKind) => {
+      if (swipeDragging.current) return;
+      if (openRowId.current === refKey) {
+        swipeRefs.current.get(refKey)?.close();
+        return;
+      }
+      onOpenAuto(item);
+    },
+    [onOpenAuto],
+  );
+
+  // 자동구분 종류는 수정 폼이 없다 → onActivate(열기)만, onEditRequest 없음(더블탭 수정 제외).
+  const mainReorder = useReorder({
+    rowHeight: ROW_HEIGHT,
+    orderRef,
+    onCommit: commitOrder,
+    onActivate: (id) => openRow(`auto:${id}`, id as AutoKind),
+  });
+  const favReorder = useReorder({
+    rowHeight: ROW_HEIGHT,
+    orderRef: favOrderRef,
+    onCommit: commitFavOrder,
+    onActivate: (id) => openRow(`fav:${id}`, id as AutoKind),
+  });
+
+  // 즐겨찾기(★) 토글 — 없으면 맨 밑에 추가, 있으면 제거. 본 목록(자동구분) 순서엔 영향 없음.
+  const toggleFavorite = useCallback(
+    (kind: AutoKind) => {
+      const current = favOrderRef.current as AutoKind[];
+      const isFav = current.includes(kind);
+      const next = isFav ? current.filter((k) => k !== kind) : [...current, kind];
+      setFavOrder(next);
+      setAutoFavorites(next.length ? next : null);
+      const tk = tokenRef.current;
+      if (tk) api.updateProfile(tk, { autoFavorites: next }).catch(() => {});
+    },
+    [setAutoFavorites],
+  );
 
   // 탭 진입 시마다 개수 갱신(방에서 돌아오면 최신 반영).
   useFocusEffect(
@@ -122,72 +202,209 @@ export function AutoScreen({ token, onOpenAuto, onLogout }: Props) {
     }, [token, onLogout]),
   );
 
-  return (
-    <View style={styles.container}>
-      <TabHeader title={t('auto.title')} />
-
-      <FlatList
-        data={order}
-        keyExtractor={(item) => item}
-        contentContainerStyle={styles.listContent}
-        scrollEnabled={reorder.draggingId === null}
-        extraData={reorder.draggingId}
-        // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android — 셀 형제 레벨에서 zIndex/elevation 필요).
-        CellRendererComponent={reorder.CellRendererComponent}
-        removeClippedSubviews={false}
-        renderItem={({ item, index }) => {
-          const Icon = AUTO_ICONS[item];
-          const active = isDesktop && autoKind === item;
-          const isDragging = reorder.draggingId === item;
-          // 개수는 0이어도 행을 보여주고 0으로 표기(여섯 키 항상 존재).
-          const count = counts?.[item] ?? 0;
-          return (
-            <ReorderRow index={index} isDragging={isDragging} controls={reorder}>
-              <View
-                style={[
-                  styles.row,
-                  active && styles.rowActive,
-                  isDragging && styles.rowLifted,
-                ]}
-              >
-                <TouchableOpacity
-                  style={styles.rowMain}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => onOpenAuto(item)}
-                >
-                  <View style={styles.tile}>
-                    <Icon size={22} strokeWidth={2} color={colors.ink} />
-                  </View>
+  // 자동구분 행 하나를 렌더한다. 두 섹션(즐겨찾기·자동구분) 모두 그립+ReorderRow로 드래그 재정렬하며,
+  // 각자 독립된 reorder 컨텍스트를 받는다. 종류는 두 섹션에 동시에 나타날 수 있어 refKey로 구분한다.
+  const renderAutoRow = (
+    item: AutoKind,
+    opts: {
+      refKey: string;
+      reorder: ReorderControls;
+      index: number;
+      isDragging: boolean;
+      isFavorite: boolean;
+    },
+  ) => {
+    const { refKey, reorder, index, isDragging, isFavorite } = opts;
+    const Icon = AUTO_ICONS[item];
+    const active = isDesktop && autoKind === item;
+    const count = counts?.[item] ?? 0;
+    return (
+      <ReorderRow index={index} isDragging={isDragging} controls={reorder}>
+        {/* 왼→오 스와이프로 [즐겨찾기] 하나(종류는 정적이라 삭제·수정·고정 없음). */}
+        <SwipeableRow
+          ref={(ref) => {
+            swipeRefs.current.set(refKey, ref);
+          }}
+          actions={[
+            {
+              key: 'favorite',
+              icon: isFavorite ? StarOff : Star,
+              label: isFavorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+              onPress: () => toggleFavorite(item),
+            },
+          ]}
+          onDragStateChange={(dragging) => {
+            swipeDragging.current = dragging;
+          }}
+          onOpenChange={(open) => {
+            if (open) {
+              const prev = openRowId.current;
+              if (prev && prev !== refKey) swipeRefs.current.get(prev)?.close();
+              openRowId.current = refKey;
+            } else if (openRowId.current === refKey) {
+              openRowId.current = null;
+            }
+          }}
+        >
+          {/* 행 전체가 제스처 대상: 탭=열기 / 꾹 눌러 세로로 끌기=재정렬(그립 없음).
+              접근성은 행에 통합 — 열기(activate) + 위/아래 이동(increment/decrement). */}
+          <GestureDetector gesture={reorder.getGesture(item)}>
+            <View
+              style={[
+                styles.row,
+                active && styles.rowActive,
+                isDragging && styles.rowLifted,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={t(`auto.names.${item}`)}
+              accessibilityState={{ selected: active }}
+              accessibilityActions={[
+                { name: 'activate' },
+                { name: 'increment' },
+                { name: 'decrement' },
+              ]}
+              onAccessibilityAction={(e) => {
+                switch (e.nativeEvent.actionName) {
+                  case 'increment':
+                    reorder.moveByOne(item, -1);
+                    break;
+                  case 'decrement':
+                    reorder.moveByOne(item, 1);
+                    break;
+                  default:
+                    openRow(refKey, item);
+                }
+              }}
+              onAccessibilityTap={() => openRow(refKey, item)}
+            >
+              <View style={styles.rowMain}>
+                <View style={styles.tile}>
+                  <Icon size={22} strokeWidth={2} color={colors.ink} />
+                </View>
+                <View style={styles.nameRow}>
                   <Text variant="subheading" style={styles.name} numberOfLines={1}>
                     {t(`auto.names.${item}`)}
                   </Text>
-                  <Text variant="micro" color={colors.textTertiary}>
-                    {count}
+                  {isFavorite ? (
+                    <MaterialCommunityIcons
+                      name="star"
+                      size={12}
+                      color={colors.ink}
+                      style={styles.badgeIcon}
+                    />
+                  ) : null}
+                </View>
+                <Text variant="micro" color={colors.textTertiary}>
+                  {count}
+                </Text>
+              </View>
+            </View>
+          </GestureDetector>
+        </SwipeableRow>
+      </ReorderRow>
+    );
+  };
+
+  const favSet = useMemo(() => new Set(favOrder), [favOrder]);
+
+  return (
+    <View style={styles.container}>
+      {!embedded ? <TabHeader title={t('auto.title')} /> : null}
+
+      <FlatList
+        data={autoExpanded ? order : []}
+        keyExtractor={(item) => item}
+        contentContainerStyle={styles.listContent}
+        scrollEnabled={mainReorder.draggingId === null && favReorder.draggingId === null}
+        extraData={[mainReorder.draggingId, autoExpanded, favSet]}
+        // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android).
+        CellRendererComponent={mainReorder.CellRendererComponent}
+        removeClippedSubviews={false}
+        // 즐겨찾기 드래그 중엔 헤더를 본문 셀 위로 — 아래로 끌 때 본문에 가려지지 않게(분류 탭과 통일).
+        ListHeaderComponentStyle={
+          favReorder.draggingId !== null ? styles.headerLifted : undefined
+        }
+        ListHeaderComponent={
+          <>
+            {/* 즐겨찾기 섹션 — favOrder(부분집합) 순. 하나도 없으면 렌더 안 함. */}
+            {favOrder.length > 0 ? (
+              <>
+                <TouchableOpacity
+                  style={styles.sectionRow}
+                  onPress={() => setFavoritesExpanded((v) => !v)}
+                  activeOpacity={0.6}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: favoritesExpanded }}
+                  accessibilityLabel={t('friends.favoritesSection')}
+                >
+                  {favoritesExpanded ? (
+                    <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
+                  ) : (
+                    <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
+                  )}
+                  <Text
+                    variant="caption"
+                    color={colors.textSecondary}
+                    style={styles.sectionTitle}
+                  >
+                    {t('friends.favoritesSection')}
+                  </Text>
+                  <Text variant="micro" color={colors.textSecondary}>
+                    {favOrder.length}
                   </Text>
                 </TouchableOpacity>
-                {/* 그립 = 세로 드래그 재정렬(분류 탭과 동일 문법). */}
-                <GestureDetector gesture={reorder.getGesture(item)}>
-                  <View
-                    style={[styles.dragHandle, grabCursor]}
-                    accessibilityRole="adjustable"
-                    accessibilityLabel={t('a11y.reorder')}
-                    accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-                    onAccessibilityAction={(e) =>
-                      reorder.moveByOne(
-                        item,
-                        e.nativeEvent.actionName === 'increment' ? -1 : 1,
-                      )
-                    }
-                  >
-                    <GripVertical size={18} strokeWidth={2} color={colors.textTertiary} />
-                  </View>
-                </GestureDetector>
-              </View>
-            </ReorderRow>
-          );
-        }}
+                {favoritesExpanded &&
+                  favOrder.map((k, i) => (
+                    <View key={`fav:${k}`}>
+                      {renderAutoRow(k, {
+                        refKey: `fav:${k}`,
+                        reorder: favReorder,
+                        index: i,
+                        isDragging: favReorder.draggingId === k,
+                        isFavorite: true,
+                      })}
+                    </View>
+                  ))}
+                <View style={styles.divider} />
+              </>
+            ) : null}
+
+            {/* '자동구분' 섹션 헤더 — 전체 6종. */}
+            <TouchableOpacity
+              style={styles.sectionRow}
+              onPress={() => setAutoExpanded((v) => !v)}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: autoExpanded }}
+              accessibilityLabel={t('common.listSection')}
+            >
+              {autoExpanded ? (
+                <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
+              ) : (
+                <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
+              )}
+              <Text
+                variant="caption"
+                color={colors.textSecondary}
+                style={styles.sectionTitle}
+              >
+                {t('common.listSection')}
+              </Text>
+              <Text variant="micro" color={colors.textSecondary}>
+                {order.length}
+              </Text>
+            </TouchableOpacity>
+          </>
+        }
+        renderItem={({ item, index }) =>
+          renderAutoRow(item, {
+            refKey: `auto:${item}`,
+            reorder: mainReorder,
+            index,
+            isDragging: mainReorder.draggingId === item,
+            isFavorite: favSet.has(item),
+          })
+        }
       />
     </View>
   );
@@ -199,9 +416,32 @@ const makeStyles = (colors: ThemeColors) =>
       flex: 1,
       backgroundColor: colors.background,
     },
+    // 즐겨찾기 드래그 중 헤더(즐겨찾기 섹션)를 본문 셀 위로 — 잡은 행이 본문에 가려지지 않게.
+    headerLifted: {
+      zIndex: 10,
+      elevation: 10,
+    },
     listContent: {
       paddingTop: 4,
       paddingBottom: 20,
+    },
+    sectionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingTop: 16,
+      paddingBottom: 4,
+      gap: 10,
+    },
+    sectionTitle: {
+      flex: 1,
+    },
+    divider: {
+      borderTopWidth: 1,
+      borderStyle: 'dotted' as const,
+      borderTopColor: colors.border,
+      marginHorizontal: 20,
+      marginTop: 8,
     },
     row: {
       flexDirection: 'row',
@@ -234,16 +474,17 @@ const makeStyles = (colors: ThemeColors) =>
       alignItems: 'center',
       justifyContent: 'center',
     },
-    name: {
+    nameRow: {
       flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
       marginLeft: 14,
       marginRight: 10,
     },
-    dragHandle: {
-      alignSelf: 'stretch',
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingLeft: 12,
-      paddingRight: 2,
+    name: {
+      flexShrink: 1,
+    },
+    badgeIcon: {
+      marginLeft: 5,
     },
   });

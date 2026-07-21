@@ -18,12 +18,15 @@ export function useTagCrud(token: string | null) {
   }, [token]);
 
   // 생성 성공 시 만들어진 Tag를 반환(없으면 null). 이름 중복은 409 code로 번역 노출.
+  // 설명(선택)은 관리 모드 인라인 추가에서만 넘어온다 — 빈/공백은 서버가 null로 저장.
+  // 색은 배정하지 않는다 — 새 태그는 기본 무채(색 없음). 색은 태그 수정 폼에서 고른다.
   const addTag = useCallback(
-    async (name: string): Promise<Tag | null> => {
+    async (name: string, description?: string): Promise<Tag | null> => {
       const trimmed = name.trim();
       if (!trimmed || !token) return null;
       try {
-        const created = await api.createTag(token, trimmed);
+        const desc = description?.trim();
+        const created = await api.createTag(token, trimmed, undefined, desc || undefined);
         setTags((prev) => [...prev, created]);
         return created;
       } catch (e) {
@@ -40,7 +43,7 @@ export function useTagCrud(token: string | null) {
       const trimmed = name.trim();
       if (!trimmed || !token || trimmed === tag.name) return null;
       try {
-        const updated = await api.updateTag(token, tag.id, trimmed);
+        const updated = await api.updateTag(token, tag.id, { name: trimmed });
         setTags((prev) => prev.map((x) => (x.id === tag.id ? updated : x)));
         return updated;
       } catch (e) {

@@ -1,11 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Trash2 } from 'lucide-react-native';
 import { api, Friend, Message } from '../api';
 import { errorText } from '../i18n/errors';
-import { notify } from '../notify';
-import { pickDefaultCategoryColor } from '../theme';
+import { confirmDialog, notify } from '../notify';
+import { pickDefaultCategoryColor, ThemeColors } from '../theme';
+import { useTheme } from '../theme-context';
 import { CategoryAvatar } from './CategoryAvatar';
-import { PICKER_TILE_SIZE, PickerModal, PickerRow } from './PickerModal';
+import {
+  PICKER_TILE_SIZE,
+  PickerModal,
+  PickerRow,
+  usePickerRowScroll,
+} from './PickerModal';
+import { Text } from './Text';
+
+// "전체(미분류)" 행의 스크롤 key 센티널(friendId=null 자리).
+const ALL_KEY = '__all__';
 
 interface Props {
   visible: boolean;
@@ -27,6 +39,12 @@ interface Props {
   staged?: boolean;
   /** 스테이징 모드 [저장] 시 고른 분류(friendId|null)를 호출자에게 돌려준다. */
   onPicked?: (friendId: string | null) => void;
+  /** 관리 모드: 메시지 컨텍스트 없이 분류를 "추가"하는 전용 모드(그룹 탭 +·목록형 [+ 분류]).
+   *  선택 없이 분류 목록 + 인라인 추가(이름 + '설명 (선택)') + 밑줄 [닫기]만 둔다(TagPickerModal manage 미러).
+   *  색은 pickDefaultCategoryColor로 자동 배정, 프로필(색) 편집은 스와이프 [수정]의 category-edit 폼 몫. */
+  manage?: boolean;
+  /** 관리 모드 행 탭 시 그 분류의 수정 폼을 연다(선택 모드엔 넘기지 않음 — 행 탭=선택 유지). */
+  onEditFriend?: (friend: Friend) => void;
 }
 
 // 분류 선택 픽커 — 태그 픽커와 한 문법(PickerModal 골격 + PickerRow 행).
@@ -45,15 +63,24 @@ export function CategoryPickerModal({
   onFriendsChanged,
   staged,
   onPicked,
+  manage = false,
+  onEditFriend,
 }: Props) {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   // 생성한 분류를 즉시 목록에 얹으려고 로컬 사본을 든다(prop 재로드가 오면 그 값으로 재시드).
   const [localFriends, setLocalFriends] = useState<Friend[]>([]);
   // 로컬 선택 상태 — [저장]을 눌러야 PATCH된다. 세션 message는 스냅샷이라 그대로 기준값으로 쓴다.
   const [currentFriendId, setCurrentFriendId] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 전체 삭제 진행 중 — 중복 클릭 방지(타이틀 휴지통).
+  const [deletingAll, setDeletingAll] = useState(false);
+  // 스크롤 타깃 — 열릴 때 현재 분류, 추가 직후 새 분류. PickerModal이 이 key로 스크롤.
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -62,9 +89,13 @@ export function CategoryPickerModal({
 
   useEffect(() => {
     if (!visible) return;
-    setCurrentFriendId(message?.friendId ?? null);
+    const initial = message?.friendId ?? null;
+    setCurrentFriendId(initial);
     setNewName('');
-  }, [visible, message?.id]);
+    setNewDescription('');
+    // 선택 픽커: 현재 분류로 스크롤(길면 화면 밖일 수 있어). 관리 모드는 선택이 없으니 스크롤 안 함.
+    setScrollTarget(manage ? null : initial ?? ALL_KEY);
+  }, [visible, message?.id, manage]);
 
   // 행 탭 = 로컬 선택만 변경. PATCH 없음(저장 때 한 번에).
   const select = (friendId: string | null) => {
@@ -72,6 +103,7 @@ export function CategoryPickerModal({
   };
 
   // 새 분류 생성(미사용 프리셋 순서대로 기본색 자동 지정) → 목록에 추가 → 선택 상태에만 반영.
+  // '설명 (선택)'은 선택·관리 모드 공통(사용자 확정 — 두 모드는 푸터만 다르다).
   const onAdd = async () => {
     if (adding || !token) return;
     const name = newName.trim();
@@ -79,15 +111,67 @@ export function CategoryPickerModal({
     setAdding(true);
     try {
       const color = pickDefaultCategoryColor(localFriends);
-      const created = await api.createFriend(token, name, color);
+      const description = newDescription.trim() || undefined;
+      const created = await api.createFriend(token, name, color, description);
       setLocalFriends((prev) => [...prev, created]);
       setNewName('');
+      setNewDescription('');
       onFriendsChanged();
-      setCurrentFriendId(created.id);
+      // 선택 픽커는 새 분류를 선택 상태로, 관리 모드는 선택 없음. 둘 다 새 항목으로 스크롤.
+      if (!manage) setCurrentFriendId(created.id);
+      setScrollTarget(created.id);
     } catch (e) {
       notify(t('common.notice'), errorText(e));
     } finally {
       setAdding(false);
+    }
+  };
+
+  // 행 휴지통 — 확인창 → 분류 삭제(그 분류 메시지는 미분류로). FriendsScreen 스와이프 삭제와 같은 계약.
+  // 선택 모드에서 지운 분류가 현재 선택이면 미분류로 되돌린다.
+  const onDeleteFriend = async (friend: Friend) => {
+    if (!token) return;
+    const ok = await confirmDialog({
+      title: t('common.delete'),
+      message: t('friends.confirmDelete', { name: friend.name }),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.deleteFriend(token, friend.id);
+      setLocalFriends((prev) => prev.filter((f) => f.id !== friend.id));
+      if (currentFriendId === friend.id) setCurrentFriendId(null);
+      onFriendsChanged();
+    } catch (e) {
+      notify(t('common.notice'), errorText(e));
+    }
+  };
+
+  // 타이틀 휴지통 — 확인창 → 모든 분류 순차 삭제(메시지는 미분류로). 선택은 미분류로 되돌린다.
+  const onDeleteAll = async () => {
+    if (!token || deletingAll || localFriends.length === 0) return;
+    const ok = await confirmDialog({
+      title: t('friends.deleteAllTitle'),
+      message: t('friends.deleteAllMessage'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
+    setDeletingAll(true);
+    try {
+      for (const friend of localFriends) {
+        await api.deleteFriend(token, friend.id);
+      }
+      setLocalFriends([]);
+      setCurrentFriendId(null);
+      onFriendsChanged();
+    } catch (e) {
+      notify(t('common.notice'), errorText(e));
+    } finally {
+      setDeletingAll(false);
     }
   };
 
@@ -124,7 +208,8 @@ export function CategoryPickerModal({
   return (
     <PickerModal
       visible={visible}
-      title={t('chat.menu.editCategory')}
+      // 관리 모드 = '분류' 관리(태그 관리가 '태그' 타이틀을 쓰는 것과 미러). 선택 모드 = 분류 변경.
+      title={manage ? t('friends.title') : t('chat.menu.editCategory')}
       onClose={onClose}
       newName={newName}
       onChangeNewName={setNewName}
@@ -133,28 +218,174 @@ export function CategoryPickerModal({
       adding={adding}
       addLabel={t('common.add')}
       cancelLabel={t('common.cancel')}
-      saveLabel={t('common.save')}
-      onSave={onSave}
-      saving={saving}
+      // 관리 모드는 선택·저장 없이 밑줄 [닫기] 하나만.
+      saveLabel={manage ? t('common.close') : t('common.save')}
+      onSave={manage ? onClose : onSave}
+      saving={manage ? false : saving}
+      closeOnly={manage}
+      // '설명 (선택)' 입력 — 선택·관리 모드 공통(분류 추가 폼 문법 재사용, 사용자 확정).
+      newDescription={newDescription}
+      onChangeNewDescription={setNewDescription}
+      descriptionPlaceholder={t('friends.descriptionPlaceholder')}
+      scrollToKey={scrollTarget}
+      // 타이틀 오른쪽 휴지통 = 전체 삭제. 항목이 없으면 숨긴다.
+      titleAccessory={
+        localFriends.length > 0 ? (
+          <TouchableOpacity
+            onPress={() => void onDeleteAll()}
+            disabled={deletingAll}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={t('friends.deleteAllTitle')}
+          >
+            <Trash2 size={18} strokeWidth={2} color={colors.textTertiary} />
+          </TouchableOpacity>
+        ) : null
+      }
     >
-      {/* 전체(미분류) — selfColor 아바타. friendId=null로 되돌린다. */}
-      <PickerRow
-        tile={<CategoryAvatar color={selfColor} size={PICKER_TILE_SIZE} />}
-        label={t('list.uncategorized')}
-        selected={currentFriendId === null}
-        onPress={() => select(null)}
-        multi={false}
-      />
-      {localFriends.map((friend) => (
-        <PickerRow
-          key={friend.id}
-          tile={<CategoryAvatar color={friend.color ?? null} size={PICKER_TILE_SIZE} />}
-          label={friend.name}
-          selected={currentFriendId === friend.id}
-          onPress={() => select(friend.id)}
-          multi={false}
-        />
-      ))}
+      {manage ? (
+        // 관리 모드: 선택 없이 읽기 전용 분류 목록(추가만). "전체(미분류)"는 분류가 아니라 표시 안 함.
+        localFriends.length === 0 ? (
+          <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
+            {t('friends.emptyHint')}
+          </Text>
+        ) : (
+          localFriends.map((friend) => (
+            <CategoryManageRow
+              key={friend.id}
+              name={friend.name}
+              description={friend.description ?? null}
+              color={friend.color ?? null}
+              scrollKey={friend.id}
+              onEdit={onEditFriend ? () => onEditFriend(friend) : undefined}
+              onDelete={() => void onDeleteFriend(friend)}
+              deleteLabel={t('common.delete')}
+            />
+          ))
+        )
+      ) : (
+        <>
+          {/* 전체(미분류) — selfColor 아바타. friendId=null로 되돌린다. */}
+          <PickerRow
+            tile={<CategoryAvatar color={selfColor} size={PICKER_TILE_SIZE} />}
+            label={t('list.uncategorized')}
+            selected={currentFriendId === null}
+            onPress={() => select(null)}
+            multi={false}
+            scrollKey={ALL_KEY}
+          />
+          {localFriends.map((friend) => (
+            <PickerRow
+              key={friend.id}
+              tile={<CategoryAvatar color={friend.color ?? null} size={PICKER_TILE_SIZE} />}
+              label={friend.name}
+              description={friend.description ?? null}
+              selected={currentFriendId === friend.id}
+              onPress={() => select(friend.id)}
+              multi={false}
+              scrollKey={friend.id}
+              onDelete={() => void onDeleteFriend(friend)}
+              deleteLabel={t('common.delete')}
+            />
+          ))}
+        </>
+      )}
     </PickerModal>
   );
 }
+
+// 관리 모드 읽기 전용 행 — 선택 픽커 행(PickerRow)과 같은 여백/타일 정렬(선택 표시·Pressable 없음).
+// 스크롤 타깃 등록(추가 직후 새 분류로 스크롤)을 위해 onLayout을 단다.
+function CategoryManageRow({
+  name,
+  description,
+  color,
+  scrollKey,
+  onEdit,
+  onDelete,
+  deleteLabel,
+}: {
+  name: string;
+  description: string | null;
+  color: string | null;
+  scrollKey: string;
+  /** 있으면 타일·이름 영역 탭 = 수정 폼 열기(휴지통은 별도 탭 영역으로 공존). */
+  onEdit?: () => void;
+  onDelete: () => void;
+  deleteLabel: string;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const onLayout = usePickerRowScroll(scrollKey);
+  return (
+    <View style={styles.manageRow} onLayout={onLayout}>
+      {/* 타일+이름 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
+      <Pressable
+        style={({ pressed }) => [styles.manageTap, pressed && styles.manageTapActive]}
+        onPress={onEdit}
+        disabled={!onEdit}
+        accessibilityRole="button"
+        accessibilityLabel={name}
+      >
+        <CategoryAvatar color={color} size={PICKER_TILE_SIZE} />
+        <View style={styles.manageLabelCol}>
+          <Text variant="body" numberOfLines={1}>
+            {name}
+          </Text>
+          {description ? (
+            <Text variant="caption" color={colors.textTertiary} numberOfLines={1}>
+              {description}
+            </Text>
+          ) : null}
+        </View>
+      </Pressable>
+      {/* 행 오른쪽 휴지통 — 선택 픽커 행(PickerRow)과 같은 위치·문법(탭 영역 분리). */}
+      <TouchableOpacity
+        style={styles.manageDelete}
+        onPress={onDelete}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        accessibilityRole="button"
+        accessibilityLabel={deleteLabel}
+      >
+        <Trash2 size={16} strokeWidth={2} color={colors.textTertiary} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const makeStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    emptyHint: {
+      marginTop: 2,
+      lineHeight: 18,
+    },
+    // 관리 모드 행 — 선택 픽커 행과 같은 여백/타일 정렬. [탭 영역][휴지통]으로 나뉜다.
+    manageRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      minHeight: PICKER_TILE_SIZE + 12,
+      paddingVertical: 6,
+      paddingHorizontal: 6,
+      marginHorizontal: -6,
+    },
+    // 타일+이름 탭 영역(수정 진입) — 눌림 = surface 채움(선택 픽커 행과 같은 문법).
+    manageTap: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 6,
+      marginVertical: -6,
+    },
+    manageTapActive: {
+      backgroundColor: colors.surface,
+    },
+    manageLabelCol: {
+      flex: 1,
+      marginLeft: 12,
+      paddingRight: 8,
+    },
+    manageDelete: {
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+    },
+  });

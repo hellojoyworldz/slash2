@@ -88,6 +88,25 @@ export class UpdateProfileDto {
   @IsArray()
   @IsString({ each: true })
   autoOrder?: string[];
+
+  // 자동구분 즐겨찾기. AUTO_ORDER_CATEGORIES의 부분집합인지는 서비스에서 검증
+  // (아니면 400 invalid_order).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  autoFavorites?: string[];
+
+  // 탭(메뉴) 순서. TAB_ORDER_KEYS의 순열인지는 서비스에서 검증(아니면 400 invalid_order).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tabOrder?: string[];
+
+  // 숨긴 탭 목록. HIDEABLE_TABS의 부분집합인지는 서비스에서 검증(아니면 400 invalid_order).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hiddenTabs?: string[];
 }
 
 export class ForgotPasswordDto {

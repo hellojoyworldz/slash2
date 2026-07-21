@@ -12,7 +12,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ChevronDown,
   ChevronRight,
-  GripVertical,
   Pencil,
   Plus,
   Star,
@@ -21,12 +20,10 @@ import {
 } from 'lucide-react-native';
 import {
   FlatList,
-  Platform,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
   View,
-  ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -36,7 +33,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { api, ApiError, Friend } from '../api';
+import { api, ApiError, AutoKind, Friend, Tag } from '../api';
 import { useAuth } from '../auth';
 import { useCategoryEdit } from '../category-edit';
 import { CategoryAvatar } from '../components/CategoryAvatar';
@@ -44,25 +41,27 @@ import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
-import { useSelectedRoom } from '../selected-room';
-import { layout, pickDefaultCategoryColor, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
+import { ClassifyTab, useSelectedRoom } from '../selected-room';
+import { useTagCreate } from '../tag-create';
+import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
-import { createReorderCellRenderer } from '../use-reorder';
+import {
+  beginGlobalGrabbingCursor,
+  buildTapGesture,
+  composeRowGesture,
+  createReorderCellRenderer,
+  endGlobalGrabbingCursor,
+  RowGesture,
+  withDragActivation,
+} from '../use-reorder';
+import { AutoScreen } from './AutoScreen';
+import { TagsScreen } from './TagsScreen';
 
-// 분류 행 높이 — 기본 1줄. 설명(상태메시지)이 있는 행만 캡션 줄만큼 더 높다.
-// 드래그 재정렬은 행마다 실제 높이가 다를 수 있어 인덱스*고정높이가 아니라
-// 누적 높이(오프셋) 기반으로 계산한다(아래 rowHeightOf·useDragReorder 참고).
+// 분류 행 높이 — 설명(상태메시지) 유무와 무관하게 모든 행이 같은 높이(사용자 확정: "높이가
+// 똑같아야지"). 설명은 행 안에서 이름 아래 한 줄(numberOfLines=1 ellipsis)로 들어간다.
 const ROW_HEIGHT = 64;
-const DESC_EXTRA = 18;
-const rowHeightOf = (f: Friend) => (f.description ? ROW_HEIGHT + DESC_EXTRA : ROW_HEIGHT);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-
-// 웹에서만 그랩 커서 (RN 타입에 없는 값이라 캐스팅) — 스플리터의 col-resize와 같은 방식.
-const grabCursor =
-  Platform.OS === 'web'
-    ? ({ cursor: 'grab' } as unknown as ViewStyle)
-    : null;
 
 // 들린 행: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로.
 const LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
@@ -108,7 +107,14 @@ function AnimatedRow({
     return { transform: [{ translateY: grabbed ? dragY.value : offset.value }] };
   });
   return (
-    <Animated.View style={[rowStyle, isDragging && LIFT]}>{children}</Animated.View>
+    <Animated.View
+      style={[
+        rowStyle,
+        isDragging && LIFT,
+      ]}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
@@ -117,7 +123,12 @@ function AnimatedRow({
 // 다른 쪽 행을 움직이거나 상태를 섞지 않는다(물리적으로 한 번에 한 포인터만 드래그하므로 안전).
 // - getList: 현재 순서의 원천(드래그 시점의 실제 배열). 항상 최신을 읽도록 ref로 감싼다.
 // - onCommit(next): 놓을 때(또는 접근성 이동) 재정렬된 배열을 넘긴다 — 호출부가 상태 반영·서버 저장을 담당.
-function useDragReorder(getList: () => Friend[], onCommit: (next: Friend[]) => void) {
+function useDragReorder(
+  getList: () => Friend[],
+  onCommit: (next: Friend[]) => void,
+  // 행 탭=열기(onActivate)·더블탭=수정(onEditRequest). 섹션별 refKey는 caller가 콜백에서 붙인다.
+  taps?: { onActivate?: (id: string) => void; onEditRequest?: (id: string) => void },
+) {
   // 재정렬 공유값: activeIndex(잡은 행 index, -1=유휴), targetIndex(현재 목표 슬롯),
   // dragY(잡은 행 translateY), draggedHeight(잡은 행 자신의 실제 높이 — 설명 유무로 가변).
   const activeIndex = useSharedValue(-1);
@@ -138,29 +149,30 @@ function useDragReorder(getList: () => Friend[], onCommit: (next: Friend[]) => v
   const othersHeightsRef = useRef<number[]>([]);
   // 제스처를 id별로 한 번만 만들어 캐시한다 — 목록 재정렬(setState)로 리렌더돼도 GestureDetector가
   // 같은 제스처 객체를 받아 드래그 도중 재부착되지 않는다.
-  const gesturesRef = useRef(new Map<string, ReturnType<typeof Gesture.Pan>>());
-  // 제스처는 한 번만 생성·캐시되므로 최신 getList/onCommit을 ref로 읽는다.
+  const gesturesRef = useRef(new Map<string, RowGesture>());
+  // 제스처는 한 번만 생성·캐시되므로 최신 getList/onCommit·탭 콜백을 ref로 읽는다.
   const getListRef = useRef(getList);
   const onCommitRef = useRef(onCommit);
+  const onActivateRef = useRef(taps?.onActivate);
+  const onEditRef = useRef(taps?.onEditRequest);
   getListRef.current = getList;
   onCommitRef.current = onCommit;
+  onActivateRef.current = taps?.onActivate;
+  onEditRef.current = taps?.onEditRequest;
 
   const getDragGesture = useCallback(
     (id: string) => {
       const cache = gesturesRef.current;
       const cached = cache.get(id);
       if (cached) return cached;
-      const gesture = Gesture.Pan()
-        .runOnJS(true)
-        // 핸들에서 세로로 조금만 움직여도 잡는다(탭·가로 스와이프와 구분).
-        .activeOffsetY([-6, 6])
+      const dragPan = withDragActivation(Gesture.Pan().runOnJS(true))
         .onStart(() => {
           const list = getListRef.current();
           const idx = list.findIndex((f) => f.id === id);
           if (idx < 0) return;
           startIndexRef.current = idx;
-          // 이 드래그 세션 동안 쓸 높이 스냅샷 — 놓을 때까지 데이터는 안 바뀌므로 고정해도 안전.
-          const heights = list.map(rowHeightOf);
+          // 이 드래그 세션 동안 쓸 높이 스냅샷 — 모든 행이 균일 높이(ROW_HEIGHT)라 상수.
+          const heights = list.map(() => ROW_HEIGHT);
           const h = heights[idx];
           draggedHeight.value = h;
           const topOffset = heights.slice(0, idx).reduce((s, v) => s + v, 0);
@@ -172,6 +184,7 @@ function useDragReorder(getList: () => Friend[], onCommit: (next: Friend[]) => v
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
           dragY.value = 0;
+          beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
           // 세션당 1회 리렌더(들린 스타일 + scrollEnabled false). 이후 드래그 중엔 setState 없음.
           setDraggingId(id);
         })
@@ -230,10 +243,15 @@ function useDragReorder(getList: () => Friend[], onCommit: (next: Friend[]) => v
           activeIndexRef.current = -1;
           targetIndex.value = -1;
           dragY.value = 0;
+          endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
           setDraggingId(null);
         });
-      cache.set(id, gesture);
-      return gesture;
+      const composite = composeRowGesture(dragPan, {
+        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+      });
+      cache.set(id, composite);
+      return composite;
     },
     [activeIndex, targetIndex, dragY, draggedHeight],
   );
@@ -272,19 +290,28 @@ function useDragReorder(getList: () => Friend[], onCommit: (next: Friend[]) => v
 
 type DragReorder = ReturnType<typeof useDragReorder>;
 
-interface Props {
+interface FriendsListProps {
   token: string | null;
   onOpenChat: () => void;
   onOpenFriend: (friend: Friend) => void;
   onLogout: () => void;
+  /** 그룹 탭 캡슐 아래에 임베드될 때 true — 헤더(타이틀+추가)는 그룹 컨테이너가 지므로 여기선 렌더하지 않는다. */
+  embedded?: boolean;
+  /** 임베드 시 로드된 분류 목록을 그룹 컨테이너로 올린다(그 헤더의 '분류 추가' 기본색 계산용). */
+  onFriendsChange?: (friends: Friend[]) => void;
 }
 
-export function FriendsScreen({
+// 분류 리스트 본체(전체 행 + 즐겨찾기 + 분류 그룹) — 예전 FriendsScreen 그대로.
+// 상단 캡슐(분류/태그/자동구분)의 "분류" 선택 시 렌더되는 리스트이자, 신설 "분류" 탭(캡슐 없이
+// 이 리스트만 보여주는 탭 — categories.tsx)이 그대로 재사용하는 컴포넌트라 export한다.
+export function FriendsList({
   token,
   onOpenChat,
   onOpenFriend,
   onLogout,
-}: Props) {
+  embedded = false,
+  onFriendsChange,
+}: FriendsListProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -292,8 +319,8 @@ export function FriendsScreen({
   // roomsVersion: 대화 패널·분류 편집(루트 CategoryEditProvider)이 개수·목록을 바꾸는 신호.
   // room: 데스크톱 스플릿뷰에서 현재 방 — active 행 강조에 쓴다.
   const { roomsVersion, room, setRoom, bumpRooms } = useSelectedRoom();
-  // 분류 추가·수정 편집기는 루트 프로바이더로 승격됨 — 여기선 열기만 한다.
-  const { open: openCategoryEditor } = useCategoryEdit();
+  // 분류 추가(관리 모드 픽커)·수정(색 프로필 폼) 편집기는 루트 프로바이더로 승격됨 — 여기선 열기만.
+  const { open: openCategoryEditor, openManage: openCategoryManage } = useCategoryEdit();
   // 데스크톱(스플릿뷰)에서만 선택 방을 강조한다.
   const { width } = useWindowDimensions();
   const isDesktop = width >= layout.desktopBreakpoint;
@@ -331,6 +358,11 @@ export function FriendsScreen({
     tokenRef.current = token;
   }, [token]);
 
+  // 임베드(그룹 탭) 시 로드된 분류 목록을 컨테이너로 올린다 — 그룹 헤더 '분류 추가'의 기본색 계산용.
+  useEffect(() => {
+    onFriendsChange?.(friends);
+  }, [friends, onFriendsChange]);
+
   const reload = useCallback(async () => {
     if (!token) return;
     try {
@@ -364,8 +396,45 @@ export function FriendsScreen({
     }, [token, onLogout, roomsVersion]),
   );
 
+  // 행 싱글탭 = 방 열기(열린 스와이프면 닫기, 스와이프 드래그 직후면 무시) — 예전 onPress 로직.
+  const openRow = useCallback(
+    (refKey: string, item: Friend) => {
+      if (swipeDragging.current) return;
+      if (openRowId.current === refKey) {
+        swipeRefs.current.get(refKey)?.close();
+        return;
+      }
+      onOpenFriend(item);
+    },
+    [onOpenFriend],
+  );
+  // 행 더블탭 = 색 프로필 수정 폼.
+  const editRow = useCallback(
+    (item: Friend) => openCategoryEditor(item),
+    [openCategoryEditor],
+  );
+
+  // "전체"(나에게) 행 제스처 — 재정렬 대상이 아니라 드래그는 없다. 탭=전체 채팅 열기,
+  // 더블탭=전체 프로필 수정({self:true}). 다른 행의 탭/더블탭 문법과 통일.
+  const selfGesture = useMemo(
+    () =>
+      buildTapGesture(
+        () => {
+          if (swipeDragging.current) return;
+          if (openRowId.current === 'self') {
+            swipeRefs.current.get('self')?.close();
+            return;
+          }
+          onOpenChat();
+        },
+        () => openCategoryEditor({ self: true }),
+      )!,
+    [onOpenChat, openCategoryEditor],
+  );
+
   // ── 본 목록(분류) 드래그 ────────────────────────────────────────────
   // 커밋: splice된 새 순서를 낙관적으로 반영하고 서버에 저장. 실패하면 서버 순서로 복원.
+  // 행 탭=열기(onActivate)·더블탭=수정(onEditRequest). refKey는 섹션(cat:/fav:)으로 구분.
   const mainDrag = useDragReorder(
     () => orderRef.current,
     useCallback(
@@ -379,6 +448,16 @@ export function FriendsScreen({
       },
       [],
     ),
+    {
+      onActivate: (id) => {
+        const f = orderRef.current.find((x) => x.id === id);
+        if (f) openRow(`cat:${id}`, f);
+      },
+      onEditRequest: (id) => {
+        const f = orderRef.current.find((x) => x.id === id);
+        if (f) editRow(f);
+      },
+    },
   );
 
   // ── 즐겨찾기 섹션 드래그(본 목록과 독립) ──────────────────────────────
@@ -404,6 +483,16 @@ export function FriendsScreen({
       },
       [],
     ),
+    {
+      onActivate: (id) => {
+        const f = orderRef.current.find((x) => x.id === id);
+        if (f) openRow(`fav:${id}`, f);
+      },
+      onEditRequest: (id) => {
+        const f = orderRef.current.find((x) => x.id === id);
+        if (f) editRow(f);
+      },
+    },
   );
 
   // 레거시 정규화: favoritePosition 필드가 생기기 전에 즐겨찾기된 분류는 favoritePosition=null이라
@@ -542,83 +631,75 @@ export function FriendsScreen({
           }
         }}
       >
-        <View
-          style={[
-            styles.friendRow,
-            { height: rowHeightOf(item) },
-            active && styles.friendRowFilled,
-            isDragging && styles.friendRowLifted,
-          ]}
-        >
-          {/* 탭=열기(열린 스와이프면 닫기) / long-press=편집. */}
-          <TouchableOpacity
-            style={styles.friendMain}
-            activeOpacity={0.6}
-            onPress={() => {
-              if (swipeDragging.current) return;
-              if (openRowId.current === refKey) {
-                swipeRefs.current.get(refKey)?.close();
-                return;
-              }
-              onOpenFriend(item);
-            }}
-            onLongPress={() => openCategoryEditor(item)}
+        {/* 행 전체가 제스처 대상: 탭=열기 / 더블탭=수정 / 꾹 눌러 세로로 끌기=재정렬(그립 없음).
+            섹션별 drag 컨텍스트를 받아, 즐겨찾기 드래그는 즐겨찾기 순서만·분류 드래그는 분류 순서만 바꾼다.
+            접근성은 행에 통합 — 열기(activate) + 수정(edit) + 위/아래 이동(increment/decrement). */}
+        <GestureDetector gesture={drag.getDragGesture(item.id)}>
+          <View
+            style={[
+              styles.friendRow,
+              active && styles.friendRowFilled,
+              isDragging && styles.friendRowLifted,
+            ]}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
+            accessibilityLabel={item.name}
+            accessibilityActions={[
+              { name: 'activate' },
+              { name: 'edit', label: t('friends.editTitle') },
+              { name: 'increment' },
+              { name: 'decrement' },
+            ]}
+            onAccessibilityAction={(e) => {
+              switch (e.nativeEvent.actionName) {
+                case 'edit':
+                  editRow(item);
+                  break;
+                case 'increment':
+                  drag.moveByOne(item.id, -1);
+                  break;
+                case 'decrement':
+                  drag.moveByOne(item.id, 1);
+                  break;
+                default:
+                  openRow(refKey, item);
+              }
+            }}
+            onAccessibilityTap={() => openRow(refKey, item)}
           >
-            <CategoryAvatar color={item.color} size={44} />
-            <View style={styles.friendName}>
-              <View style={styles.nameRow}>
-                <Text variant="bodyStrong" numberOfLines={1} style={styles.nameText}>
-                  {item.name}
-                </Text>
-                {item.favorite && (
-                  <MaterialCommunityIcons
-                    name="star"
-                    size={12}
-                    color={colors.ink}
-                    style={styles.favoriteIcon}
-                  />
-                )}
+            <View style={styles.friendMain}>
+              <CategoryAvatar color={item.color} size={44} />
+              <View style={styles.friendName}>
+                <View style={styles.nameRow}>
+                  <Text variant="bodyStrong" numberOfLines={1} style={styles.nameText}>
+                    {item.name}
+                  </Text>
+                  {item.favorite && (
+                    <MaterialCommunityIcons
+                      name="star"
+                      size={12}
+                      color={colors.ink}
+                      style={styles.favoriteIcon}
+                    />
+                  )}
+                </View>
+                {item.description ? (
+                  <Text
+                    variant="caption"
+                    color={colors.textTertiary}
+                    numberOfLines={1}
+                    style={styles.descriptionText}
+                  >
+                    {item.description}
+                  </Text>
+                ) : null}
               </View>
-              {item.description ? (
-                <Text
-                  variant="caption"
-                  color={colors.textTertiary}
-                  numberOfLines={1}
-                  style={styles.descriptionText}
-                >
-                  {item.description}
-                </Text>
-              ) : null}
+              <Text variant="micro" color={colors.textTertiary}>
+                {item.messageCount ?? 0}
+              </Text>
             </View>
-            <Text variant="micro" color={colors.textTertiary}>
-              {item.messageCount ?? 0}
-            </Text>
-          </TouchableOpacity>
-          {/* 드래그 핸들 — 여기서만 세로 재정렬을 시작한다(행 탭/편집/가로 스와이프와 충돌 없게).
-              섹션별 drag 컨텍스트를 받아, 즐겨찾기 그립은 즐겨찾기 순서만·분류 그립은 분류 순서만 바꾼다. */}
-          <GestureDetector gesture={drag.getDragGesture(item.id)}>
-            <View
-              style={[styles.dragHandle, grabCursor]}
-              accessibilityRole="adjustable"
-              accessibilityLabel={t('a11y.reorder')}
-              accessibilityActions={[
-                { name: 'increment' },
-                { name: 'decrement' },
-              ]}
-              onAccessibilityAction={(e) => {
-                // increment = 위로 한 칸, decrement = 아래로 한 칸.
-                drag.moveByOne(
-                  item.id,
-                  e.nativeEvent.actionName === 'increment' ? -1 : 1,
-                );
-              }}
-            >
-              <GripVertical size={18} strokeWidth={2} color={colors.textTertiary} />
-            </View>
-          </GestureDetector>
-        </View>
+          </View>
+        </GestureDetector>
       </SwipeableRow>
     );
     return (
@@ -638,17 +719,20 @@ export function FriendsScreen({
 
   return (
     <View style={styles.container}>
-      <TabHeader
-        title={t('friends.title')}
-        actions={[
-          {
-            key: 'add',
-            icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
-            label: t('friends.add'),
-            onPress: () => openCategoryEditor(undefined, pickDefaultCategoryColor(friends)),
-          },
-        ]}
-      />
+      {!embedded ? (
+        <TabHeader
+          title={t('friends.title')}
+          actions={[
+            {
+              key: 'add',
+              icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
+              label: t('friends.add'),
+              // 분류 추가 = 픽커 관리 모드(태그 추가와 한 문법). 스와이프 [수정]만 색 프로필 폼.
+              onPress: () => openCategoryManage(),
+            },
+          ]}
+        />
+      ) : null}
 
       <FlatList
         data={categoriesExpanded ? friends : []}
@@ -657,14 +741,18 @@ export function FriendsScreen({
         scrollEnabled={mainDrag.draggingId === null && favDrag.draggingId === null}
         extraData={[mainDrag.draggingId, categoriesExpanded]}
         // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android — 셀 형제 레벨에서 zIndex/elevation 필요).
-        // 즐겨찾기 섹션은 ListHeaderComponent 안의 일반 View라 이 FlatList 셀 레이어와 무관하며,
-        // AnimatedRow 자체의 LIFT(zIndex/elevation)만으로 충분하다.
         CellRendererComponent={mainDrag.CellRendererComponent}
         removeClippedSubviews={false}
+        // 즐겨찾기 드래그 중엔 헤더(즐겨찾기 섹션이 사는 곳)를 본문 셀 위로 —
+        // 안 올리면 즐겨찾기 행을 아래로 끌 때 헤더 경계를 넘는 순간 본문 리스트에 가려진다
+        // (본 목록 드래그의 CellRenderer zIndex와 같은 규칙을 헤더 레벨에 적용 — 통일).
+        ListHeaderComponentStyle={
+          favDrag.draggingId !== null ? styles.headerLifted : undefined
+        }
         ListHeaderComponent={
           <>
-            {/* "전체" 프로필 — 누르면 전체(나에게) 채팅으로. 아바타는 전체 프로필 색.
-                왼→오 스와이프로 [수정] 하나만 드러난다(다른 분류 행과 같은 문법, 삭제·즐겨찾기·그립 없음). */}
+            {/* "전체" 프로필 — 탭=전체(나에게) 채팅, 더블탭=전체 프로필 수정. 아바타는 전체 프로필 색.
+                왼→오 스와이프로 [수정] 하나만 드러난다(다른 분류 행과 같은 문법, 삭제·즐겨찾기 없음). */}
             <SwipeableRow
               ref={(ref) => {
                 swipeRefs.current.set('self', ref);
@@ -690,32 +778,49 @@ export function FriendsScreen({
                 }
               }}
             >
-              <TouchableOpacity
-                style={[styles.profileRow, allActive && styles.profileRowActive]}
-                onPress={() => {
-                  if (swipeDragging.current) return;
-                  if (openRowId.current === 'self') {
-                    swipeRefs.current.get('self')?.close();
-                    return;
-                  }
-                  onOpenChat();
-                }}
-                activeOpacity={0.6}
-                accessibilityRole="button"
-                accessibilityState={{ selected: allActive }}
-              >
-                <CategoryAvatar color={selfColor ?? SELF_DEFAULT_COLOR} size={56} />
-                <View style={styles.profileInfo}>
-                  <Text variant="heading">{t('chats.myRoom')}</Text>
-                  <Text
-                    variant="label"
-                    color={colors.textSecondary}
-                    style={styles.profileStatus}
-                  >
-                    {t('friends.sendToMe')}
-                  </Text>
+              <GestureDetector gesture={selfGesture}>
+                <View
+                  style={[styles.profileRow, allActive && styles.profileRowActive]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('chats.myRoom')}
+                  accessibilityState={{ selected: allActive }}
+                  accessibilityActions={[
+                    { name: 'activate' },
+                    { name: 'edit', label: t('friends.editTitle') },
+                  ]}
+                  onAccessibilityAction={(e) => {
+                    if (e.nativeEvent.actionName === 'edit') {
+                      openCategoryEditor({ self: true });
+                    } else if (swipeDragging.current) {
+                      // 스와이프 드래그 직후 오탭 무시(포인터 경로와 동일 가드).
+                    } else if (openRowId.current === 'self') {
+                      swipeRefs.current.get('self')?.close();
+                    } else {
+                      onOpenChat();
+                    }
+                  }}
+                  onAccessibilityTap={() => {
+                    if (swipeDragging.current) return;
+                    if (openRowId.current === 'self') {
+                      swipeRefs.current.get('self')?.close();
+                      return;
+                    }
+                    onOpenChat();
+                  }}
+                >
+                  <CategoryAvatar color={selfColor ?? SELF_DEFAULT_COLOR} size={56} />
+                  <View style={styles.profileInfo}>
+                    <Text variant="heading">{t('chats.myRoom')}</Text>
+                    <Text
+                      variant="label"
+                      color={colors.textSecondary}
+                      style={styles.profileStatus}
+                    >
+                      {t('friends.sendToMe')}
+                    </Text>
+                  </View>
                 </View>
-              </TouchableOpacity>
+              </GestureDetector>
             </SwipeableRow>
 
             <View style={styles.divider} />
@@ -763,7 +868,7 @@ export function FriendsScreen({
               activeOpacity={0.6}
               accessibilityRole="button"
               accessibilityState={{ expanded: categoriesExpanded }}
-              accessibilityLabel={t('tabs.friends')}
+              accessibilityLabel={t('common.listSection')}
             >
               {categoriesExpanded ? (
                 <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
@@ -771,7 +876,7 @@ export function FriendsScreen({
                 <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
               )}
               <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
-                {t('tabs.friends')}
+                {t('common.listSection')}
               </Text>
               <Text variant="micro" color={colors.textSecondary}>{friends.length}</Text>
             </TouchableOpacity>
@@ -786,20 +891,180 @@ export function FriendsScreen({
           })
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <View style={styles.emptyBox}>
-              <Text style={{ fontSize: 22, textAlign: 'center', marginBottom: 10 }} color={colors.ink}>✳</Text>
-              <Text variant="label" color={colors.textTertiary} style={styles.emptyText}>
-                {t('friends.emptyHint')}
-              </Text>
+          // 접기(data=[])로도 비므로, "첫 분류" 힌트는 정말 분류가 0개일 때만.
+          friends.length === 0 ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyBox}>
+                <Text style={{ fontSize: 22, textAlign: 'center', marginBottom: 10 }} color={colors.ink}>✳</Text>
+                <Text variant="label" color={colors.textTertiary} style={styles.emptyText}>
+                  {t('friends.emptyHint')}
+                </Text>
+              </View>
             </View>
-          </View>
+          ) : null
         }
         contentContainerStyle={styles.listContent}
       />
     </View>
   );
 }
+
+interface Props {
+  token: string | null;
+  onOpenChat: () => void;
+  onOpenFriend: (friend: Friend) => void;
+  /** 태그 캡슐에서 행 탭 시 태그 방 열기(TagsScreen과 동일 라우팅) */
+  onOpenTag: (tag: Tag) => void;
+  /** 자동구분 캡슐에서 행 탭 시 자동구분 방 열기(AutoScreen과 동일 라우팅) */
+  onOpenAuto: (kind: AutoKind) => void;
+  onLogout: () => void;
+}
+
+// 캡슐 3종의 라벨은 레일 탭과 같은 i18n 키를 재사용한다(분류/태그/자동구분).
+const CLASSIFY_TABS: { key: ClassifyTab; labelKey: string }[] = [
+  { key: 'friends', labelKey: 'tabs.friends' },
+  { key: 'tags', labelKey: 'tabs.tags' },
+  { key: 'auto', labelKey: 'tabs.auto' },
+];
+
+// 분류 탭 최상단의 캡슐 세그먼트(분류 | 태그 | 자동구분). 앱 크롬 흑백 규칙:
+// 활성 = ink 채움 + inverse 글자, 비활성 = 1px 보더 아웃라인. 캡슐만 borderRadius 999 허용.
+function ClassifyCapsuleTabs({
+  value,
+  onChange,
+}: {
+  value: ClassifyTab;
+  onChange: (tab: ClassifyTab) => void;
+}) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeCapsuleStyles(colors), [colors]);
+  return (
+    <View style={styles.bar} accessibilityRole="tablist">
+      {CLASSIFY_TABS.map((tab) => {
+        const active = value === tab.key;
+        const label = t(tab.labelKey);
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={[styles.capsule, active ? styles.capsuleActive : styles.capsuleInactive]}
+            onPress={() => onChange(tab.key)}
+            activeOpacity={0.7}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={label}
+          >
+            <Text
+              variant="label"
+              color={active ? colors.onAccent : colors.textSecondary}
+            >
+              {label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+// 분류 탭 컨테이너 — 최상단 캡슐 + 그 아래 통째로 전환되는 리스트.
+// 캡슐 상태는 루트(SelectedRoomProvider)에 있어 900px 트리 스왑에도 살아남는다.
+// 각 리스트는 자기 화면(FriendsList/TagsScreen/AutoScreen)을 그대로 재사용해 헤더·스와이프·
+// 라우팅 문법을 미러링한다(새 문법 없음). 임베드 시 상단 상태바 여백은 캡슐이 진다(embedded).
+export function FriendsScreen({
+  token,
+  onOpenChat,
+  onOpenFriend,
+  onOpenTag,
+  onOpenAuto,
+  onLogout,
+}: Props) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeContainerStyles(colors), [colors]);
+  const { classifyTab, setClassifyTab, bumpRooms } = useSelectedRoom();
+  // 그룹 헤더의 '추가'가 여는 관리 모달(루트 상주). 여긴 열기만.
+  const { openManage: openCategoryManage } = useCategoryEdit();
+  const { openTagCreate } = useTagCreate();
+
+  // 헤더 '추가'(+) 동작은 활성 캡슐에 따라 갈린다: 분류→분류 추가, 태그→태그 추가(관리 모달),
+  // 자동구분→+ 없음(종류가 정적이라 추가 개념이 없다).
+  const addAction = useMemo(() => {
+    if (classifyTab === 'tags') {
+      return {
+        key: 'add',
+        icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
+        label: t('tags.addTitle'),
+        onPress: () => openTagCreate(() => bumpRooms()),
+      };
+    }
+    if (classifyTab === 'friends') {
+      return {
+        key: 'add',
+        icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
+        label: t('friends.add'),
+        // 분류 추가 = 픽커 관리 모드(태그 추가와 한 문법). 추가 후 그룹 목록 재조회.
+        onPress: () => openCategoryManage(() => bumpRooms()),
+      };
+    }
+    return null; // 자동구분: 추가 없음
+  }, [classifyTab, colors.ink, t, openTagCreate, openCategoryManage, bumpRooms]);
+
+  return (
+    <View style={styles.container}>
+      {/* 그룹 탭 상단 타이틀은 '그룹' 하나. 임베드된 화면들은 자기 타이틀을 렌더하지 않는다(캡슐이 알려주므로). */}
+      <TabHeader title={t('tabs.group')} actions={addAction ? [addAction] : undefined} />
+      <ClassifyCapsuleTabs value={classifyTab} onChange={setClassifyTab} />
+      {classifyTab === 'tags' ? (
+        <TagsScreen token={token} onOpenTag={onOpenTag} onLogout={onLogout} embedded />
+      ) : classifyTab === 'auto' ? (
+        <AutoScreen token={token} onOpenAuto={onOpenAuto} onLogout={onLogout} embedded />
+      ) : (
+        <FriendsList
+          token={token}
+          onOpenChat={onOpenChat}
+          onOpenFriend={onOpenFriend}
+          onLogout={onLogout}
+          embedded
+        />
+      )}
+    </View>
+  );
+}
+
+const makeContainerStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+  });
+
+const makeCapsuleStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    // 캡슐 바는 그룹 헤더(타이틀 '그룹' + 추가) 바로 아래에 온다 — 상태바 여백은 헤더가 지므로
+    // 여기선 짧은 상단 여백만. 아래 임베드된 화면들은 자기 헤더를 렌더하지 않는다.
+    bar: {
+      flexDirection: 'row',
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingTop: 4,
+      paddingBottom: 8,
+    },
+    // 캡슐만 라운드 999 허용(앱 크롬 나머지는 라운드 0).
+    capsule: {
+      borderRadius: 999,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+    },
+    capsuleActive: {
+      backgroundColor: colors.accent,
+    },
+    capsuleInactive: {
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+  });
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
@@ -809,6 +1074,11 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   listContent: {
     flexGrow: 1,
     paddingBottom: 20,
+  },
+  // 즐겨찾기 드래그 중 헤더(즐겨찾기 섹션)를 본문 셀 위로 — 잡은 행이 본문에 가려지지 않게.
+  headerLifted: {
+    zIndex: 10,
+    elevation: 10,
   },
   profileRow: {
     flexDirection: 'row',
@@ -885,13 +1155,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // 설명(상태메시지) 캡션 — 이름 아래 한 줄. 있는 행만 렌더되어 그 행만 2줄이 된다.
   descriptionText: {
     marginTop: 2,
-  },
-  dragHandle: {
-    alignSelf: 'stretch',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: 12,
-    paddingRight: 2,
   },
   empty: {
     flex: 1,

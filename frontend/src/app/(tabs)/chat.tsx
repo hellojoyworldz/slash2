@@ -1,11 +1,11 @@
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { useWindowDimensions } from 'react-native';
-import { useAppStyle } from '../app-style';
-import { useAuth } from '../auth';
-import { ChatScreen } from '../screens/ChatScreen';
-import { useSelectedRoom } from '../selected-room';
-import { layout } from '../theme';
+import { useAppStyle } from '../../app-style';
+import { useAuth } from '../../auth';
+import { ChatScreen } from '../../screens/ChatScreen';
+import { useSelectedRoom } from '../../selected-room';
+import { layout } from '../../theme';
 
 export default function ChatRoute() {
   const { token, logout } = useAuth();
@@ -32,10 +32,15 @@ export default function ChatRoute() {
   if (isDesktop) return <Redirect href="/chats" />;
 
   return (
+    // key로 방마다 새 인스턴스를 강제한다. (tabs) 안 라우트라 방 전환 시 언마운트되지
+    // 않으므로(탭 유지), key 없이는 mount-once draft/상태가 이전 방에서 새 방으로 샌다.
+    // 데스크톱 상주 패널의 key 규칙과 동일.
     <ChatScreen
+      key={friendId ?? 'self'}
       token={token}
       friendId={friendId}
       friendName={friendName}
+      bottomTabBar
       onBack={() => {
         // URL로 바로 들어온 경우 뒤로 갈 곳이 없으니 채팅 탭으로
         if (router.canGoBack()) router.back();

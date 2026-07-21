@@ -1,7 +1,8 @@
 import { ReactNode, useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { Logo } from './Logo';
 import { Text } from './Text';
 
 // 탭 화면 공용 헤더 — 타이틀 + 우측 아이콘 버튼들.
@@ -18,14 +19,23 @@ export interface TabHeaderAction {
 interface Props {
   title: string;
   actions?: TabHeaderAction[];
+  /** 상단 상태바 여백을 넣을지. 기본 true. 위에 캡슐 바 등 다른 요소가 상태바 여백을
+   *  이미 차지한 채로(예: 분류 탭 캡슐 아래) 임베드될 때 false로 중복 여백을 없앤다. */
+  topInset?: boolean;
 }
 
-export function TabHeader({ title, actions }: Props) {
+export function TabHeader({ title, actions, topInset = true }: Props) {
   const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  // 데스크톱은 레일에 심볼이 이미 있어 중복 금지 — 모바일(< desktopBreakpoint)에서만 로고 노출.
+  const isMobile = width < layout.desktopBreakpoint;
   const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
-    <View style={styles.header}>
-      <Text variant="title">{title}</Text>
+    <View style={[styles.header, !topInset && styles.headerNoInset]}>
+      <View style={styles.titleRow}>
+        {isMobile ? <Logo size={38} /> : null}
+        <Text variant="title">{title}</Text>
+      </View>
       {actions && actions.length > 0 ? (
         <View style={styles.actions}>
           {actions.map((a) => (
@@ -54,6 +64,15 @@ const makeStyles = (_colors: ThemeColors) =>
       paddingTop: layout.statusBarPad + 4,
       paddingBottom: 14,
       paddingHorizontal: 20,
+    },
+    titleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    // 캡슐 바 아래 임베드 시: 상태바 여백은 캡슐이 지고, 헤더는 짧은 상단 여백만.
+    headerNoInset: {
+      paddingTop: 4,
     },
     actions: {
       flexDirection: 'row',

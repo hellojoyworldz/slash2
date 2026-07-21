@@ -40,3 +40,18 @@ export function resolveAutoOrder(order?: AutoKind[] | null): AutoKind[] {
   if (AUTO_KINDS_DEFAULT.some((k) => !seen.has(k))) return AUTO_KINDS_DEFAULT;
   return order;
 }
+
+// 저장된 autoFavorites를 "유효한 6종의 부분집합"으로 정규화한다(배열 순서=즐겨찾기 순서).
+// null/빈은 빈 배열. 알 수 없는 값·중복은 제거하되 나머지 순서는 보존한다(서버 부분집합 계약의 프론트 방어).
+export function resolveAutoFavorites(favorites?: AutoKind[] | null): AutoKind[] {
+  if (!favorites || favorites.length === 0) return [];
+  const seen = new Set<AutoKind>();
+  const out: AutoKind[] = [];
+  for (const k of favorites) {
+    if (AUTO_KINDS_DEFAULT.includes(k) && !seen.has(k)) {
+      seen.add(k);
+      out.push(k);
+    }
+  }
+  return out;
+}
