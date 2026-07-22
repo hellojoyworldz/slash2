@@ -16,25 +16,17 @@ import { User } from '../users/user.entity';
 export type MessageKind = 'text' | 'link';
 
 // 링크 자동구분 결과. 판단 불가면 null로 남는다.
-export type LinkType = 'place' | 'video' | 'item' | 'article';
+export type LinkType = 'place' | 'video' | 'item';
 
-// "자동구분" 조회 필터. place|video|item|article은 LinkType 값 그대로,
+// "자동구분" 조회 필터. place|video|item은 LinkType 값 그대로,
 // memo는 kind='text', link는 자동구분 안 된 링크(kind='link' AND linkType IS NULL)를 뜻한다.
 export type AutoFilter = LinkType | 'memo' | 'link';
-export const AUTO_FILTERS: AutoFilter[] = [
-  'place',
-  'video',
-  'item',
-  'article',
-  'memo',
-  'link',
-];
+export const AUTO_FILTERS: AutoFilter[] = ['place', 'video', 'item', 'memo', 'link'];
 
 // 태그/자동구분 "전체" 방을 뜻하는 특수 조회값. 태그 id는 uuid라 이 값과 충돌하지 않는다.
 export const ROOM_ALL = 'all';
 
-// "자동구분" 목록 조회 필터. 6종 + 특수값 'all'(자동구분(링크)이 하나라도 잡힌 전체).
-// autoCounts는 AutoFilter(6종)만 세므로 'all'을 포함하지 않는 별도 타입으로 분리한다.
+// "자동구분" 목록 조회 필터. 고정 5종 + 특수값 'all'(모든 메시지, 메모 포함).
 export type AutoQueryFilter = AutoFilter | typeof ROOM_ALL;
 export const AUTO_QUERY_FILTERS: AutoQueryFilter[] = [...AUTO_FILTERS, ROOM_ALL];
 
@@ -49,7 +41,6 @@ export interface LinkMeta {
   currency?: string; // 기본 'KRW'
   durationSec?: number; // 영상 길이(초)
   channel?: string; // 영상 채널/작성자
-  author?: string; // 글 작성자
 }
 
 // content에 들어온 링크별 미리보기. 등장 순서대로 저장하며, 프론트가
@@ -108,7 +99,7 @@ export class Message {
   @Column({ type: 'text', nullable: true })
   siteName: string | null;
 
-  // 링크 자동구분 결과 (place|video|item|article). 구 데이터는 null.
+  // 링크 자동구분 결과 (place|video|item). 구 데이터는 null.
   @Column({ type: 'varchar', nullable: true })
   linkType: LinkType | null;
 

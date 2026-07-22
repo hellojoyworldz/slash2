@@ -69,6 +69,12 @@ export class User {
   @Column({ type: 'simple-array', nullable: true })
   hiddenTabs: string[] | null;
 
+  // 접힌 섹션 키 목록(설정·보드 등 UI의 접기/펼치기 상태). 키 체계는 프론트가 소유
+  // (동적 보드 섹션 키 포함이라 백엔드는 화이트리스트 검증하지 않는다). null/빈 = 전부 펼침.
+  // (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'jsonb', nullable: true })
+  collapsedSections: string[] | null;
+
   // 이 유저에게 보낼 메일·페이지 언어 (ko | en | ja). 앱이 보낸 언어로 갱신.
   @Column({ default: 'ko' })
   locale: string;

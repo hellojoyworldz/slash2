@@ -19,7 +19,7 @@ export default {
   a11y: {
     back: '뒤로 가기',
     send: '보내기',
-    messageMenu: '메시지 메뉴',
+    messageMenu: '메모 메뉴',
     pin: '고정',
     unpin: '고정 해제',
     favorite: '즐겨찾기',
@@ -39,7 +39,7 @@ export default {
     more: '더보기',
   },
   login: {
-    tagline: '나에게 보내는 메시지, 여기에 정리하세요',
+    tagline: '나에게 보내는 메모, 여기에 정리하세요',
     email: '이메일',
     password: '비밀번호',
     passwordHint: '비밀번호 (8자 이상)',
@@ -86,7 +86,7 @@ export default {
   },
   chats: {
     title: '메모',
-    firstMessage: '첫 메시지를 보내보세요',
+    firstMessage: '첫 메모를 보내보세요',
     myRoom: '전체',
   },
   chat: {
@@ -94,7 +94,7 @@ export default {
     noResults: '검색 결과가 없습니다',
     emptyFirstLink: "'{{name}}' 분류에 첫 링크를 보내보세요!\n붙여넣기만 하면 미리보기가 만들어져요.",
     emptyAll: '첫 링크를 남겨보세요!\n붙여넣기만 하면 미리보기가 만들어져요.',
-    searchPlaceholder: '메시지·링크 검색',
+    searchPlaceholder: '메모·링크 검색',
     search: '검색',
     inputPlaceholder: '링크나 메모를 입력하세요',
     inputPlaceholderDesktop: '링크나 메모를 입력하세요 · Enter 전송, Shift+Enter 줄바꿈',
@@ -106,11 +106,11 @@ export default {
     changeFriend: '분류 변경',
     addFriendFirst: '분류 탭에서 먼저 분류를 추가해보세요',
     unassign: '분류 해제',
-    confirmDelete: '이 메시지를 삭제할까요?',
-    loginToSend: '로그인 후 메시지를 보낼 수 있어요.',
+    confirmDelete: '이 메모를 삭제할까요?',
+    loginToSend: '로그인 후 메모를 보낼 수 있어요.',
     sendFailedTitle: '전송 실패',
     tryAgainLater: '잠시 후 다시 시도해주세요.',
-    loadFailed: '메시지를 불러오지 못했습니다. 서버가 켜져 있는지 확인해주세요.',
+    loadFailed: '메모를 불러오지 못했습니다. 서버가 켜져 있는지 확인해주세요.',
     // 링크 카드 데이터 행(리더라인) 라벨
     linkData: {
       hours: '영업',
@@ -129,7 +129,7 @@ export default {
     },
     // 메시지 ⋮/long-press 액션 메뉴 (카톡 스타일 행 리스트)
     menu: {
-      title: '메시지',
+      title: '메모',
       detail: '상세보기',
       copy: '복사',
       share: '공유',
@@ -152,24 +152,35 @@ export default {
   tags: {
     title: '태그',
     tabTitle: '태그',
+    // 탭 타이틀 아래 상시 노출되는 짧은 설명 — 한 메모에 태그를 여러 개 붙일 수 있다.
+    info: '한 메모에 태그를 여러 개 붙일 수 있어요',
     addTitle: '태그 추가',
     editTitle: '태그 수정',
     newPlaceholder: '새 태그 이름',
     empty: '아직 태그가 없어요. 위에서 추가해보세요.',
     emptyHint: "오른쪽 위 '추가'를 눌러\n첫 태그를 만들어보세요",
-    roomEmpty: '아직 이 태그의 메시지가 없어요',
+    roomEmpty: '아직 이 태그의 메모가 없어요',
     // 태그 전체 방 빈 상태. (전체 행 부제는 friends.sendToMe 공통 키 재사용)
-    allRoomEmpty: '아직 태그가 달린 메시지가 없어요',
+    allRoomEmpty: '아직 태그가 달린 메모가 없어요',
     removeLabel: '{{name}} 태그 삭제',
     deleteTitle: '태그 삭제',
-    deleteMessage: "'{{name}}' 태그를 모든 메시지에서 제거할까요?",
+    deleteMessage: "'{{name}}' 태그를 모든 메모에서 제거할까요?",
     deleteAllTitle: '태그 전체 삭제',
-    deleteAllMessage: '모든 태그를 모든 메시지에서 제거할까요?',
+    deleteAllMessage: '모든 태그를 모든 메모에서 제거할까요?',
+    // 키워드 자동 부착 — 이 문구가 들어간 메시지에 이 태그가 자동으로 붙는다(과거·신규 모두).
+    keywordsLabel: '자동 태그 키워드',
+    keywordsHint: '이 문구가 들어간 메모에 자동으로 붙어요',
+    keywordsInfo: '키워드 안내 보기',
+    keywordPlaceholder: '문구 입력',
+    addKeyword: '키워드 추가',
+    removeKeyword: '키워드 삭제',
   },
   friends: {
     title: '분류',
+    // 탭 타이틀 아래 상시 노출되는 짧은 설명 — 한 메모는 분류를 1개만 지정할 수 있다.
+    info: '메모는 분류 한 곳에만 담겨요',
     add: '추가',
-    sendToMe: '전체 메시지 보기',
+    sendToMe: '전체 메모 보기',
     nameRequired: '이름을 입력해주세요.',
     loginToAdd: '로그인 후 추가할 수 있어요.',
     addFailed: '추가하지 못했어요. 다시 시도해주세요.',
@@ -197,7 +208,7 @@ export default {
     descriptionPlaceholder: '설명 (선택)',
     confirmDelete: "'{{name}}' 분류를 삭제할까요?",
     deleteAllTitle: '분류 전체 삭제',
-    deleteAllMessage: '모든 분류를 삭제할까요? 메시지는 미분류로 남습니다.',
+    deleteAllMessage: '모든 분류를 삭제할까요? 메모는 미분류로 남습니다.',
     favoritesSection: '즐겨찾기',
     hideTab: '{{name}} 숨기기',
     showTab: '{{name}} 보이기',
@@ -206,15 +217,16 @@ export default {
   },
   auto: {
     title: '자동구분',
+    // 탭 타이틀 아래 상시 노출되는 짧은 설명 — 메시지·링크가 종류별로 자동 분류된다.
+    info: '링크와 메모를 종류별로 자동으로 나눠서 보여줘요',
     // 종류 이름이 접미사로 자연스럽게 붙도록 '종류로'로 통일(장소/영상/…/링크 모두 무난).
-    empty: '아직 {{name}} 종류로 구분된 메시지가 없어요',
+    empty: '아직 {{name}} 종류로 구분된 메모가 없어요',
     // 자동구분 전체 방 빈 상태. (전체 행 부제는 friends.sendToMe 공통 키 재사용)
-    allRoomEmpty: '아직 자동구분된 메시지가 없어요',
+    allRoomEmpty: '아직 자동구분된 메모가 없어요',
     names: {
       place: '장소',
       video: '영상',
       item: '상품',
-      article: '아티클',
       memo: '메모',
       link: '링크',
     },
@@ -281,8 +293,11 @@ export default {
     tag_name_taken: '이미 있는 태그 이름이에요.',
     invalid_tag: '잘못된 태그예요.',
     tag_name_required: '태그 이름을 입력해주세요.',
+    tag_keyword_too_long: '키워드가 너무 길어요.',
+    tag_keywords_too_many: '키워드는 최대 10개까지예요.',
     invalid_auto_order: '자동구분 순서가 올바르지 않아요.',
     invalid_order: '순서가 올바르지 않아요.',
+    invalid_collapsed_sections: '섹션 접기 상태가 올바르지 않아요.',
     requestFailed: '요청에 실패했습니다.',
   },
 };

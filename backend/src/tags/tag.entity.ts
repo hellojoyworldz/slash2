@@ -27,6 +27,12 @@ export class Tag {
   @Column({ type: 'varchar' })
   name: string;
 
+  // 자동부착 키워드(0~10개, 각 ≤30자). 하나라도 메시지 텍스트에 부분일치하면 그 태그가
+  // 저장 시점(신규 메시지)·규칙 저장 시점(소급)에 message_tags로 실제 부착된다.
+  // 빈 배열이면 키워드 없는 일반(수동 전용) 태그. jsonb 배열이라 default '[]'.
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  keywords: string[];
+
   // 태그 프로필 색 (hex, 예: #2563EB). # 타일 배경의 원천. friends.color와 같은 관례.
   // null이면 프론트에서 기본 표면색으로 폴백(기존 데이터). 말풍선 색은 분류가 소유 — 태그는 자기 타일만 칠한다.
   @Column({ type: 'varchar', length: 9, nullable: true })

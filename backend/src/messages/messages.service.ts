@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { Friend } from '../friends/friend.entity';
 import { Tag } from '../tags/tag.entity';
+import { matchKeywordTags } from '../tags/keyword-match';
 import { LinkClassifierService } from './link-classifier.service';
 import { LinkPreviewService } from './link-preview.service';
 import { Message, ROOM_ALL } from './message.entity';
@@ -130,9 +131,33 @@ export class MessagesService {
       message.linkMeta = first.linkMeta;
     }
 
+    // 키워드 자동부착: 링크 언퍼얼로 og 필드가 채워진 '후'에 매칭해야 링크 제목 키워드를 놓치지 않는다.
+    // 본인 태그 중 키워드가 있는 것들과 매칭해 수동 태그와 합쳐 부착한다(제거는 안 함).
+    const finalTags = await this.mergeKeywordTags(userId, message, tags);
+    message.tags = finalTags;
+
     const saved = await this.messages.save(message);
-    // 부착된 태그가 있으면 그 id들을, 없으면 빈 배열을 tagIds로 돌려준다.
-    return this.toResponse(saved, tags.map((tag) => tag.id));
+    return this.toResponse(
+      saved,
+      finalTags.map((tag) => tag.id),
+    );
+  }
+
+  /** 수동 태그 + (이 메시지의 키워드 매칭 태그)를 id 기준 중복 제거해 합친다.
+   *  키워드 태그가 하나도 없으면 수동 태그를 그대로 반환한다. */
+  private async mergeKeywordTags(
+    userId: string,
+    message: Message,
+    manualTags: Tag[],
+  ): Promise<Tag[]> {
+    const keyworded = (await this.tags.find({ where: { userId } })).filter(
+      (t) => Array.isArray(t.keywords) && t.keywords.length > 0,
+    );
+    if (keyworded.length === 0) return manualTags;
+    const matched = matchKeywordTags(message, keyworded);
+    const byId = new Map<string, Tag>();
+    for (const t of [...manualTags, ...matched]) byId.set(t.id, t);
+    return [...byId.values()];
   }
 
   /** content에서 http(s) URL을 등장 순서대로 뽑되, 동일 URL은 첫 등장만 남기고
@@ -221,9 +246,7 @@ export class MessagesService {
       // 매칭되는 모든 방에 나타난다. links가 비었거나 null인 레거시 행은 단일 필드(m.linkType)로 폴백.
       // memo: kind='text' / link: 자동구분 안 된 링크(linkType null) / 나머지: 그 linkType의 링크
       if (options.auto === ROOM_ALL) {
-        // 자동구분 전체 방: 링크가 하나라도 있는(kind='link') 모든 메시지.
-        // = place∪video∪item∪article∪link (memo 제외). 레거시 미분류 링크도 포함된다.
-        query.andWhere("m.kind = 'link'");
+        // 자동구분 전체 방: 모든 메시지(메모 포함). 별도 필터 없음 — userId 조건만으로 전체를 반환한다.
       } else if (options.auto === 'memo') {
         query.andWhere("m.kind = 'text'");
       } else if (options.auto === 'link') {
@@ -285,7 +308,7 @@ export class MessagesService {
     return { items, hasMore };
   }
 
-  /** "자동구분" 탭별 개수(전 방 통합). 여섯 키 항상 전부 포함(0 포함).
+  /** "자동구분" 탭별 개수(전 방 통합). 고정 5키(place·video·item·memo·link) 항상 포함(0 포함).
    *  멀티링크 메시지는 담고 있는 종류마다 각각 1로 잡힌다(종류별 DISTINCT 메시지 수) —
    *  상품+장소 링크가 든 메시지는 item·place 양쪽에서 +1. 한 메시지 안에 같은 종류가
    *  여러 번 있어도 그 종류에선 1(COUNT DISTINCT m.id). memo(kind='text')는 별도 COUNT. */
@@ -294,7 +317,6 @@ export class MessagesService {
       place: 0,
       video: 0,
       item: 0,
-      article: 0,
       memo: 0,
       link: 0,
     };
@@ -322,6 +344,7 @@ export class MessagesService {
     );
 
     for (const row of rows) {
+      // 레거시 'article' 등 고정 5키에 없는 값은 무시(article은 데이터 정리로 이미 null→'link').
       const key = row.key as AutoFilter;
       if (key in counts) counts[key] = Number(row.count);
     }

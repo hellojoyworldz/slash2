@@ -75,7 +75,7 @@ export class ListMessagesQuery {
   friendId?: string;
 
   // 있으면 friendId 필터는 무시하고 전체 방을 가로질러 이 값 기준으로 필터한다.
-  // 특수값 'all' = 자동구분(링크)이 하나라도 잡힌 전체 방.
+  // 특수값 'all' = 모든 메시지(메모 포함).
   @IsOptional()
   @IsIn(AUTO_QUERY_FILTERS)
   auto?: AutoQueryFilter;

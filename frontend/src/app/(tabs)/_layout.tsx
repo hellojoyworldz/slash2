@@ -316,9 +316,10 @@ export default function TabsLayout() {
     const next = order.map((k) =>
       hidden.includes(k as HideableTab) ? k : (newVisible[vi++] as TabKey),
     );
+    const prev = order;
     setTabOrder(next);
     const tk = tokenRef.current;
-    if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => {});
+    if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => setTabOrder(prev));
   };
   const reorder = useTabReorder({
     axis: reorderAxis,

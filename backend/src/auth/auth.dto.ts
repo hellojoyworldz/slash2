@@ -118,6 +118,14 @@ export class UpdateProfileDto {
   @IsArray()
   @IsString({ each: true })
   hiddenTabs?: string[];
+
+  // 접힌 섹션 키 목록(설정·보드 등 UI). 키 화이트리스트는 없음(프론트가 키 체계 소유) —
+  // 트림·길이(1~64자)·중복·개수(≤100)는 서비스에서 검증(아니면 400 invalid_collapsed_sections).
+  // null을 보내면 초기화(전부 펼침). @IsOptional은 null/undefined 둘 다 이후 검증을 건너뛴다.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  collapsedSections?: string[] | null;
 }
 
 export class ForgotPasswordDto {

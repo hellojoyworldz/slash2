@@ -23,14 +23,17 @@ interface AuthState {
   tagAllDescription: string | null;
   // 저장된 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors: string[];
-  // 자동구분 표시 순서(6종 순열). null이면 기본 순서로 그린다.
+  // 자동구분 표시 순서(5종 순열). null이면 기본 순서로 그린다.
   autoOrder: AutoKind[] | null;
-  // 자동구분 즐겨찾기(6종 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
+  // 자동구분 즐겨찾기(5종 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
   autoFavorites: AutoKind[] | null;
   // 탭(메뉴) 표시 순서(5키 순열). null이면 기본 순서. 탭바/레일이 이 값으로 배열된다.
   tabOrder: TabKey[] | null;
   // 숨긴 탭 목록(HIDEABLE_TABS 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
   hiddenTabs: HideableTab[] | null;
+  // 접힌 섹션 키 목록. 항상 배열로 정규화(null→[]) — isCollapsed 조회가 단순해진다.
+  // 본탭 즐겨찾기/목록 섹션·픽커 목록·목록형 보드 섹션의 접기 상태를 서버에 저장(useCollapsedSections).
+  collapsedSections: string[];
   // 연결된 소셜 provider 목록 (예: ['google']). 더보기 화면 배지 등에 사용.
   providers: string[];
   loggedIn: (token: string, user: User) => Promise<void>;
@@ -57,6 +60,8 @@ interface AuthState {
   setTabOrder: (order: TabKey[] | null) => void;
   // 탭 노출/숨김 변경 후 컨텍스트 갱신용(낙관적).
   setHiddenTabs: (tabs: HideableTab[] | null) => void;
+  // 섹션 접기 상태 변경 후 컨텍스트 갱신용(낙관적, useCollapsedSections가 저장·복원을 감싼다).
+  setCollapsedSections: (keys: string[]) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -76,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [autoFavorites, setAutoFavorites] = useState<AutoKind[] | null>(null);
   const [tabOrder, setTabOrder] = useState<TabKey[] | null>(null);
   const [hiddenTabs, setHiddenTabs] = useState<HideableTab[] | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
 
   // 앱 시작 시 저장된 토큰으로 자동 로그인
@@ -99,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAutoFavorites(user.autoFavorites ?? null);
           setTabOrder(user.tabOrder ?? null);
           setHiddenTabs(user.hiddenTabs ?? null);
+          setCollapsedSections(user.collapsedSections ?? []);
           setProviders(user.providers ?? []);
         } else if (savedEmail) {
           setEmail(savedEmail);
@@ -125,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAutoFavorites(user.autoFavorites ?? null);
     setTabOrder(user.tabOrder ?? null);
     setHiddenTabs(user.hiddenTabs ?? null);
+    setCollapsedSections(user.collapsedSections ?? []);
     setProviders(user.providers ?? []);
     await AsyncStorage.multiSet([
       [TOKEN_KEY, newToken],
@@ -145,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAutoFavorites(null);
     setTabOrder(null);
     setHiddenTabs(null);
+    setCollapsedSections([]);
     setProviders([]);
     await AsyncStorage.removeItem(TOKEN_KEY);
   };
@@ -162,6 +171,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setCustomColors(user.customColors ?? []);
       setAutoOrder(user.autoOrder ?? null);
       setAutoFavorites(user.autoFavorites ?? null);
+      setTabOrder(user.tabOrder ?? null);
+      setHiddenTabs(user.hiddenTabs ?? null);
+      setCollapsedSections(user.collapsedSections ?? []);
       setProviders(user.providers ?? []);
       return !!user.emailVerified;
     } catch {
@@ -186,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         autoFavorites,
         tabOrder,
         hiddenTabs,
+        collapsedSections,
         providers,
         loggedIn,
         logout,
@@ -200,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAutoFavorites,
         setTabOrder,
         setHiddenTabs,
+        setCollapsedSections,
       }}
     >
       {children}

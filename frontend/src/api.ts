@@ -17,16 +17,20 @@ export interface User {
   tagAllDescription?: string | null;
   // 사용자가 저장한 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors?: string[];
-  // 자동구분 표시 순서(6종 순열). null이면 프론트가 기본 순서로 표시.
+  // 자동구분 표시 순서(5종 순열). null이면 프론트가 기본 순서로 표시.
   // 자동구분 탭·목록형 보드 섹션·자동구분 칩(전체 제외) 순서에 반영된다.
   autoOrder?: AutoKind[] | null;
-  // 자동구분 즐겨찾기(6종의 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
+  // 자동구분 즐겨찾기(5종의 부분집합, 배열 순서=즐겨찾기 순서). null/빈=없음.
   // 자동구분 탭 '즐겨찾기' 섹션의 원천. 종류가 정적이라 분류/태그와 달리 유저 프로필에 저장된다.
   autoFavorites?: AutoKind[] | null;
   // 탭(메뉴) 표시 순서(5키 순열). null이면 기본 순서. 더보기는 순서 밖(항상 맨끝).
   tabOrder?: TabKey[] | null;
   // 숨긴 탭 목록(HIDEABLE_TABS의 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
   hiddenTabs?: HideableTab[] | null;
+  // 접힌 섹션 키 목록(프론트가 키 체계 소유). null/빈=전부 펼침.
+  // 본탭 즐겨찾기/목록 섹션·픽커 목록·목록형 보드 섹션의 접기 상태를 서버에 저장한다.
+  // 키 예: friends.favorites, picker.tags, board.auto.place, board.category.<friendId>.
+  collapsedSections?: string[] | null;
   // 연결된 소셜 provider 목록 (예: ['google']). /auth/me·로그인 응답에서 내려온다.
   providers?: string[];
 }
@@ -38,12 +42,13 @@ export type TabKey = 'friends' | 'chats' | 'categories' | 'tags' | 'auto';
 export type HideableTab = 'categories' | 'tags' | 'auto';
 
 // 링크 자동구분: 서버가 링크를 분류한 종류. 미분류/구버전 메시지는 null.
-export type LinkType = 'place' | 'video' | 'item' | 'article';
+// (아티클은 제거됨 — 아티클이던 링크는 서버가 미분류 링크로 떨어뜨린다.)
+export type LinkType = 'place' | 'video' | 'item';
 
-// 자동구분 탭이 모아 보는 종류(전 방 통합). link=미분류 링크, memo=순수 텍스트 메모까지 포함해 6종.
-export type AutoKind = 'place' | 'video' | 'item' | 'article' | 'memo' | 'link';
+// 자동구분 탭이 모아 보는 고정 종류(전 방 통합). link=미분류 링크, memo=순수 텍스트 메모까지 5종.
+export type AutoKind = 'place' | 'video' | 'item' | 'memo' | 'link';
 
-// 자동구분 개수: 여섯 키를 항상 포함(0이어도 키는 있다).
+// 자동구분 개수: 다섯 키를 항상 포함(0이어도 키는 있다).
 export type AutoCounts = Record<AutoKind, number>;
 
 // 종류별 부가 메타데이터. 서버가 아직 값을 안 줄 수 있어 모든 필드가 optional.
@@ -113,6 +118,9 @@ export interface Tag {
   favoritePosition?: number | null;
   // 이 태그가 붙은 메시지 개수 (GET /tags에서 내려줌). 서버 미배포/구버전이면 없을 수 있어 optional.
   messageCount?: number;
+  // 자동 부착 키워드(0~10개, 각 ≤30자). 저장 시 서버가 과거·신규 메시지에 이 태그를 실제 부착한다.
+  // 삭제해도 이미 부착된 태그는 유지. 서버 미배포/구버전이면 없을 수 있어 optional(없으면 빈 배열로 취급).
+  keywords?: string[];
 }
 
 export interface MessagePage {
@@ -264,11 +272,14 @@ export const api = {
       tagAllDescription?: string;
       customColors?: string[];
       autoOrder?: AutoKind[];
-      // 자동구분 즐겨찾기(6종 부분집합). 잘못되면 400 code 'invalid_order'.
+      // 자동구분 즐겨찾기(5종 부분집합). 잘못되면 400 code 'invalid_order'.
       autoFavorites?: AutoKind[];
       // 탭 순서(5키 순열)·숨김 탭(HIDEABLE_TABS 부분집합). 잘못되면 400 code 'invalid_order'.
       tabOrder?: TabKey[];
       hiddenTabs?: HideableTab[];
+      // 접힌 섹션 키 목록(각 ≤64자, 최대 100개). 서버가 중복 제거·빈 배열→null.
+      // 잘못되면 400 code 'invalid_collapsed_sections'.
+      collapsedSections?: string[] | null;
     },
   ) =>
     request<User>('/auth/me', {
@@ -317,7 +328,7 @@ export const api = {
     return request<MessagePage>(`/messages${suffix}`, { token });
   },
 
-  // 자동구분 탭의 종류별 개수(여섯 키 항상 포함). 화면 포커스 시 갱신.
+  // 자동구분 탭의 종류별 개수(다섯 키 항상 포함). 화면 포커스 시 갱신.
   autoCounts: (token: string) =>
     request<AutoCounts>('/messages/auto-counts', { token }),
 
@@ -435,23 +446,32 @@ export const api = {
 
   // 새 태그 생성. 이름 중복은 409 code 'tag_name_taken'.
   // 색·설명(선택)은 있을 때만 보낸다 — 빈 문자열은 서버가 null로 저장(friends 생성과 같은 관례).
-  createTag: (token: string, name: string, color?: string | null, description?: string) =>
+  // keywords(선택)는 있을 때만 보낸다(0~10개). 저장 시 서버가 매칭 메시지에 이 태그를 실제 부착한다.
+  createTag: (
+    token: string,
+    name: string,
+    color?: string | null,
+    description?: string,
+    keywords?: string[],
+  ) =>
     request<Tag>('/tags', {
       method: 'POST',
       body: {
         name,
         ...(color ? { color } : {}),
         ...(description ? { description } : {}),
+        ...(keywords ? { keywords } : {}),
       },
       token,
     }),
 
-  // 태그 수정 (이름·프로필색·설명). 부분 갱신이라 바뀐 필드만 보낸다. 설명 빈 문자열은 서버가 null로 저장.
+  // 태그 수정 (이름·프로필색·설명·키워드). 부분 갱신이라 바뀐 필드만 보낸다. 설명 빈 문자열은 서버가 null로 저장.
   // color: 키 없음=미변경, null=무채(색 없음)로 변경, hex=그 색으로 변경.
+  // keywords: 전체 교체(0~10개). 저장 시 서버가 매칭 메시지에 이 태그를 실제 부착한다(각·중복은 서버가 정규화).
   updateTag: (
     token: string,
     id: string,
-    changes: { name?: string; color?: string | null; description?: string },
+    changes: { name?: string; color?: string | null; description?: string; keywords?: string[] },
   ) => request<Tag>(`/tags/${id}`, { method: 'PATCH', body: changes, token }),
 
   // 태그 탭 상단 고정 토글(분류 고정과 동일 관례).

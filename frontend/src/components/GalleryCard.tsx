@@ -13,7 +13,6 @@ const TAG_BY_TYPE: Record<LinkType, string> = {
   place: 'PLACE',
   video: 'VIDEO',
   item: 'ITEM',
-  article: 'ARTICLE',
 };
 
 function messageTag(m: Message): string {

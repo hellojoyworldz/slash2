@@ -39,6 +39,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { api, ApiError, AutoKind, Friend, HideableTab, Tag, TabKey } from '../api';
 import { useAuth } from '../auth';
+import { useCollapsedSections } from '../collapsed-sections';
 import { useCategoryEdit } from '../category-edit';
 import { CategoryAvatar } from '../components/CategoryAvatar';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
@@ -344,9 +345,10 @@ export function FriendsList({
   const isDesktop = width >= layout.desktopBreakpoint;
 
   const [friends, setFriends] = useState<Friend[]>([]);
-  // 두 섹션(즐겨찾기·분류) 접기/펼치기 — 화면 로컬 state로 충분(v1). 접히면 해당 섹션 행을 숨긴다.
-  const [favoritesExpanded, setFavoritesExpanded] = useState(true);
-  const [categoriesExpanded, setCategoriesExpanded] = useState(true);
+  // 두 섹션(즐겨찾기·분류) 접기/펼치기 — 서버 저장(users.collapsedSections). 접히면 해당 섹션 행을 숨긴다.
+  const { isCollapsed, toggle: toggleSection } = useCollapsedSections();
+  const favoritesExpanded = !isCollapsed('friends.favorites');
+  const categoriesExpanded = !isCollapsed('friends.list');
   // 즐겨찾기 섹션 = favorite=true인 분류만, favoritePosition 오름차순(없으면 맨 뒤)으로 정렬.
   // 본 목록(분류) 순서와 독립 — 즐겨찾기해도 "분류" 섹션에서 빠지지 않고 두 섹션 모두에 보인다.
   const favorites = useMemo(
@@ -740,6 +742,7 @@ export function FriendsList({
       {!embedded ? (
         <TabHeader
           title={t('friends.title')}
+          subtitle={t('friends.info')}
           actions={[
             {
               key: 'add',
@@ -849,7 +852,7 @@ export function FriendsList({
               <>
                 <TouchableOpacity
                   style={styles.sectionRow}
-                  onPress={() => setFavoritesExpanded((v) => !v)}
+                  onPress={() => toggleSection('friends.favorites')}
                   activeOpacity={0.6}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: favoritesExpanded }}
@@ -882,7 +885,7 @@ export function FriendsList({
 
             <TouchableOpacity
               style={styles.sectionRow}
-              onPress={() => setCategoriesExpanded((v) => !v)}
+              onPress={() => toggleSection('friends.list')}
               activeOpacity={0.6}
               accessibilityRole="button"
               accessibilityState={{ expanded: categoriesExpanded }}

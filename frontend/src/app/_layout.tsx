@@ -17,6 +17,7 @@ import { CategoryEditHost, CategoryEditProvider } from '../category-edit';
 import { MessageActionsHost, MessageActionsProvider } from '../message-actions';
 import { MessageDetailHost, MessageDetailProvider } from '../message-detail';
 import { NameEditProvider } from '../name-edit';
+import { PopoverHostProvider } from '../popover';
 import { SelectedRoomProvider } from '../selected-room';
 import { TagCreateHost, TagCreateProvider } from '../tag-create';
 import { ThemeColors } from '../theme';
@@ -124,23 +125,26 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={rootStyle.root}>
       <ThemeProvider>
-        <AuthProvider>
-          <AppStyleProvider>
-            <SelectedRoomProvider>
-              <NameEditProvider>
-                <CategoryEditProvider>
-                  <TagCreateProvider>
-                    <MessageDetailProvider>
-                      <MessageActionsProvider>
-                        <Shell />
-                      </MessageActionsProvider>
-                    </MessageDetailProvider>
-                  </TagCreateProvider>
-                </CategoryEditProvider>
-              </NameEditProvider>
-            </SelectedRoomProvider>
-          </AppStyleProvider>
-        </AuthProvider>
+        {/* 팝오버(말풍선) 루트 오버레이 — InfoPopover가 조상 overflow에 잘리지 않게 화면 최상위에 포탈한다. */}
+        <PopoverHostProvider>
+          <AuthProvider>
+            <AppStyleProvider>
+              <SelectedRoomProvider>
+                <NameEditProvider>
+                  <CategoryEditProvider>
+                    <TagCreateProvider>
+                      <MessageDetailProvider>
+                        <MessageActionsProvider>
+                          <Shell />
+                        </MessageActionsProvider>
+                      </MessageDetailProvider>
+                    </TagCreateProvider>
+                  </CategoryEditProvider>
+                </NameEditProvider>
+              </SelectedRoomProvider>
+            </AppStyleProvider>
+          </AuthProvider>
+        </PopoverHostProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
   );

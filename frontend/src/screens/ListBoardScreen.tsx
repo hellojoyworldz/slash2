@@ -23,7 +23,6 @@ import {
   ChevronDown,
   ChevronRight,
   Ellipsis,
-  FileText,
   GripVertical,
   Link as LinkIcon,
   MapPin,
@@ -37,6 +36,7 @@ import {
 import { ComponentType } from 'react';
 import { api, ApiError, AutoKind, Friend, Message, Tag } from '../api';
 import { useAuth } from '../auth';
+import { useCollapsedSections } from '../collapsed-sections';
 import {
   ListFilter,
   matchesAutoFilter,
@@ -81,15 +81,14 @@ type IconComponent = ComponentType<{
   strokeWidth?: number;
 }>;
 
-// 자동구분 6종 고정 순서·아이콘(AutoScreen의 AUTO_ITEMS와 동일 매핑).
-const AUTO_ORDER: { key: AutoKind; Icon: IconComponent }[] = [
-  { key: 'place', Icon: MapPin },
-  { key: 'video', Icon: Play },
-  { key: 'item', Icon: ShoppingBag },
-  { key: 'article', Icon: FileText },
-  { key: 'memo', Icon: StickyNote },
-  { key: 'link', Icon: LinkIcon },
-];
+// 자동구분 5종 아이콘(AutoScreen의 AUTO_ICONS와 동일 매핑).
+const AUTO_ICON_BY_KIND: Record<AutoKind, IconComponent> = {
+  place: MapPin,
+  video: Play,
+  item: ShoppingBag,
+  memo: StickyNote,
+  link: LinkIcon,
+};
 
 // 카드 줄을 이루는 셀: 실제 카드 또는 (분류 보드 전용) 섹션 하단 "추가" ghost 카드.
 type Cell =
@@ -162,8 +161,16 @@ export function ListBoardScreen({
   const [autoFilter, setAutoFilter] = useState<ListFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
-  // 접힌 섹션(로컬 v1). 자기 방일 때만 복원하는 등의 태깅은 목록형이 단일 트리라 불필요.
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // 접힌 섹션 — 서버 저장(users.collapsedSections). 보드별·섹션별 키(board.<board>.<sectionKey>)로
+  // 태깅해 분류/자동구분/태그 보드가 서로 섞이지 않는다. 900px 트리 스왑에서도 auth 컨텍스트라 생존.
+  const { collapsedSections, isCollapsed: isSectionCollapsed, toggle: toggleCollapsed } =
+    useCollapsedSections();
+  // 섹션 키 → 보드 스코프 저장 키. sectionKey는 friendId·SELF_KEY(__self__)·AutoKind·tag:<id> —
+  // 전부 board.<board>. 접두로 감싸도 64자 이내(uuid 섹션도 ~51자)라 잘리지 않는다.
+  const boardCollapseKey = useCallback(
+    (sectionKey: string) => `board.${board}.${sectionKey}`,
+    [board],
+  );
   // 그리드 열 계산용 컨테이너 실측 폭(비례 규칙 — 창 폭이 아니라 담긴 폭 기준).
   const [containerW, setContainerW] = useState(0);
 
@@ -390,7 +397,7 @@ export function ListBoardScreen({
   const rows = useMemo(() => {
     const out: BoardRow[] = [];
     for (const s of sections) {
-      const isCollapsed = collapsed.has(s.key);
+      const collapsedRow = isSectionCollapsed(boardCollapseKey(s.key));
       out.push({
         type: 'header',
         id: `h:${s.key}`,
@@ -398,11 +405,11 @@ export function ListBoardScreen({
         title: s.title,
         color: s.color,
         count: s.items.length,
-        collapsed: isCollapsed,
+        collapsed: collapsedRow,
         autoKind: s.autoKind,
         tagSection: s.tagSection,
       });
-      if (isCollapsed) continue;
+      if (collapsedRow) continue;
       const cells: Cell[] = s.items.map((m) => ({
         kind: 'card',
         message: m,
@@ -429,16 +436,13 @@ export function ListBoardScreen({
       }
     }
     return out;
-  }, [sections, collapsed, cols, board, friendColor, selfColor]);
+  }, [sections, collapsedSections, cols, board, friendColor, selfColor, isSectionCollapsed, boardCollapseKey]);
 
-  const toggleSection = useCallback((key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
+  // 섹션 접기 토글 — 보드 스코프 키로 서버 저장(useCollapsedSections가 낙관 반영·실패 복원 담당).
+  const toggleSection = useCallback(
+    (key: string) => toggleCollapsed(boardCollapseKey(key)),
+    [toggleCollapsed, boardCollapseKey],
+  );
 
   // 목록형 카드 탭 = 항상 오른쪽 상세 패널을 연다(URL 바로 열기·장소 시트 대신).
   // (채팅형 말풍선·시트 동작은 그대로 — 여긴 목록형 보드 전용)
@@ -662,10 +666,8 @@ export function ListBoardScreen({
   const renderRow = ({ item }: { item: BoardRow }) => {
     if (item.type === 'header') {
       const Chevron = item.collapsed ? ChevronRight : ChevronDown;
-      // 자동구분 보드는 색이 없으므로 아바타 대신 lucide 아이콘(무채색)을 쓴다.
-      const AutoIcon = item.autoKind
-        ? AUTO_ORDER.find((a) => a.key === item.autoKind)?.Icon
-        : undefined;
+      // 자동구분 고정 종류는 색이 없으므로 아바타 대신 lucide 아이콘(무채색)을 쓴다.
+      const AutoIcon = item.autoKind ? AUTO_ICON_BY_KIND[item.autoKind] : undefined;
       // 재정렬 가능한 섹션 = 분류 보드의 분류 섹션(미분류·자동구분은 순서 고정).
       const canReorder =
         board === 'category' &&

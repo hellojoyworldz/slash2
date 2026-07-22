@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Pencil, Trash2 } from 'lucide-react-native';
+import { Pencil, Star, StarOff, Trash2 } from 'lucide-react-native';
 import { api, Friend, Message } from '../api';
+import { useCollapsedSections } from '../collapsed-sections';
 import { errorText } from '../i18n/errors';
 import { confirmDialog, notify } from '../notify';
 import { pickDefaultCategoryColor, ThemeColors } from '../theme';
@@ -13,9 +14,7 @@ import {
   PickerModal,
   PickerReorderRow,
   PickerRow,
-  PickerSectionHeader,
   usePickerReorderGuard,
-  usePickerRowScroll,
   usePickerSwipeTapGuard,
 } from './PickerModal';
 import { SwipeAction } from './SwipeableRow';
@@ -92,8 +91,12 @@ export function CategoryPickerModal({
   const [deletingAll, setDeletingAll] = useState(false);
   // 스크롤 타깃 — 열릴 때 현재 분류, 추가 직후 새 분류. PickerModal이 이 key로 스크롤.
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
-  // '목록' 섹션 접힘 상태 — 본 목록 섹션 헤더와 같은 문법. 모달 로컬(열 때마다 펼침으로 리셋).
-  const [listExpanded, setListExpanded] = useState(true);
+  // '목록' 섹션 접힘 상태 — 서버 저장(픽커 전용 키, 본 목록과 독립). 재진입해도 접힘이 유지된다.
+  const { isCollapsed, toggle: toggleCollapsed } = useCollapsedSections();
+  const listExpanded = !isCollapsed('picker.categories');
+  // '추가' 폼 섹션 접힘 상태 — 같은 훅·같은 문법, '목록' 키와 구분되는 전용 키. 기본(저장된 상태
+  // 없음)은 펼침 — 저장되지 않은 키는 isCollapsed가 항상 false를 돌려준다.
+  const addExpanded = !isCollapsed('picker.categories.add');
 
   useEffect(() => {
     if (!visible) return;
@@ -107,8 +110,9 @@ export function CategoryPickerModal({
     setNewName('');
     setNewDescription('');
     // 선택 픽커: 현재 분류로 스크롤(길면 화면 밖일 수 있어). 관리 모드는 선택이 없으니 스크롤 안 함.
-    setScrollTarget(manage ? null : initial ?? ALL_KEY);
-    setListExpanded(true);
+    // '전체' 행이 숨김이라(위 주석 처리) 미분류(null) 선택엔 스크롤할 행이 없다 — 대상 없음.
+    setScrollTarget(manage ? null : initial);
+    // 접힘 상태는 서버 저장이라 열 때 리셋하지 않는다(재진입 시 유지 — 사용자 리포트한 버그 수정).
   }, [visible, message?.id, manage]);
 
   // 행 탭 = 로컬 선택만 변경. PATCH 없음(저장 때 한 번에).
@@ -134,8 +138,8 @@ export function CategoryPickerModal({
       // 선택 픽커는 새 분류를 선택 상태로, 관리 모드는 선택 없음. 둘 다 새 항목으로 스크롤.
       if (!manage) setCurrentFriendId(created.id);
       setScrollTarget(created.id);
-      // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다.
-      setListExpanded(true);
+      // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다(접혀 있을 때만 토글).
+      if (isCollapsed('picker.categories')) toggleCollapsed('picker.categories');
     } catch (e) {
       notify(t('common.notice'), errorText(e));
     } finally {
@@ -215,11 +219,46 @@ export function CategoryPickerModal({
     [localFriends, token, onFriendsChanged],
   );
 
-  // 행 왼→오 스와이프 액션 [수정][삭제] — 본 목록(분류 탭) 스와이프와 같은 문법.
-  // [삭제][수정] — 본 목록과 좌우 순서까지 동일(수정이 맨 오른쪽).
-  // 수정 = 색·프로필 편집 폼(관리 모드 onEditFriend / 선택 모드도 props로 이관받아 동일 동작),
-  // 삭제 = 기존 휴지통과 같은 계약(onDeleteFriend가 confirmDialog 포함). 선택·관리 모드 공통.
+  // 즐겨찾기(★) 토글 — 본 목록(FriendsScreen)과 같은 낙관 갱신 계약: 고정(pinned)과는 무관한 별개
+  // 표시이고 본 목록(분류) 정렬엔 영향 없다. 별 추가 시 즐겨찾기 섹션 맨 밑(현재 최대
+  // favoritePosition+1)에 오도록 값을 부여, 해제 시 null. 성공하면 onFriendsChanged로 본 화면
+  // 목록을 동기화하고, 실패하면 로컬을 되돌린 뒤 onFriendsChanged로 재동기화(onReorderFriends 실패
+  // 처리와 같은 revert 계약 — 조용히 삼키지 않는다).
+  const onToggleFavorite = (friend: Friend) => {
+    if (!token) return;
+    const nextFavorite = !friend.favorite;
+    const maxPos = localFriends.reduce(
+      (m, f) =>
+        f.favorite && f.favoritePosition != null ? Math.max(m, f.favoritePosition) : m,
+      -1,
+    );
+    const prev = localFriends;
+    const next = localFriends.map((f) =>
+      f.id === friend.id
+        ? { ...f, favorite: nextFavorite, favoritePosition: nextFavorite ? maxPos + 1 : null }
+        : f,
+    );
+    setLocalFriends(next);
+    api
+      .updateFriendFavorite(token, friend.id, nextFavorite)
+      .then(() => onFriendsChanged())
+      .catch(() => {
+        setLocalFriends(prev);
+        onFriendsChanged();
+      });
+  };
+
+  // 행 왼→오 스와이프 액션 [즐겨찾기][삭제][수정] — 본 목록(분류 탭) 스와이프와 완전히 같은 문법·순서.
+  // 즐겨찾기 = 토글(이미 즐겨찾기면 해제), 수정 = 색·프로필 편집 폼(관리 모드 onEditFriend / 선택
+  // 모드도 props로 이관받아 동일 동작), 삭제 = 기존 휴지통과 같은 계약(onDeleteFriend가 confirmDialog
+  // 포함). 선택·관리 모드 공통.
   const swipeActionsFor = (friend: Friend): SwipeAction[] => [
+    {
+      key: 'favorite',
+      icon: friend.favorite ? StarOff : Star,
+      label: friend.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+      onPress: () => onToggleFavorite(friend),
+    },
     {
       key: 'delete',
       icon: Trash2,
@@ -304,6 +343,12 @@ export function CategoryPickerModal({
       newDescription={newDescription}
       onChangeNewDescription={setNewDescription}
       descriptionPlaceholder={t('friends.descriptionPlaceholder')}
+      addExpanded={addExpanded}
+      onToggleAddExpanded={() => toggleCollapsed('picker.categories.add')}
+      // "목록" 섹션 헤더는 PickerModal이 스크롤 밖(고정)에 렌더한다. 접힘 키·개수만 넘긴다.
+      listExpanded={listExpanded}
+      onToggleListExpanded={() => toggleCollapsed('picker.categories')}
+      listCount={localFriends.length}
       scrollToKey={scrollTarget}
       // 목록 드래그 순서 변경 — 선택·관리 모드 공통(모드 차이는 푸터만). 대상 행은 PickerReorderRow로 감싼다.
       // onActivate = 꾹 눌렀다 이동 없이 뗀 승격 탭의 행 동작(관리=수정 폼, 선택=분류 선택).
@@ -318,6 +363,13 @@ export function CategoryPickerModal({
             select(id);
           }
         },
+        // 행 더블탭(웹 더블클릭) = 수정 모달(스와이프 [수정]과 같은 경로). manage·선택 모드 공통.
+        onEditRequest: onEditFriend
+          ? (id) => {
+              const f = localFriends.find((x) => x.id === id);
+              if (f) onEditFriend(f);
+            }
+          : undefined,
       }}
       // 타이틀 오른쪽 휴지통 = 전체 삭제. 항목이 없으면 숨긴다.
       titleAccessory={
@@ -337,8 +389,8 @@ export function CategoryPickerModal({
       {manage ? (
         // 관리 모드: 최상단 "전체" 프로필 행(탭·스와이프 [수정] = self 편집) + 읽기 전용 분류 목록(추가만).
         <>
-          {/* "전체" 프로필 행 — 재정렬·삭제 대상 아님(order 밖 rowKey). 탭 = self 편집 폼. */}
-          <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
+          {/* 픽커에서 '전체' 행 숨김(요청) — 필요시 주석 해제 */}
+          {/* <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
             <CategoryManageRow
               name={t('chats.myRoom')}
               description={allSubtitle}
@@ -346,12 +398,7 @@ export function CategoryPickerModal({
               scrollKey={ALL_KEY}
               onEdit={onEditSelf}
             />
-          </PickerReorderRow>
-          <PickerSectionHeader
-            expanded={listExpanded}
-            onToggle={() => setListExpanded((v) => !v)}
-            count={localFriends.length}
-          />
+          </PickerReorderRow> */}
           {listExpanded &&
             (localFriends.length === 0 ? (
               <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
@@ -377,9 +424,8 @@ export function CategoryPickerModal({
         </>
       ) : (
         <>
-          {/* "전체" 프로필 행 — selfColor 아바타 + 전체 부제. 탭 = friendId=null(미분류) 선택,
-              스와이프 [수정] = self 프로필 편집(양 모드 공통). 재정렬·삭제 대상 아님(order 밖 rowKey). */}
-          <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
+          {/* 픽커에서 '전체' 행 숨김(요청) — 필요시 주석 해제 */}
+          {/* <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
             <PickerRow
               tile={<CategoryAvatar color={selfColor} size={PICKER_TILE_SIZE} />}
               label={t('chats.myRoom')}
@@ -389,12 +435,7 @@ export function CategoryPickerModal({
               multi={false}
               scrollKey={ALL_KEY}
             />
-          </PickerReorderRow>
-          <PickerSectionHeader
-            expanded={listExpanded}
-            onToggle={() => setListExpanded((v) => !v)}
-            count={localFriends.length}
-          />
+          </PickerReorderRow> */}
           {listExpanded &&
             localFriends.map((friend) => (
               <PickerReorderRow
@@ -420,7 +461,7 @@ export function CategoryPickerModal({
 }
 
 // 관리 모드 행 — 선택 픽커 행(PickerRow)과 같은 여백/타일 정렬. 탭 = 수정 폼(색·프로필), 삭제·수정은 스와이프.
-// 스크롤 타깃 등록(추가 직후 새 분류로 스크롤)을 위해 onLayout을 단다.
+// 스크롤 타깃 offset 등록은 바깥 래퍼(PickerReorderRow)가 담당한다(스크롤 콘텐츠 기준 정확도).
 function CategoryManageRow({
   name,
   description,
@@ -437,13 +478,13 @@ function CategoryManageRow({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const onLayout = usePickerRowScroll(scrollKey);
+  // 스크롤 타깃 offset 등록은 바깥 래퍼(PickerReorderRow)가 담당한다(스크롤 콘텐츠 기준 정확도).
   // 드래그 세션 직후 따라오는 click을 눌러 무시(순서만 바꿨는데 수정 폼이 새는 누수 방지).
   const dragGuarded = usePickerReorderGuard();
   // 스와이프 드래그 직후 오탭 무시 + 열린 행 탭 = 닫기(본 목록과 같은 규칙).
   const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
-    <View style={styles.manageRow} onLayout={onLayout}>
+    <View style={styles.manageRow}>
       {/* 행 전체 탭 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
       <Pressable
         style={({ pressed }) => [styles.manageTap, pressed && styles.manageTapActive]}

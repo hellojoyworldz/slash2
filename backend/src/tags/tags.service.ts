@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
+import { retroAttachSql } from './keyword-match';
 import { Tag } from './tag.entity';
+
+const MAX_KEYWORDS = 10;
+const MAX_KEYWORD_LEN = 30;
 
 // GET /tags 응답 형태: Tag 컬럼 + messageCount(그 유저 메시지 중 이 태그가 붙은 개수).
 export type TagResponse = Tag & { messageCount: number };
@@ -39,6 +43,7 @@ export class TagsService {
       .addSelect('t.favorite', 'favorite')
       .addSelect('t.position', 'position')
       .addSelect('t.favoritePosition', 'favoritePosition')
+      .addSelect('t.keywords', 'keywords')
       .addSelect('t.createdAt', 'createdAt')
       .addSelect('COUNT(DISTINCT m.id)', 'messageCount')
       .where('t.userId = :userId', { userId })
@@ -56,6 +61,7 @@ export class TagsService {
         favorite: boolean;
         position: number;
         favoritePosition: number | null;
+        keywords: string[] | null;
         createdAt: Date;
         messageCount: string;
       }>();
@@ -70,6 +76,7 @@ export class TagsService {
       favorite: r.favorite,
       position: r.position,
       favoritePosition: r.favoritePosition,
+      keywords: r.keywords ?? [],
       createdAt: r.createdAt,
       messageCount: Number(r.messageCount),
     })) as TagResponse[];
@@ -80,6 +87,7 @@ export class TagsService {
     name: string,
     color?: string,
     description?: string,
+    keywords?: string[],
   ): Promise<Tag> {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -106,14 +114,61 @@ export class TagsService {
     const position = Number(raw?.max ?? -1) + 1;
     // 설명은 트림 후 빈이면 null(수정 관례와 동일).
     const desc = description?.trim();
+    const cleanKeywords = this.sanitizeKeywords(keywords);
     const tag = this.tags.create({
       userId,
       name: trimmed,
       color: color ?? null,
       position,
       description: desc ? desc : null,
+      keywords: cleanKeywords,
     });
-    return this.tags.save(tag);
+    const saved = await this.tags.save(tag);
+    // 키워드가 있으면 과거 메시지에 소급 부착(중복은 스킵).
+    await this.applyKeywordAttach(userId, saved.id, cleanKeywords);
+    return saved;
+  }
+
+  /** 키워드 정규화: 각 트림 → 빈 것 드롭 → 중복 제거(순서 보존) → 각 ≤30자·총 ≤10개.
+   *  0개 허용(키워드 없는 일반 태그). 위반 시 언어중립 code 예외. */
+  private sanitizeKeywords(raw: unknown): string[] {
+    const arr = Array.isArray(raw) ? raw : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const k of arr) {
+      if (typeof k !== 'string') continue;
+      const t = k.trim();
+      if (!t) continue;
+      if (t.length > MAX_KEYWORD_LEN) {
+        throw new BadRequestException({
+          code: 'tag_keyword_too_long',
+          message: '키워드는 30자 이내로 입력해주세요.',
+        });
+      }
+      if (seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    if (out.length > MAX_KEYWORDS) {
+      throw new BadRequestException({
+        code: 'tag_keywords_too_many',
+        message: '키워드는 10개까지 등록할 수 있습니다.',
+      });
+    }
+    return out;
+  }
+
+  /** 소급 부착: 키워드 매칭되는 본인 메시지 전부에 이 태그를 message_tags로 부착(이미 달렸으면 스킵).
+   *  키워드가 없으면 아무것도 하지 않는다.
+   *  주의(정책): 키워드를 지우거나 바꿔도 이미 부착된 태그는 떼지 않는다 — 수동 부착과 구분할 수 없기 때문. */
+  private async applyKeywordAttach(
+    userId: string,
+    tagId: string,
+    keywords: string[],
+  ): Promise<void> {
+    if (!keywords.length) return;
+    const { sql, params } = retroAttachSql(userId, tagId, keywords);
+    await this.tags.manager.query(sql, params);
   }
 
   // 부분 갱신: name·pinned 각각 changes에 키가 있을 때만 반영. friends.update와 같은 관례.
@@ -127,6 +182,8 @@ export class TagsService {
       pinned?: boolean;
       description?: string;
       favorite?: boolean;
+      // 키워드 전체 교체(키 없음=미변경). 저장되면 그 시점에 소급 부착(제거는 안 함).
+      keywords?: string[];
     },
   ): Promise<Tag> {
     const tag = await this.tags.findOne({ where: { id, userId } });
@@ -207,7 +264,17 @@ export class TagsService {
       }
       tag.favorite = changes.favorite;
     }
-    return this.tags.save(tag);
+    let attachKeywords: string[] | null = null;
+    if (changes.keywords !== undefined) {
+      // 전체 교체. 저장 후 새 키워드로 소급 부착(빈 배열이면 부착 없음, 기존 부착도 유지).
+      tag.keywords = this.sanitizeKeywords(changes.keywords);
+      attachKeywords = tag.keywords;
+    }
+    const saved = await this.tags.save(tag);
+    if (attachKeywords && attachKeywords.length) {
+      await this.applyKeywordAttach(userId, saved.id, attachKeywords);
+    }
+    return saved;
   }
 
   async remove(userId: string, id: string): Promise<void> {

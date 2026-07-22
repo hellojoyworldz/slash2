@@ -13,7 +13,6 @@ const TAG_BY_TYPE: Record<LinkType, string> = {
   place: 'PLACE',
   video: 'VIDEO',
   item: 'ITEM',
-  article: 'ARTICLE',
 };
 
 // 장소 흑백 정적지도 썸네일용 구글 키. 없으면 ogImage로 폴백한다.
@@ -68,7 +67,6 @@ export function LinkCard({ link, comment }: Props) {
   const isPlace = lt === 'place';
   const isVideo = lt === 'video';
   const isItem = lt === 'item';
-  const isArticle = lt === 'article';
   const tag = (lt && TAG_BY_TYPE[lt]) || 'LINK';
   // 캡션: 장소는 설명 대신 주소를, 그 외는 ogDescription.
   const captionText = isPlace ? m?.address ?? null : link.ogDescription;
@@ -99,7 +97,8 @@ export function LinkCard({ link, comment }: Props) {
       label: t('chat.linkData.duration'),
       value: formatDuration(m.durationSec),
     });
-  if (isArticle && m?.author)
+  // 미분류 링크(og:author가 있으면)에도 작성자 행을 노출한다(아티클 종류 제거 후 폴백).
+  if (!isPlace && !isVideo && !isItem && m?.author)
     dataRows.push({ label: t('chat.linkData.author'), value: m.author });
 
   return (

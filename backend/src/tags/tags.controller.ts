@@ -32,7 +32,13 @@ export class TagsController {
 
   @Post()
   create(@CurrentUser() user: { id: string }, @Body() dto: CreateTagDto) {
-    return this.tags.create(user.id, dto.name, dto.color, dto.description);
+    return this.tags.create(
+      user.id,
+      dto.name,
+      dto.color,
+      dto.description,
+      dto.keywords,
+    );
   }
 
   // 주의: '/tags/order'가 @Patch(':id')(ParseUUIDPipe)에 먹히지 않도록 반드시 위에 선언한다.

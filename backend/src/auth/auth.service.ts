@@ -10,7 +10,16 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { IsNull, Repository } from 'typeorm';
-import { isValidAutoFavorites, isValidAutoOrder } from '../users/auto-order';
+import {
+  normalizeStoredAutoFavorites,
+  normalizeStoredAutoOrder,
+  resolveAutoFavorites,
+  resolveAutoOrder,
+} from '../users/auto-order';
+import {
+  isValidCollapsedSections,
+  normalizeCollapsedSections,
+} from '../users/collapsed-sections';
 import { isValidHiddenTabs, isValidTabOrder } from '../users/tab-order';
 import { SocialAccount } from '../users/social-account.entity';
 import { User } from '../users/user.entity';
@@ -129,10 +138,11 @@ export class AuthService {
       tagAllColor: user.tagAllColor ?? null,
       tagAllDescription: user.tagAllDescription ?? null,
       customColors: user.customColors ?? [],
-      autoOrder: user.autoOrder ?? null,
-      autoFavorites: user.autoFavorites ?? null,
+      autoOrder: normalizeStoredAutoOrder(user.autoOrder),
+      autoFavorites: normalizeStoredAutoFavorites(user.autoFavorites),
       tabOrder: user.tabOrder ?? null,
       hiddenTabs: user.hiddenTabs ?? null,
+      collapsedSections: user.collapsedSections ?? null,
       providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
   }
@@ -151,6 +161,7 @@ export class AuthService {
       autoFavorites?: string[];
       tabOrder?: string[];
       hiddenTabs?: string[];
+      collapsedSections?: string[] | null;
     },
   ) {
     const user = await this.users.findOne({ where: { id: userId } });
@@ -185,24 +196,21 @@ export class AuthService {
         : null;
     }
     if (changes.autoOrder !== undefined) {
-      if (!isValidAutoOrder(changes.autoOrder)) {
+      // 고정 5종(place·video·item·memo·link)의 순열이어야 한다.
+      // 레거시 'article' 등 무효 항목은 정규화로 드롭 후 판정한다.
+      const resolved = resolveAutoOrder(changes.autoOrder);
+      if (!resolved) {
         throw new BadRequestException({
           code: 'invalid_auto_order',
           message: '자동구분 순서가 올바르지 않습니다.',
         });
       }
-      user.autoOrder = changes.autoOrder;
+      user.autoOrder = resolved;
     }
     if (changes.autoFavorites !== undefined) {
-      if (!isValidAutoFavorites(changes.autoFavorites)) {
-        throw new BadRequestException({
-          code: 'invalid_order',
-          message: '자동구분 즐겨찾기가 올바르지 않습니다.',
-        });
-      }
-      user.autoFavorites = changes.autoFavorites.length
-        ? changes.autoFavorites
-        : null;
+      // 고정 5종의 부분집합 — 정규화만 하면 항상 유효(빈 배열은 null로 저장).
+      const resolved = resolveAutoFavorites(changes.autoFavorites);
+      user.autoFavorites = resolved.length ? resolved : null;
     }
     if (changes.tabOrder !== undefined) {
       if (!isValidTabOrder(changes.tabOrder)) {
@@ -223,6 +231,22 @@ export class AuthService {
       // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
       user.hiddenTabs = changes.hiddenTabs.length ? changes.hiddenTabs : null;
     }
+    if (changes.collapsedSections !== undefined) {
+      if (changes.collapsedSections === null) {
+        // 명시적 null = 초기화(전부 펼침).
+        user.collapsedSections = null;
+      } else {
+        if (!isValidCollapsedSections(changes.collapsedSections)) {
+          throw new BadRequestException({
+            code: 'invalid_collapsed_sections',
+            message: '접힌 섹션 목록이 올바르지 않습니다.',
+          });
+        }
+        user.collapsedSections = normalizeCollapsedSections(
+          changes.collapsedSections,
+        );
+      }
+    }
     await this.users.save(user);
     return {
       id: user.id,
@@ -234,10 +258,11 @@ export class AuthService {
       tagAllColor: user.tagAllColor ?? null,
       tagAllDescription: user.tagAllDescription ?? null,
       customColors: user.customColors ?? [],
-      autoOrder: user.autoOrder ?? null,
-      autoFavorites: user.autoFavorites ?? null,
+      autoOrder: normalizeStoredAutoOrder(user.autoOrder),
+      autoFavorites: normalizeStoredAutoFavorites(user.autoFavorites),
       tabOrder: user.tabOrder ?? null,
       hiddenTabs: user.hiddenTabs ?? null,
+      collapsedSections: user.collapsedSections ?? null,
     };
   }
 
@@ -538,6 +563,7 @@ export class AuthService {
         autoFavorites: user.autoFavorites ?? null,
         tabOrder: user.tabOrder ?? null,
         hiddenTabs: user.hiddenTabs ?? null,
+        collapsedSections: user.collapsedSections ?? null,
         providers: accounts.map((a) => a.provider),
       },
     };

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Pencil, Trash2 } from 'lucide-react-native';
+import { Pencil, Star, StarOff, Trash2 } from 'lucide-react-native';
 import { api, Message, Tag } from '../api';
+import { useCollapsedSections } from '../collapsed-sections';
 import { errorText } from '../i18n/errors';
 import { confirmDialog, notify } from '../notify';
 import { useSelectedRoom } from '../selected-room';
@@ -10,14 +11,13 @@ import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { useTagCrud } from '../use-tags';
 import { HashTile } from './HashTile';
+import { cleanKeywords, KeywordStepper } from './KeywordStepper';
 import {
   PICKER_TILE_SIZE,
   PickerModal,
   PickerReorderRow,
   PickerRow,
-  PickerSectionHeader,
   usePickerReorderGuard,
-  usePickerRowScroll,
   usePickerSwipeTapGuard,
 } from './PickerModal';
 import { SwipeAction } from './SwipeableRow';
@@ -84,14 +84,20 @@ export function TagPickerModal({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  // 새 태그의 자동 부착 키워드(0~10개) — 관리·선택 모드 공통. 생성 시 서버가 매칭 메시지에 부착한다.
+  const [newKeywords, setNewKeywords] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   // 전체 삭제 진행 중 — 중복 클릭 방지(타이틀 휴지통).
   const [deletingAll, setDeletingAll] = useState(false);
   // 스크롤 타깃 — 열릴 때 첫 선택 태그, 추가 직후 새 태그. PickerModal이 이 key로 스크롤.
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
-  // '목록' 섹션 접힘 상태 — 본 목록 섹션 헤더와 같은 문법. 모달 로컬(열 때마다 펼침으로 리셋).
-  const [listExpanded, setListExpanded] = useState(true);
+  // '목록' 섹션 접힘 상태 — 서버 저장(픽커 전용 키, 본 목록과 독립). 재진입해도 접힘이 유지된다.
+  const { isCollapsed, toggle: toggleCollapsed } = useCollapsedSections();
+  const listExpanded = !isCollapsed('picker.tags');
+  // '추가' 폼 섹션 접힘 상태 — 같은 훅·같은 문법, '목록' 키와 구분되는 전용 키. 기본(저장된 상태
+  // 없음)은 펼침 — 저장되지 않은 키는 isCollapsed가 항상 false를 돌려준다.
+  const addExpanded = !isCollapsed('picker.tags.add');
 
   // 열릴 때(또는 대상 변경 시): 태그 목록 fetch + 대상 메시지의 현재 태그로 선택 초기화.
   useEffect(() => {
@@ -100,9 +106,10 @@ export function TagPickerModal({
     setSelected(init);
     setNewName('');
     setNewDescription('');
+    setNewKeywords([]);
     // 선택된 태그가 있으면(목록 순서상 첫 번째) 열릴 때 그 항목으로 스크롤(길면 화면 밖일 수 있어).
     setScrollTarget(init.size > 0 ? [...init][0] : null);
-    setListExpanded(true);
+    // 접힘 상태는 서버 저장이라 열 때 리셋하지 않는다(재진입 시 유지 — 사용자 리포트한 버그 수정).
     reload();
   }, [visible, token, message?.id, reload]);
 
@@ -141,18 +148,19 @@ export function TagPickerModal({
   const onAdd = async () => {
     if (adding) return;
     setAdding(true);
-    // '설명 (선택)'은 선택·관리 모드 공통(사용자 확정 — 두 모드는 푸터만 다르다).
-    const created = await addTag(newName, newDescription);
+    // '설명 (선택)'·키워드 스테퍼 모두 선택·관리 모드 공통(사용자 확정 — 두 모드는 푸터만 다르다).
+    const created = await addTag(newName, newDescription, cleanKeywords(newKeywords));
     setAdding(false);
     if (!created) return;
     setNewName('');
     setNewDescription('');
+    setNewKeywords([]);
     onTagsChanged();
     if (!manage) setSelected((prev) => new Set(prev).add(created.id));
     // 새 항목으로 스크롤(목록 어디에 들어가든 보이게).
     setScrollTarget(created.id);
-    // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다.
-    setListExpanded(true);
+    // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다(접혀 있을 때만 토글).
+    if (isCollapsed('picker.tags')) toggleCollapsed('picker.tags');
   };
 
   // 타이틀 휴지통 — 확인창 → 모든 태그를 모든 메시지에서 제거. 선택도 비운다.
@@ -204,10 +212,46 @@ export function TagPickerModal({
     [tags, setTags, reload, token, onTagsChanged],
   );
 
-  // 행 왼→오 스와이프 액션 [삭제][수정] — 본 목록(태그 탭)과 좌우 순서까지 동일(수정이 맨 오른쪽).
-  // 수정 = 이름·설명·프로필 색 폼(관리 모드 onEditTag / 선택 모드도 props로 이관받아 동일 동작),
-  // 삭제 = 기존 휴지통과 같은 계약(onDeleteTag가 removeTag의 confirmDialog 포함). 선택·관리 모드 공통.
+  // 즐겨찾기(★) 토글 — 본 목록(TagsScreen)과 같은 낙관 갱신 계약: 고정(pinned)과는 무관한 별개
+  // 표시이고 본 목록(태그) 정렬엔 영향 없다. 별 추가 시 즐겨찾기 섹션 맨 밑(현재 최대
+  // favoritePosition+1)에 오도록 값을 부여, 해제 시 null. 성공하면 onTagsChanged로 본 화면 목록을
+  // 동기화하고, 실패하면 reload로 서버 상태를 되돌린 뒤 onTagsChanged로 재동기화(onReorderTags 실패
+  // 처리와 같은 revert 계약 — 조용히 삼키지 않는다).
+  const onToggleFavorite = (tag: Tag) => {
+    if (!token) return;
+    const nextFavorite = !tag.favorite;
+    const maxPos = tags.reduce(
+      (m, x) =>
+        x.favorite && x.favoritePosition != null ? Math.max(m, x.favoritePosition) : m,
+      -1,
+    );
+    setTags((prev) =>
+      prev.map((x) =>
+        x.id === tag.id
+          ? { ...x, favorite: nextFavorite, favoritePosition: nextFavorite ? maxPos + 1 : null }
+          : x,
+      ),
+    );
+    api
+      .updateTagFavorite(token, tag.id, nextFavorite)
+      .then(() => onTagsChanged())
+      .catch(() => {
+        reload();
+        onTagsChanged();
+      });
+  };
+
+  // 행 왼→오 스와이프 액션 [즐겨찾기][삭제][수정] — 본 목록(태그 탭)과 완전히 같은 문법·순서.
+  // 즐겨찾기 = 토글(이미 즐겨찾기면 해제), 수정 = 이름·설명·프로필 색 폼(관리 모드 onEditTag /
+  // 선택 모드도 props로 이관받아 동일 동작), 삭제 = 기존 휴지통과 같은 계약(onDeleteTag가
+  // removeTag의 confirmDialog 포함). 선택·관리 모드 공통.
   const swipeActionsFor = (tag: Tag): SwipeAction[] => [
+    {
+      key: 'favorite',
+      icon: tag.favorite ? StarOff : Star,
+      label: tag.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+      onPress: () => onToggleFavorite(tag),
+    },
     {
       key: 'delete',
       icon: Trash2,
@@ -299,6 +343,14 @@ export function TagPickerModal({
       newDescription={newDescription}
       onChangeNewDescription={setNewDescription}
       descriptionPlaceholder={t('friends.descriptionPlaceholder')}
+      // 태그 추가 폼 전용 키워드 스테퍼(공용) — 관리·선택 모드 공통(분류 픽커엔 없음). 수정 모달과 동일 UI.
+      addExtra={<KeywordStepper keywords={newKeywords} onChange={setNewKeywords} />}
+      addExpanded={addExpanded}
+      onToggleAddExpanded={() => toggleCollapsed('picker.tags.add')}
+      // "목록" 섹션 헤더는 PickerModal이 스크롤 밖(고정)에 렌더한다. 접힘 키·개수만 넘긴다.
+      listExpanded={listExpanded}
+      onToggleListExpanded={() => toggleCollapsed('picker.tags')}
+      listCount={tags.length}
       scrollToKey={scrollTarget}
       // 목록 드래그 순서 변경 — 선택·관리 모드 공통(모드 차이는 푸터만). 대상 행은 PickerReorderRow로 감싼다.
       // onActivate = 꾹 눌렀다 이동 없이 뗀 승격 탭의 행 동작(관리=수정 폼, 선택=태그 토글).
@@ -313,6 +365,13 @@ export function TagPickerModal({
             toggle(id);
           }
         },
+        // 행 더블탭(웹 더블클릭) = 수정 모달(스와이프 [수정]과 같은 경로). manage·선택 모드 공통.
+        onEditRequest: onEditTag
+          ? (id) => {
+              const tag = tags.find((x) => x.id === id);
+              if (tag) onEditTag(tag);
+            }
+          : undefined,
       }}
       // 타이틀 오른쪽 휴지통 = 전체 삭제. 항목이 없으면 숨긴다.
       titleAccessory={
@@ -329,12 +388,8 @@ export function TagPickerModal({
         ) : null
       }
     >
-      {tagAllRow}
-      <PickerSectionHeader
-        expanded={listExpanded}
-        onToggle={() => setListExpanded((v) => !v)}
-        count={tags.length}
-      />
+      {/* 픽커에서 '전체' 행 숨김(요청) — 필요시 주석 해제 */}
+      {/* {tagAllRow} */}
       {listExpanded &&
         (tags.length === 0 ? (
           <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
@@ -373,7 +428,7 @@ export function TagPickerModal({
 }
 
 // 관리 모드 행 — 선택 픽커 행과 같은 여백/타일 정렬. 탭 = 이름·설명·프로필 색 폼, 삭제·수정은 스와이프.
-// 스크롤 타깃 등록(추가 직후 새 태그로 스크롤)을 위해 onLayout을 단다.
+// 스크롤 타깃 offset 등록은 바깥 래퍼(PickerReorderRow)가 담당한다(스크롤 콘텐츠 기준 정확도).
 function TagManageRow({
   name,
   color,
@@ -390,13 +445,13 @@ function TagManageRow({
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const onLayout = usePickerRowScroll(scrollKey);
+  // 스크롤 타깃 offset 등록은 바깥 래퍼(PickerReorderRow)가 담당한다(스크롤 콘텐츠 기준 정확도).
   // 드래그 세션 직후 따라오는 click을 눌러 무시(순서만 바꿨는데 수정 폼이 새는 누수 방지).
   const dragGuarded = usePickerReorderGuard();
   // 스와이프 드래그 직후 오탭 무시 + 열린 행 탭 = 닫기(본 목록과 같은 규칙).
   const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
-    <View style={styles.manageRow} onLayout={onLayout}>
+    <View style={styles.manageRow}>
       {/* 행 전체 탭 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
       <Pressable
         style={({ pressed }) => [styles.manageTap, pressed && styles.manageTapActive]}

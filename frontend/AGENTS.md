@@ -49,6 +49,30 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
   - `src/notify.ts`가 제공하고, 루트에 마운트된 `<NotifyHost/>`가 `components/Dialog.tsx`로 렌더한다.
 - **900px 트리 스왑 생존**: 반응형 브레이크포인트(`layout.desktopBreakpoint`, 900) 교차 시 데스크톱 3패널과 모바일 탭은 서로 다른 트리라 화면이 통째로 리마운트된다. 사용자 입력·진행 상태(검색어·입력 draft·오버레이 열림 등)는 이 교차에서 반드시 살아남아야 하므로, 휘발성 UI 상태는 화면 로컬 `useState`가 아니라 루트 프로바이더에 둔다(`NameEditProvider`·`SelectedRoomProvider`의 draft 패턴 참조). 방별로 구분돼야 하는 상태는 roomKey로 태깅해 자기 방일 때만 복원한다.
 
+## 목록·모달 상호작용 문법
+
+같은 폼/행 문법은 그것이 뜨는 **모든 진입점**(탭 화면·픽커 모달·데스크톱 패널)에 동일 적용한다.
+한쪽만 고치면 반드시 지적받는다 — 수정 전에 진입점을 전부 나열하고 같은 렌더 한 벌로 처리할 것.
+
+- **행 탭**: 탭 화면 = 방 진입, 픽커 선택 모드 = 선택 토글.
+- **행 스와이프**: 액션 버튼 노출. 분류·태그는 `[★ 즐겨찾기][삭제][수정]` 순서(본탭·픽커 동일),
+  자동구분은 ★ 즐겨찾기, 메모(채팅) 목록은 고정(pin) 계열.
+- **행 더블탭(웹 더블클릭)**: 상세 수정 모달 — 스와이프 `[수정]`과 같은 세션. 단일 탭 동작은 지연 없이 유지.
+- **드래그**: 순서 변경(`use-reorder.tsx`의 `useReorder`/`useVarReorder`). 즐겨찾기 섹션은 전용 순서.
+- **수정/추가 모달**: `category-edit.tsx`·`tag-create.tsx`의 루트 상주 Provider/Host 세션
+  (`open()`=추가, `open(항목)`=수정). 새 모달도 이 문법으로.
+- **추가 폼(픽커 공용)**: 이름 → 설명 → (태그만) 키워드 스테퍼 → **전체폭 ink primary 추가 버튼** 세로 스택.
+  manage/선택 모드가 `PickerModal` 안 같은 렌더 한 벌을 공유한다 — 모드별 분기 금지.
+- **키워드 스테퍼**(`components/KeywordStepper.tsx`): 행 `[입력][−]`, 마지막 행만 `[입력][+]`,
+  바닥 상태는 빈 입력 1행. 태그 생성·수정 공용.
+- **설명 문구**: 탭 타이틀 아래 상시 서브타이틀(`TabHeader`의 `subtitle`). 모달 안 힌트는
+  ⓘ + `components/InfoPopover.tsx`(floating-ui, 루트 오버레이 포털) — 팝오버를 새로 직접 그리지 말 것.
+- **영속**: 순서(position·autoOrder)·즐겨찾기·섹션 접기(`users.collapsedSections`,
+  `src/collapsed-sections.ts`의 `useCollapsedSections`)는 전부 서버 저장. 낙관 반영 후
+  **실패 시 이전 값으로 revert** — `.catch(() => {})`로 조용히 삼키지 말 것.
+- **명칭**: 사용자 문구에서 항목은 "메시지"가 아니라 **"메모"**(en `note`, ja `メモ`).
+- 주석 처리로 비활성해 둔 것(삭제 아님, 요청 시 복구): 태그 색 선택 UI, 픽커의 "전체" 행.
+
 ## 다국어 (i18n)
 
 - 모든 사용자 문구는 `useTranslation()`의 `t('ns.key')`. 하드코딩 금지.

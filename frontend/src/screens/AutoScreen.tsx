@@ -21,7 +21,6 @@ import {
   Asterisk,
   ChevronDown,
   ChevronRight,
-  FileText,
   Link as LinkIcon,
   MapPin,
   Play,
@@ -32,6 +31,7 @@ import {
 } from 'lucide-react-native';
 import { api, ApiError, AutoCounts, AutoKind } from '../api';
 import { useAuth } from '../auth';
+import { useCollapsedSections } from '../collapsed-sections';
 import { resolveAutoFavorites, resolveAutoOrder } from '../auto-filter';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
@@ -48,13 +48,12 @@ type IconComponent = ComponentType<{
   strokeWidth?: number;
 }>;
 
-// 자동구분 6종 아이콘. 이름은 i18n(auto.names.<key>), 순서는 users.autoOrder(없으면 기본).
+// 자동구분 5종 아이콘. 이름은 i18n(auto.names.<key>), 순서는 users.autoOrder(없으면 기본).
 // 아이콘 타일은 무채색(surface 채움 + ink 아이콘) — 자동구분은 색을 갖지 않는다(색은 분류의 것).
 const AUTO_ICONS: Record<AutoKind, IconComponent> = {
   place: MapPin,
   video: Play,
   item: ShoppingBag,
-  article: FileText,
   memo: StickyNote,
   link: LinkIcon,
 };
@@ -94,9 +93,10 @@ export function AutoScreen({
   const isDesktop = width >= layout.desktopBreakpoint;
 
   const [counts, setCounts] = useState<AutoCounts | null>(null);
-  // 두 섹션(즐겨찾기·자동구분) 접기/펼치기 — 화면 로컬 state(분류·태그 탭과 동일).
-  const [favoritesExpanded, setFavoritesExpanded] = useState(true);
-  const [autoExpanded, setAutoExpanded] = useState(true);
+  // 두 섹션(즐겨찾기·자동구분) 접기/펼치기 — 서버 저장(분류·태그 탭과 동일 계약).
+  const { isCollapsed, toggle: toggleSection } = useCollapsedSections();
+  const favoritesExpanded = !isCollapsed('auto.favorites');
+  const autoExpanded = !isCollapsed('auto.list');
 
   // 본 목록 순서(드래그 낙관 반영). 컨텍스트 autoOrder가 바뀌면 동기화.
   const [order, setOrder] = useState<AutoKind[]>(() => resolveAutoOrder(autoOrder));
@@ -128,26 +128,39 @@ export function AutoScreen({
   const openRowId = useRef<string | null>(null);
   const swipeRefs = useRef(new Map<string, SwipeableRowMethods | null>());
 
-  // 본 목록 순서 확정 → 낙관 반영(컨텍스트 → 칩·보드·탭 전파) + 서버 저장.
+  // 본 목록 순서 확정 → 낙관 반영(컨텍스트 → 칩·보드·탭 전파) + 서버 저장. 실패 시 이전 순서로 복원.
   const commitOrder = useCallback(
     (ids: string[]) => {
       const next = ids as AutoKind[];
+      const prev = orderRef.current as AutoKind[];
       setOrder(next);
       setAutoOrder(next);
       const tk = tokenRef.current;
-      if (tk) api.updateProfile(tk, { autoOrder: next }).catch(() => {});
+      if (tk) {
+        api.updateProfile(tk, { autoOrder: next }).catch(() => {
+          setOrder(prev);
+          setAutoOrder(prev);
+        });
+      }
     },
     [setAutoOrder],
   );
 
   // 즐겨찾기 순서 확정 → 낙관 반영 + 서버 저장. 빈 배열은 컨텍스트/서버에서 null로 통일.
+  // 실패 시 이전 순서로 복원.
   const commitFavOrder = useCallback(
     (ids: string[]) => {
       const next = ids as AutoKind[];
+      const prev = favOrderRef.current as AutoKind[];
       setFavOrder(next);
       setAutoFavorites(next.length ? next : null);
       const tk = tokenRef.current;
-      if (tk) api.updateProfile(tk, { autoFavorites: next }).catch(() => {});
+      if (tk) {
+        api.updateProfile(tk, { autoFavorites: next }).catch(() => {
+          setFavOrder(prev);
+          setAutoFavorites(prev.length ? prev : null);
+        });
+      }
     },
     [setAutoFavorites],
   );
@@ -180,6 +193,7 @@ export function AutoScreen({
   });
 
   // 즐겨찾기(★) 토글 — 없으면 맨 밑에 추가, 있으면 제거. 본 목록(자동구분) 순서엔 영향 없음.
+  // 실패 시 이전 상태로 복원.
   const toggleFavorite = useCallback(
     (kind: AutoKind) => {
       const current = favOrderRef.current as AutoKind[];
@@ -188,7 +202,12 @@ export function AutoScreen({
       setFavOrder(next);
       setAutoFavorites(next.length ? next : null);
       const tk = tokenRef.current;
-      if (tk) api.updateProfile(tk, { autoFavorites: next }).catch(() => {});
+      if (tk) {
+        api.updateProfile(tk, { autoFavorites: next }).catch(() => {
+          setFavOrder(current);
+          setAutoFavorites(current.length ? current : null);
+        });
+      }
     },
     [setAutoFavorites],
   );
@@ -319,7 +338,9 @@ export function AutoScreen({
 
   return (
     <View style={styles.container}>
-      {!embedded ? <TabHeader title={t('auto.title')} /> : null}
+      {!embedded ? (
+        <TabHeader title={t('auto.title')} subtitle={t('auto.info')} />
+      ) : null}
 
       <FlatList
         data={autoExpanded ? order : []}
@@ -367,7 +388,7 @@ export function AutoScreen({
               <>
                 <TouchableOpacity
                   style={styles.sectionRow}
-                  onPress={() => setFavoritesExpanded((v) => !v)}
+                  onPress={() => toggleSection('auto.favorites')}
                   activeOpacity={0.6}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: favoritesExpanded }}
@@ -408,7 +429,7 @@ export function AutoScreen({
             {/* '자동구분' 섹션 헤더 — 전체 6종. */}
             <TouchableOpacity
               style={styles.sectionRow}
-              onPress={() => setAutoExpanded((v) => !v)}
+              onPress={() => toggleSection('auto.list')}
               activeOpacity={0.6}
               accessibilityRole="button"
               accessibilityState={{ expanded: autoExpanded }}

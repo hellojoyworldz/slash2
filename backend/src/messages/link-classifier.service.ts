@@ -33,7 +33,7 @@ export class LinkClassifierService {
 
   constructor(private readonly config: ConfigService) {}
 
-  /** 링크를 place|video|item|article로 자동 구분한다.
+  /** 링크를 place|video|item으로 자동 구분한다.
    *  판단 불가·오류는 { linkType: null, linkMeta: null } — 절대 예외를 던지지 않는다.
    *  신호 우선순위: URL 패턴 → JSON-LD → og 메타. */
   async classify(
@@ -66,12 +66,6 @@ export class LinkClassifierService {
       // 3) item
       const item = this.classifyItem(html, nodes, ogType);
       if (item) return { linkType: 'item', linkMeta: this.nullIfEmpty(item) };
-
-      // 4) article
-      const article = this.classifyArticle(html, nodes, ogType);
-      if (article) {
-        return { linkType: 'article', linkMeta: this.nullIfEmpty(article) };
-      }
 
       return { linkType: null, linkMeta: null };
     } catch (error) {
@@ -489,30 +483,6 @@ export class LinkClassifierService {
       price: offer.price ?? offer.lowPrice,
       currency: offer.priceCurrency,
     };
-  }
-
-  // ── article ──────────────────────────────────────────────────────────────
-
-  private classifyArticle(
-    html: string,
-    nodes: JsonLd[],
-    ogType: string,
-  ): LinkMeta | null {
-    const articleNode = nodes.find((n) =>
-      this.typeList(n).some((t) =>
-        ['article', 'newsarticle', 'blogposting'].includes(t.toLowerCase()),
-      ),
-    );
-    if (!ogType.includes('article') && !articleNode) return null;
-
-    const meta: LinkMeta = {};
-    const author =
-      this.personName(articleNode, ['author', 'creator']) ??
-      this.authorFromNodes(nodes, ['author']) ??
-      this.meta(html, 'author') ??
-      undefined;
-    if (author) meta.author = author;
-    return meta;
   }
 
   // ── JSON-LD ──────────────────────────────────────────────────────────────

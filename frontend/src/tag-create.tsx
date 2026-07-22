@@ -13,9 +13,12 @@ import { Trash2 } from 'lucide-react-native';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { api, Tag } from './api';
 import { useAuth } from './auth';
-import { HashTile } from './components/HashTile';
+// 태그는 기본 색 프로필로 고정 — 색 선택 UI 비활성(요청으로 보류)이라 미리보기 타일(HashTile)도 잠시 미사용.
+// import { HashTile } from './components/HashTile';
+import { cleanKeywords, KeywordStepper } from './components/KeywordStepper';
 import { ModalCard } from './components/ModalCard';
-import { ProfileColorSection } from './components/ProfileColorSection';
+// 태그는 기본 색 프로필로 고정 — 색 선택 UI 비활성(요청으로 보류). 되살릴 때 주석 해제.
+// import { ProfileColorSection } from './components/ProfileColorSection';
 import { TagPickerModal } from './components/TagPickerModal';
 import { Text } from './components/Text';
 import { errorText } from './i18n/errors';
@@ -164,6 +167,8 @@ function TagRenameHost({
   const [description, setDescription] = useState('');
   // 태그 프로필 색. 태그는 기본 무채(색 없음) — null이면 무채 스와치가 선택된 상태로 보인다.
   const [color, setColor] = useState<string | null>(CATEGORY_COLORS[0].hex);
+  // 자동 부착 키워드(0~10개). 이 문구가 든 메시지에 서버가 이 태그를 실제 부착한다(과거·신규).
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   // 중복(409 tag_name_taken) 등은 카드 안 인라인 문구로 노출한다(name-edit·category-edit과 통일).
   const [error, setError] = useState('');
@@ -175,6 +180,7 @@ function TagRenameHost({
     setDescription(session.tag.description ?? '');
     // 무채(색 없음) 태그는 null 그대로 — 무채 스와치가 선택된다.
     setColor(session.tag.color ?? null);
+    setKeywords(session.tag.keywords ? [...session.tag.keywords] : []);
     setBusy(false);
     setError('');
   }, [session]);
@@ -189,6 +195,7 @@ function TagRenameHost({
         name: trimmed,
         color,
         description: description.trim(),
+        keywords: cleanKeywords(keywords),
       });
       bumpRooms();
       session.onDone?.(updated);
@@ -270,13 +277,18 @@ function TagRenameHost({
         returnKeyType="done"
         onSubmitEditing={submit}
       />
+
+      {/* 자동 부착 키워드 스테퍼(공용) — 이 문구가 든 메시지에 서버가 이 태그를 실제 부착한다(과거·신규). */}
+      <KeywordStepper keywords={keywords} onChange={setKeywords} />
+
       {/* 프로필(색) 섹션 — 분류 수정 모달과 같은 문법(공용 컴포넌트). 미리보기는 # 타일로 미러. */}
-      <ProfileColorSection
+      {/* 태그는 기본 색 프로필로 고정 — 색 선택 UI 비활성(요청으로 보류). color는 저장 시 기존 값을 그대로 유지해 보낸다. */}
+      {/* <ProfileColorSection
         key={session?.tag.id ?? 'none'}
         color={color}
         onChange={setColor}
         renderSwatch={(c, size) => <HashTile color={c} size={size} />}
-      />
+      /> */}
       {error ? (
         <Text variant="caption" color={colors.textSecondary} style={styles.error}>
           {error}
@@ -375,12 +387,14 @@ function TagAllEditHost({
         onSubmitEditing={submit}
       />
       {/* 프로필(색) 섹션 — 미리보기는 # 타일로 미러(태그 문법). */}
-      <ProfileColorSection
+      {/* 태그는 기본 색 프로필로 고정 — 색 선택 UI 비활성(요청으로 보류). color는 저장 시 기존 값을 그대로 유지해 보낸다.
+          (설명 입력은 태그 전체 프로필의 실질 기능이라 남기고, 진입점은 그대로 둔다.) */}
+      {/* <ProfileColorSection
         key={session ? 'tagall' : 'none'}
         color={color}
         onChange={setColor}
         renderSwatch={(c, size) => <HashTile color={c} size={size} />}
-      />
+      /> */}
       {error ? (
         <Text variant="caption" color={colors.textSecondary} style={styles.error}>
           {error}

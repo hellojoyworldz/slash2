@@ -145,15 +145,20 @@ export function MoreScreen({
   const tokenRef = useRef(token);
   tokenRef.current = token;
 
-  // 확정된 순서를 낙관적으로 반영(컨텍스트 → 탭바/레일 전파) + 서버 저장.
-  // 실패해도 로컬(컨텍스트)은 유지 — 세션 내 재정렬 보존(AutoScreen과 동일 관례).
+  // 확정된 순서를 낙관적으로 반영(컨텍스트 → 탭바/레일 전파) + 서버 저장. 실패 시 이전 순서로 복원.
   const commitMenuOrder = useCallback(
     (ids: string[]) => {
       const next = ids as TabKey[];
+      const prev = menuOrderRef.current as TabKey[];
       setMenuOrder(next);
       setTabOrder(next);
       const tk = tokenRef.current;
-      if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => {});
+      if (tk) {
+        api.updateProfile(tk, { tabOrder: next }).catch(() => {
+          setMenuOrder(prev);
+          setTabOrder(prev);
+        });
+      }
     },
     [setTabOrder],
   );

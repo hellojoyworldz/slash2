@@ -13,7 +13,7 @@ interface Props {
   onChange: (filter: ListFilter) => void;
 }
 
-// 자동구분 칩 줄: [전체][장소][영상][상품][글][메모].
+// 자동구분 칩 줄: [전체][장소][영상][상품][메모].
 // 1px border, 라운드 0, 활성 = ink 채움 + inverse 글자(DESIGN.md 활성 선택 문법).
 export function AutoChips({ value, onChange }: Props) {
   const { t } = useTranslation();

@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react-native';
 import { api, Tag } from '../api';
 import { useAuth } from '../auth';
+import { useCollapsedSections } from '../collapsed-sections';
 import { HashTile } from '../components/HashTile';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
@@ -77,9 +78,10 @@ export function TagsScreen({
   const { width } = useWindowDimensions();
   const isDesktop = width >= layout.desktopBreakpoint;
 
-  // 두 섹션(즐겨찾기·태그) 접기/펼치기 — 화면 로컬 state로 충분(분류 탭과 동일).
-  const [favoritesExpanded, setFavoritesExpanded] = useState(true);
-  const [tagsExpanded, setTagsExpanded] = useState(true);
+  // 두 섹션(즐겨찾기·태그) 접기/펼치기 — 서버 저장(분류 탭과 동일 계약).
+  const { isCollapsed, toggle: toggleSection } = useCollapsedSections();
+  const favoritesExpanded = !isCollapsed('tags.favorites');
+  const tagsExpanded = !isCollapsed('tags.list');
 
   // 즐겨찾기 섹션 = favorite=true인 태그만, favoritePosition 오름차순(없으면 맨 뒤)으로 정렬.
   // 본 목록(태그) 순서와 독립 — 즐겨찾기해도 '태그' 섹션에서 빠지지 않고 두 섹션 모두에 보인다.
@@ -365,6 +367,7 @@ export function TagsScreen({
       {!embedded ? (
         <TabHeader
           title={t('tags.tabTitle')}
+          subtitle={t('tags.info')}
           actions={[
             {
               key: 'add',
@@ -454,7 +457,7 @@ export function TagsScreen({
               <>
                 <TouchableOpacity
                   style={styles.sectionRow}
-                  onPress={() => setFavoritesExpanded((v) => !v)}
+                  onPress={() => toggleSection('tags.favorites')}
                   activeOpacity={0.6}
                   accessibilityRole="button"
                   accessibilityState={{ expanded: favoritesExpanded }}
@@ -495,7 +498,7 @@ export function TagsScreen({
             {tags.length > 0 ? (
               <TouchableOpacity
                 style={styles.sectionRow}
-                onPress={() => setTagsExpanded((v) => !v)}
+                onPress={() => toggleSection('tags.list')}
                 activeOpacity={0.6}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: tagsExpanded }}

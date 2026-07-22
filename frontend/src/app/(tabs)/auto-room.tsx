@@ -10,14 +10,7 @@ import { layout } from '../../theme';
 
 // 자동구분 방 라우트. 데스크톱에서는 스플릿뷰 오른쪽 패널이 담당하므로
 // 방 선택만 넘기고 자동구분 탭으로 돌려보낸다(친구 방의 /chat과 같은 구조).
-const AUTO_KINDS: readonly AutoKind[] = [
-  'place',
-  'video',
-  'item',
-  'article',
-  'memo',
-  'link',
-];
+const AUTO_KINDS: readonly AutoKind[] = ['place', 'video', 'item', 'memo', 'link'];
 
 function parseKind(value: unknown): AutoKind | null {
   return typeof value === 'string' &&
