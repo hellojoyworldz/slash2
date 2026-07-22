@@ -137,6 +137,7 @@ export default {
       tags: 'タグ',
       editContent: '編集',
       editCategory: 'カテゴリ',
+      refreshPreview: 'プレビューを再取得',
     },
     // コピー・共有後の短い確認
     copied: 'コピーしました',

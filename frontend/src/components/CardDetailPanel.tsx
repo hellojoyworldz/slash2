@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Image,
   Linking,
   Platform,
   Pressable,
@@ -18,6 +17,7 @@ import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { Button } from './Button';
 import { LinkDataRow } from './LinkDataRow';
+import { RemoteImage } from './RemoteImage';
 import { Text } from './Text';
 
 // 가격 표기(MessageBubble와 동일 규칙) — KRW는 ₩, 그 외는 통화코드 + 금액.
@@ -162,7 +162,7 @@ export function CardDetailPanel({
           showsVerticalScrollIndicator={false}
         >
           {thumbUri ? (
-            <Image source={{ uri: thumbUri }} style={styles.thumb} resizeMode="cover" />
+            <RemoteImage uri={thumbUri} style={styles.thumb} resizeMode="cover" />
           ) : null}
 
           {/* 제목 — 링크만(메모는 아래 본문에 전문 표시). */}

@@ -137,6 +137,7 @@ export default {
       tags: 'Tags',
       editContent: 'Edit',
       editCategory: 'Category',
+      refreshPreview: 'Reload preview',
     },
     // Short confirmation after copy/share
     copied: 'Copied',

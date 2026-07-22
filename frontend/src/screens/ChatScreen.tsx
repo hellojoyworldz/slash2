@@ -76,8 +76,15 @@ export function ChatScreen({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 전송·삭제·분류 성공 시 채팅 목록 갱신 + 900px 교차용 draft 저장/복원.
   // roomsVersion은 분류 프로필(색) 편집 신호 — 열린 대화의 말풍선 색을 갱신하는 데 쓴다.
-  const { bumpRooms, roomsVersion, saveChatDraft, readChatDraft, setTag } =
-    useSelectedRoom();
+  const {
+    bumpRooms,
+    roomsVersion,
+    saveChatDraft,
+    readChatDraft,
+    setTag,
+    pollPreview,
+    subscribePreview,
+  } = useSelectedRoom();
   // 분류/전체 프로필 편집기(루트 상주) — 헤더 펜 아이콘에서 연다.
   const { open: openCategoryEditor } = useCategoryEdit();
   // 태그 이름·설명 수정 폼(루트 상주) — 태그 방 헤더 펜에서 연다.
@@ -145,6 +152,20 @@ export function ChatScreen({
     setMessages((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
     bumpRooms();
   };
+
+  // 비동기 미리보기 폴링이 채운 갱신 메시지를 목록·공지 배너에 교체 반영한다(전송한 화면이 이 화면이든,
+  // 900px 스왑으로 새로 마운트된 화면이든 동일하게). 어느 방에서 보냈든 자기 목록에 있으면 교체.
+  useEffect(
+    () =>
+      subscribePreview((updated) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === updated.id ? updated : m)),
+        );
+        setNoticeMessage((n) => (n && n.id === updated.id ? updated : n));
+        bumpRooms();
+      }),
+    [subscribePreview, bumpRooms],
+  );
 
   // 메시지 상세 모달 페이로드 조립 — 공지 배너 탭·⋮ 메뉴의 "상세보기"·"내용 수정"이 공유한다.
   // 분류명·색·태그명은 현재 로드된 friends/tags/selfColor에서 뽑는다.
@@ -417,6 +438,9 @@ export function ChatScreen({
       );
       setMessages((prev) => [message, ...prev]);
       bumpRooms();
+      // 링크 메시지는 언퍼얼 전(og 빈 카드)으로 즉시 떴으니, 백그라운드 채움을 폴링해 카드를 교체한다.
+      // 폴링은 루트(selected-room)에 있어 900px 스왑으로 이 화면이 언마운트돼도 계속된다.
+      pollPreview(message);
       // 새 메시지가 반영된 다음 프레임에 최하단(방금 보낸 메시지)으로 스크롤.
       // inverted라 offset 0이 화면 아래. 검색 중이라 새 메시지가 결과에 없어도 안전(맨 아래로).
       requestAnimationFrame(() => {

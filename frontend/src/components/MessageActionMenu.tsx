@@ -7,6 +7,7 @@ import {
   Hash,
   Megaphone,
   Pencil,
+  RefreshCw,
   Share2,
   Slash,
   Trash2,
@@ -37,6 +38,10 @@ interface Props {
   onTags: () => void;
   onEditContent: () => void;
   onEditCategory: () => void;
+  /** 미리보기 다시 불러오기 — 링크 메시지에만 노출(canRefreshPreview). */
+  onRefreshPreview: () => void;
+  /** 이 메시지가 링크 메시지인지 — 미리보기 다시 불러오기 행 노출 여부. */
+  canRefreshPreview: boolean;
   onDelete: () => void;
 }
 
@@ -57,6 +62,8 @@ export function MessageActionMenu({
   onTags,
   onEditContent,
   onEditCategory,
+  onRefreshPreview,
+  canRefreshPreview,
   onDelete,
 }: Props) {
   const { t } = useTranslation();
@@ -100,6 +107,17 @@ export function MessageActionMenu({
     { key: 'editCategory', label: t('chat.menu.editCategory'), Icon: Slash, onPress: onEditCategory },
     { key: 'tags', label: t('chat.menu.tags'), Icon: Hash, onPress: onTags },
     { key: 'editContent', label: t('chat.menu.editContent'), Icon: Pencil, onPress: onEditContent },
+    // 미리보기 다시 불러오기 — 링크 메시지에만. 간헐적 봇 차단으로 og가 비어 왔을 때 재시도.
+    ...(canRefreshPreview
+      ? [
+          {
+            key: 'refreshPreview',
+            label: t('chat.menu.refreshPreview'),
+            Icon: RefreshCw,
+            onPress: onRefreshPreview,
+          },
+        ]
+      : []),
   ];
 
   const renderRow = (

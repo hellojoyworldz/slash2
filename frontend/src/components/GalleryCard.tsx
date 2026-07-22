@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Megaphone } from 'lucide-react-native';
 import { LinkType, Message } from '../api';
 import { formatDateStamp } from '../time';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { RemoteImage } from './RemoteImage';
 import { Text } from './Text';
 
 // 자동구분 종류 → 카드 꼬리표(대문자 모노 글리프). 미분류 링크는 LINK, 메모는 MEMO.
@@ -64,7 +65,7 @@ export function GalleryCard({
       accessibilityRole={isLink ? (isPlace ? 'button' : 'link') : undefined}
     >
       {thumbUri ? (
-        <Image source={{ uri: thumbUri }} style={styles.thumb} resizeMode="cover" />
+        <RemoteImage uri={thumbUri} style={styles.thumb} resizeMode="cover" />
       ) : (
         <View style={styles.thumbPlaceholder}>
           <Text style={styles.placeholderGlyph} color={colors.textTertiary}>

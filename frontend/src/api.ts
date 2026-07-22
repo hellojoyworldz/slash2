@@ -350,6 +350,10 @@ export const api = {
       token,
     }),
 
+  // 본인 메시지 단건 조회. 링크 전송 직후 비동기 미리보기(언퍼얼)가 채워졌는지 폴링으로 재조회할 때 쓴다.
+  getMessage: (token: string, id: string) =>
+    request<Message>(`/messages/${id}`, { token }),
+
   listRooms: (token: string) => request<RoomsSummary>('/messages/rooms', { token }),
 
   deleteMessage: (token: string, id: string) =>
@@ -390,6 +394,14 @@ export const api = {
     request<Message>(`/messages/${id}`, {
       method: 'PATCH',
       body: changes,
+      token,
+    }),
+
+  // 메시지의 링크 미리보기(og·자동구분)를 다시 불러온다. 간헐적 봇 차단으로 미리보기가
+  // 비어 왔을 때 수동 재시도용. 멀티링크면 서버가 전부 재시도해 갱신된 메시지를 반환한다.
+  refreshMessagePreview: (token: string, id: string) =>
+    request<Message>(`/messages/${id}/refresh-preview`, {
+      method: 'POST',
       token,
     }),
 

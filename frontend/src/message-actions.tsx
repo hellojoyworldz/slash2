@@ -6,12 +6,14 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { Friend, Message } from './api';
+import { useTranslation } from 'react-i18next';
+import { api, Friend, Message } from './api';
 import { useAuth } from './auth';
 import { useCategoryEdit } from './category-edit';
 import { CategoryPickerModal } from './components/CategoryPickerModal';
 import { MessageActionMenu } from './components/MessageActionMenu';
 import { TagPickerModal } from './components/TagPickerModal';
+import { notify } from './notify';
 import { useTagCreate } from './tag-create';
 
 // 메시지 액션(⋮ 메뉴 · 태그 선택)을 루트에 상주시킨다.
@@ -182,6 +184,7 @@ export function MessageActionsProvider({ children }: { children: ReactNode }) {
 // 루트(Shell)에서 NotifyHost 바로 앞에 마운트한다. NotifyHost가 뒤(위)라
 // 태그 삭제 확인 다이얼로그가 태그 모달 위에 정상적으로 뜬다.
 export function MessageActionsHost() {
+  const { t } = useTranslation();
   const ctx = useContext(SessionContext);
   // 선택 픽커 "전체" 행 — 분류 부제(selfDescription)·태그 전체 색/부제(tagAll*)를 auth에서 직접 읽는다.
   const { token, selfDescription, tagAllColor, tagAllDescription } = useAuth();
@@ -204,6 +207,20 @@ export function MessageActionsHost() {
   const goStep = (step: Step) =>
     setSession(session ? { ...session, step } : null);
 
+  // 미리보기 다시 불러오기 — 링크 메시지 전용. 메뉴를 닫고 서버에 재언퍼얼을 요청한 뒤,
+  // 성공하면 onSaved로 목록/상세를 조용히 갱신한다(기존 수정 저장 후 갱신 문법 미러링).
+  // 실패는 조용히 알림만.
+  const refreshPreview = () => {
+    const msg = session?.message;
+    const onSaved = session?.onSaved;
+    setSession(null);
+    if (!token || !msg) return;
+    api
+      .refreshMessagePreview(token, msg.id)
+      .then((updated) => onSaved?.(updated))
+      .catch(() => notify(t('common.notice'), t('chat.tryAgainLater')));
+  };
+
   return (
     <>
       <MessageActionMenu
@@ -217,6 +234,8 @@ export function MessageActionsHost() {
         onTags={() => goStep('tags')}
         onEditContent={() => runAndClose(() => session?.onEditContent?.())}
         onEditCategory={() => goStep('category')}
+        onRefreshPreview={refreshPreview}
+        canRefreshPreview={session?.message?.kind === 'link'}
         onDelete={() => runAndClose(() => session?.onDelete?.())}
       />
 

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +26,8 @@ const MAX_LINKS = 5;
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(
     @InjectRepository(Message) private readonly messages: Repository<Message>,
     @InjectRepository(Friend) private readonly friends: Repository<Friend>,
@@ -98,49 +101,70 @@ export class MessagesService {
     const trimmed = content.trim();
     // content에 등장한 URL을 순서대로 최대 MAX_LINKS개 추출(동일 URL은 첫 등장만).
     const urls = this.extractUrls(trimmed);
+    const isLink = urls.length > 0;
 
     const message = this.messages.create({
       userId,
       friendId: friendId ?? null,
       content: trimmed,
-      kind: urls.length ? 'link' : 'text',
+      kind: isLink ? 'link' : 'text',
       url: urls[0] ?? null,
       // ManyToMany 조인행(message_tags)은 save 시 관계 배열로 동기화된다(update 경로와 동일).
       tags,
     });
 
-    if (urls.length) {
-      // 각 링크를 기존 파이프라인으로 병렬 언퍼얼. 개별 실패는 그 링크만 빈 필드로
-      // (best-effort) — 아래 unpackLink가 내부에서 방어하므로 reject되지 않지만,
-      // 만일에 대비해 allSettled로 감싸 전체 예외를 원천 차단한다.
-      const settled = await Promise.allSettled(
-        urls.map((u) => this.unpackLink(u)),
-      );
-      const links: MessageLink[] = settled.map((res, i) =>
-        res.status === 'fulfilled' ? res.value : this.emptyLink(urls[i]),
-      );
-
-      message.links = links;
-      // 레거시 단일 필드 = 첫 링크(links[0]) — 자동구분·보드·rooms lastMessage 호환.
-      const [first] = links;
-      message.ogTitle = first.ogTitle;
-      message.ogDescription = first.ogDescription;
-      message.ogImage = first.ogImage;
-      message.siteName = first.siteName;
-      message.linkType = first.linkType;
-      message.linkMeta = first.linkMeta;
+    if (isLink) {
+      // 카톡식 비동기 미리보기: 언퍼얼을 기다리지 않고 url만 담은 빈 링크 원소로 즉시 저장한다
+      // (og·linkType 비움). 실제 언퍼얼과 og 기준 키워드 매칭은 저장 직후 백그라운드에서 수행한다.
+      message.links = urls.map((url) => this.emptyLink(url));
+    } else {
+      // 텍스트 메모는 언퍼얼이 없으니 본문 기준 키워드 매칭을 저장 시 즉시 수행한다(제거는 안 함).
+      message.tags = await this.mergeKeywordTags(userId, message, tags);
     }
 
-    // 키워드 자동부착: 링크 언퍼얼로 og 필드가 채워진 '후'에 매칭해야 링크 제목 키워드를 놓치지 않는다.
-    // 본인 태그 중 키워드가 있는 것들과 매칭해 수동 태그와 합쳐 부착한다(제거는 안 함).
-    const finalTags = await this.mergeKeywordTags(userId, message, tags);
-    message.tags = finalTags;
-
     const saved = await this.messages.save(message);
+
+    if (isLink) {
+      // fire-and-forget: 응답을 막지 않고 백그라운드로 언퍼얼 → og·linkType·키워드 태그를 갱신한다.
+      // 예외는 내부에서 전부 catch(프로세스 크래시 금지). await하지 않는다.
+      void this.unpackInBackground(saved.id, userId, urls);
+    }
+
     return this.toResponse(
       saved,
-      finalTags.map((tag) => tag.id),
+      message.tags.map((tag) => tag.id),
     );
+  }
+
+  /** 저장 직후 백그라운드(fire-and-forget) 언퍼얼. 링크를 실제로 언퍼얼해 og·linkType·linkMeta를
+   *  채워 넣고, og가 채워진 뒤의 키워드 태그 매칭까지 수행해 그 메시지 row를 갱신 저장한다.
+   *  - 예외는 전부 catch+로그(프로세스 크래시 금지).
+   *  - 그 사이 메시지가 삭제됐으면 조용히 스킵(재조회 결과 없음 허용).
+   *  - 수정과의 레이스는 마지막 저장 승리 수준으로 충분: 최신 row를 다시 읽어 그 위에 반영한다. */
+  private async unpackInBackground(
+    id: string,
+    userId: string,
+    urls: string[],
+  ): Promise<void> {
+    try {
+      const links = await this.unpackAll(urls);
+      // 언퍼얼 도중 삭제/수정됐을 수 있으니 최신 row를 다시 읽는다(태그 관계 포함 — save가 조인행을 지우지 않게).
+      const message = await this.messages.findOne({
+        where: { id, userId },
+        relations: { tags: true },
+      });
+      if (!message) return; // 삭제됨 — 갱신 대상 없음(조용히 스킵).
+
+      this.applyLinks(message, links);
+      // og가 채워진 뒤 키워드 매칭: 현재 붙어 있는 태그(수동 + 그 사이 수정분)를 base로 삼아
+      // 키워드 매칭분을 합친다(제거는 안 함 — 사용자가 그 사이 뗀 태그는 건드리지 않는다).
+      message.tags = await this.mergeKeywordTags(userId, message, message.tags ?? []);
+      await this.messages.save(message);
+    } catch (err) {
+      this.logger.error(
+        `백그라운드 언퍼얼 실패 (message=${id}): ${(err as Error)?.message ?? err}`,
+      );
+    }
   }
 
   /** 수동 태그 + (이 메시지의 키워드 매칭 태그)를 id 기준 중복 제거해 합친다.
@@ -208,6 +232,56 @@ export class MessagesService {
       linkType: null,
       linkMeta: null,
     };
+  }
+
+  /** URL 배열을 기존 파이프라인으로 병렬 언퍼얼. 개별 실패는 그 링크만 빈 필드로
+   *  (best-effort) — unpackLink가 내부에서 방어하므로 reject되지 않지만, 만일에 대비해
+   *  allSettled로 감싸 전체 예외를 원천 차단한다. create·refreshPreview 공용. */
+  private async unpackAll(urls: string[]): Promise<MessageLink[]> {
+    const settled = await Promise.allSettled(
+      urls.map((u) => this.unpackLink(u)),
+    );
+    return settled.map((res, i) =>
+      res.status === 'fulfilled' ? res.value : this.emptyLink(urls[i]),
+    );
+  }
+
+  /** 언퍼얼된 링크 배열을 메시지에 반영한다. links 배열 + 레거시 단일 필드(links[0])를
+   *  함께 갱신해 자동구분·보드·rooms lastMessage 호환을 유지한다. create·refreshPreview 공용. */
+  private applyLinks(message: Message, links: MessageLink[]): void {
+    message.links = links;
+    const [first] = links;
+    message.ogTitle = first.ogTitle;
+    message.ogDescription = first.ogDescription;
+    message.ogImage = first.ogImage;
+    message.siteName = first.siteName;
+    message.linkType = first.linkType;
+    message.linkMeta = first.linkMeta;
+  }
+
+  /** 메시지의 링크를 다시 언퍼얼해 미리보기(og·자동구분)를 갱신한다(본인 것만).
+   *  간헐적 봇 차단으로 미리보기가 비었을 때 수동 재시도용. 멀티링크면 전부 재시도한다.
+   *  내용(content)·태그·분류는 건드리지 않는다 — 링크 미리보기 필드만 새로 채운다. */
+  async refreshPreview(userId: string, id: string): Promise<MessageResponse> {
+    // 태그 관계를 함께 로드해 save가 조인행을 지우지 않게 한다(update 경로와 동일).
+    const message = await this.messages.findOne({
+      where: { id, userId },
+      relations: { tags: true },
+    });
+    if (!message) {
+      throw new NotFoundException('메시지를 찾을 수 없습니다.');
+    }
+
+    const urls = this.extractUrls(message.content);
+    if (urls.length) {
+      const links = await this.unpackAll(urls);
+      this.applyLinks(message, links);
+      message.url = urls[0];
+      message.kind = 'link';
+    }
+
+    await this.messages.save(message);
+    return (await this.withTagIds([message]))[0];
   }
 
   /** 최신순 페이지네이션. before = 이전 페이지 마지막 메시지 id.
@@ -477,6 +551,16 @@ export class MessagesService {
 
     // save가 tags 관계 diff까지 반영(조인행 추가/삭제).
     await this.messages.save(message);
+    return (await this.withTagIds([message]))[0];
+  }
+
+  /** 본인 메시지 단건 조회(목록 응답과 동일한 직렬화 — tagIds 포함). 프론트가 비동기 미리보기가
+   *  채워졌는지 폴링으로 재조회할 때 쓴다. 없거나 남의 것이면 404. */
+  async findOneOwned(userId: string, id: string): Promise<MessageResponse> {
+    const message = await this.messages.findOne({ where: { id, userId } });
+    if (!message) {
+      throw new NotFoundException('메시지를 찾을 수 없습니다.');
+    }
     return (await this.withTagIds([message]))[0];
   }
 

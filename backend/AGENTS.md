@@ -28,3 +28,11 @@
 
 - 실행은 컨테이너 watch가 담당. 타입체크만 필요하면 `docker compose exec backend npx tsc --noEmit`.
 - 호스트 `npm run build` 금지(루트 `AGENTS.md` 참고).
+
+## 스키마 관리 (미배포 단계)
+
+- 아직 운영 DB가 없으므로 **마이그레이션을 관리하지 않는다** — 엔티티만 고치면 dev synchronize가
+  반영하고, dev 데이터는 밀어도 된다. 미리 마이그레이션 파일을 만들지 말 것(순수 오버헤드).
+- **첫 배포 직전에 할 일**: 운영은 `synchronize:false`로 게이트하고, 그 시점 엔티티로 베이스라인
+  마이그레이션 1개를 생성(빈 임시 DB에 `migration:generate`)해 부팅 시 자동 실행되게 구성한다.
+  그 이후부터만 엔티티 변경에 마이그레이션을 짝지운다.

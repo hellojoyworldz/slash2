@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { LinkType, MessageLink } from '../api';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { BrutalFrame } from './Brutal';
 import { LinkDataRow } from './LinkDataRow';
+import { RemoteImage } from './RemoteImage';
 import { Text } from './Text';
 
 // 자동구분 종류 → 출처 행 꼬리표(대문자 모노 글리프). 미분류는 LINK.
@@ -110,8 +111,8 @@ export function LinkCard({ link, comment }: Props) {
       ) : null}
       {thumbUri ? (
         <View style={styles.thumbWrap}>
-          <Image
-            source={{ uri: thumbUri }}
+          <RemoteImage
+            uri={thumbUri}
             style={styles.thumbnail}
             resizeMode="cover"
           />

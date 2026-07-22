@@ -52,6 +52,25 @@ export class MessagesController {
     return this.messages.getNotice(user.id, query.friendId);
   }
 
+  // 본인 메시지 단건 조회. 비동기 미리보기(언퍼얼)가 채워졌는지 프론트가 폴링으로 재조회한다.
+  // 정적 GET 라우트(rooms·auto-counts·notice) 아래에 둬야 그 경로들이 :id로 잡히지 않는다.
+  @Get(':id')
+  findOne(
+    @CurrentUser() user: { id: string },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.messages.findOneOwned(user.id, id);
+  }
+
+  // 메시지의 링크 미리보기(og·자동구분)를 다시 불러온다(본인 것만). 멀티링크면 전부 재시도.
+  @Post(':id/refresh-preview')
+  refreshPreview(
+    @CurrentUser() user: { id: string },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.messages.refreshPreview(user.id, id);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: { id: string },

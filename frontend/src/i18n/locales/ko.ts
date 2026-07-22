@@ -138,6 +138,7 @@ export default {
       tags: '태그',
       editContent: '수정',
       editCategory: '분류',
+      refreshPreview: '미리보기 다시 불러오기',
     },
     // 복사/공유 후 짧은 확인
     copied: '복사했어요',

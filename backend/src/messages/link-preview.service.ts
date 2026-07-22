@@ -16,59 +16,172 @@ export interface LinkPreviewResult {
 }
 
 const MAX_HTML_BYTES = 512 * 1024;
-const FETCH_TIMEOUT_MS = 5000;
+// 1차(봇 UA)는 짧게, 2차(브라우저 UA) 폴백은 조금 더 준다 — 총 소요를 ~9초로 묶는다.
+const FIRST_TIMEOUT_MS = 4000;
+const SECOND_TIMEOUT_MS = 5000;
+
+// 1차: 봇 UA. 일부 사이트(트위터 등)는 봇 UA에만 OG 태그를 내려준다.
+const BOT_UA = 'facebookexternalhit/1.1 (+slash2 link preview)';
+const BOT_ACCEPT = 'text/html,application/xhtml+xml';
+// 2차 폴백: 최신 Chrome desktop UA + 일반 브라우저 Accept.
+// 봇 UA를 차단(403 등)하거나 봇 UA엔 OG를 안 주는 사이트(쿠팡·인스타 등)를 위한 재시도.
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const BROWSER_ACCEPT =
+  'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
+
+// 단발 fetch 시도의 결과. hasContent = html 파싱 + og(title/description/image) 최소 1개.
+// hasContent가 false면 다음 UA로 재시도한다.
+interface FetchAttempt {
+  preview: LinkPreview;
+  html: string | null;
+  finalUrl: string | null;
+  hasContent: boolean;
+}
+
+function emptyPreview(): LinkPreview {
+  return { title: null, description: null, image: null, siteName: null };
+}
 
 @Injectable()
 export class LinkPreviewService {
   private readonly logger = new Logger(LinkPreviewService.name);
 
-  /** 페이지를 한 번 받아 미리보기(OG)와, 분류기가 쓸 원본 HTML·최종 URL을 함께 돌려준다.
-   *  실패해도 예외를 던지지 않는다 — 미리보기는 없으면 없는 대로 저장한다. */
+  /** 페이지를 받아 미리보기(OG)와, 분류기가 쓸 원본 HTML·최종 URL을 함께 돌려준다.
+   *  실패해도 예외를 던지지 않는다 — 미리보기는 없으면 없는 대로 저장한다.
+   *  1차 봇 UA로 시도하고, og가 전무하거나(봇 차단·og 미제공) 실패하면 브라우저 UA로 1회 재시도한다. */
   async fetchPage(url: string): Promise<LinkPreviewResult> {
-    const empty: LinkPreview = {
-      title: null,
-      description: null,
-      image: null,
-      siteName: null,
+    const first = await this.attempt(
+      url,
+      BOT_UA,
+      BOT_ACCEPT,
+      FIRST_TIMEOUT_MS,
+      'bot',
+    );
+    if (first.hasContent) {
+      return {
+        preview: first.preview,
+        html: first.html,
+        finalUrl: first.finalUrl ?? url,
+      };
+    }
+
+    // 1차가 og 전무·실패 — 브라우저 UA로 폴백.
+    this.logger.warn(`link preview retrying with browser UA for ${url}`);
+    const second = await this.attempt(
+      url,
+      BROWSER_UA,
+      BROWSER_ACCEPT,
+      SECOND_TIMEOUT_MS,
+      'browser',
+    );
+    if (second.hasContent) {
+      return {
+        preview: second.preview,
+        html: second.html,
+        finalUrl: second.finalUrl ?? url,
+      };
+    }
+
+    // 둘 다 og 전무 — 분류기 입력용 html이라도 있는 쪽을 살려서 반환한다(빈 미리보기라도
+    // 전송은 막지 않는 기존 설계 유지). 둘 다 html이 없으면 1차 결과(빈 값)를 반환.
+    const best = first.html ? first : second.html ? second : first;
+    this.logger.warn(`link preview empty after fallback for ${url}`);
+    return {
+      preview: best.preview,
+      html: best.html,
+      finalUrl: best.finalUrl ?? first.finalUrl ?? second.finalUrl,
     };
+  }
+
+  /** UA 한 벌로 페이지를 한 번 받아본다. 모든 실패 경로(non-ok·non-html·예외·og 전무)를
+   *  URL과 함께 warn 로깅해 어떤 사이트가 왜 실패하는지 흔적을 남긴다. 예외를 던지지 않는다. */
+  private async attempt(
+    url: string,
+    userAgent: string,
+    accept: string,
+    timeoutMs: number,
+    label: string,
+  ): Promise<FetchAttempt> {
     try {
       const response = await fetch(url, {
         redirect: 'follow',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: {
-          // 일부 사이트(트위터 등)는 봇 UA에만 OG 태그를 내려준다.
-          'User-Agent': 'facebookexternalhit/1.1 (+slash2 link preview)',
-          Accept: 'text/html,application/xhtml+xml',
+          'User-Agent': userAgent,
+          Accept: accept,
           'Accept-Language': 'ko,en;q=0.8',
         },
       });
+      const finalUrl = response.url || url;
       const contentType = response.headers.get('content-type') ?? '';
-      if (!response.ok || !contentType.includes('html')) {
-        return { preview: empty, html: null, finalUrl: response.url || url };
+      if (!response.ok) {
+        this.logger.warn(
+          `link preview [${label}] non-ok(${response.status}) for ${url}`,
+        );
+        return {
+          preview: emptyPreview(),
+          html: null,
+          finalUrl,
+          hasContent: false,
+        };
+      }
+      if (!contentType.includes('html')) {
+        this.logger.warn(
+          `link preview [${label}] non-html(${contentType || '?'}) for ${url}`,
+        );
+        return {
+          preview: emptyPreview(),
+          html: null,
+          finalUrl,
+          hasContent: false,
+        };
       }
       const html = await this.readHtml(response);
-      const pick = (...names: string[]) => {
-        for (const name of names) {
-          const value = this.metaContent(html, name);
-          if (value) return value;
-        }
-        return null;
-      };
-      const preview: LinkPreview = {
-        title: pick('og:title', 'twitter:title') ?? this.titleTag(html),
-        description: pick(
-          'og:description',
-          'twitter:description',
-          'description',
-        ),
-        image: this.resolveUrl(pick('og:image', 'twitter:image'), response.url),
-        siteName: pick('og:site_name') ?? new URL(response.url).hostname,
-      };
-      return { preview, html, finalUrl: response.url || url };
+      const preview = this.parsePreview(html, finalUrl);
+      const hasContent = !!(
+        preview.title ||
+        preview.description ||
+        preview.image
+      );
+      if (!hasContent) {
+        this.logger.warn(`link preview [${label}] no-og for ${url}`);
+      }
+      return { preview, html, finalUrl, hasContent };
     } catch (error) {
-      this.logger.warn(`link preview failed for ${url}: ${String(error)}`);
-      return { preview: empty, html: null, finalUrl: null };
+      this.logger.warn(
+        `link preview [${label}] error for ${url}: ${String(error)}`,
+      );
+      return {
+        preview: emptyPreview(),
+        html: null,
+        finalUrl: null,
+        hasContent: false,
+      };
     }
+  }
+
+  /** 받은 HTML에서 OG/twitter 메타를 뽑아 미리보기로 만든다. */
+  private parsePreview(html: string, baseUrl: string): LinkPreview {
+    const pick = (...names: string[]) => {
+      for (const name of names) {
+        const value = this.metaContent(html, name);
+        if (value) return value;
+      }
+      return null;
+    };
+    let hostname: string | null = null;
+    try {
+      hostname = new URL(baseUrl).hostname;
+    } catch {
+      hostname = null;
+    }
+    return {
+      title: pick('og:title', 'twitter:title') ?? this.titleTag(html),
+      description: pick('og:description', 'twitter:description', 'description'),
+      image: this.resolveUrl(pick('og:image', 'twitter:image'), baseUrl),
+      siteName: pick('og:site_name') ?? hostname,
+    };
   }
 
   /** HTML을 캡(512KB)까지 읽는다. OG 태그는 <head>에 있지만 JSON-LD 구조화 데이터는

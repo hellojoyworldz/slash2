@@ -150,7 +150,8 @@ export function ListBoardScreen({
   // 자동구분 보드 섹션 순서(사용자 순서 우선, 없으면 기본).
   const autoKindOrder = useMemo(() => resolveAutoOrder(autoOrder), [autoOrder]);
   // 생성·삭제·분류 변경을 채팅형 목록과 동기화하는 신호.
-  const { bumpRooms, roomsVersion } = useSelectedRoom();
+  const { bumpRooms, roomsVersion, pollPreview, subscribePreview } =
+    useSelectedRoom();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
@@ -457,6 +458,10 @@ export function ListBoardScreen({
     bumpRooms();
   }, [bumpRooms]);
 
+  // 비동기 미리보기 폴링이 채운 갱신 메시지를 목록·상세 패널에 교체 반영한다(채팅형과 동일한 공용 경로).
+  // 900px 스왑으로 이 화면이 새로 마운트돼도 구독만 다시 걸면 폴링 결과가 그대로 들어온다.
+  useEffect(() => subscribePreview(applyUpdated), [subscribePreview, applyUpdated]);
+
   // ⋮ 메뉴 [내용 수정] 전용 상세 모달 페이로드 — ChatScreen의 buildDetailPayload와 동등한
   // 조립(분류명·색·태그명은 friends/tags 상태에서). onSaved는 기존 목록·패널 동기화(applyUpdated)를
   // 그대로 태운다. startInEdit=true로 열어 상세 모달이 곧바로 인라인 수정 모드로 시작한다.
@@ -640,6 +645,8 @@ export function ListBoardScreen({
     try {
       const msg = await api.createMessage(token, content, createFriendId ?? undefined);
       setMessages((prev) => [msg, ...prev]);
+      // 링크 메시지는 언퍼얼 전(og 빈 카드)으로 즉시 떴으니, 백그라운드 채움을 폴링해 카드를 교체한다.
+      pollPreview(msg);
       // 필터가 걸려 있으면 방금 만든 게 가려질 수 있어 '전체'로 되돌린다.
       setAutoFilter('all');
       bumpRooms();
