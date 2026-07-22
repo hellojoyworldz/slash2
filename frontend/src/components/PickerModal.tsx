@@ -19,10 +19,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Trash2 } from 'lucide-react-native';
+import { GestureDetector } from 'react-native-gesture-handler';
+import { ChevronDown, ChevronRight } from 'lucide-react-native';
+import { useTranslation } from 'react-i18next';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { useVarReorder, VarReorderControls, VarReorderRow } from '../use-reorder';
 import { Button } from './Button';
+import { SwipeableRow, SwipeableRowMethods, SwipeAction } from './SwipeableRow';
 import { Text } from './Text';
 
 // 픽커 안에서 "특정 항목으로 스크롤"을 위한 배선. 각 행이 스크롤 콘텐츠 기준 자기 y offset을
@@ -44,6 +48,129 @@ export function usePickerRowScroll(key?: string) {
     [ctx, key],
   );
 }
+
+// 픽커 목록 "드래그 순서 변경" 배선. 본 목록(분류·태그)과 같은 리스트 문법을 픽커 안 ScrollView로
+// 옮긴 것 — 꾹(250ms) 눌러 세로 드래그, 잡은 행 들림(LIFT), 이동 기반 hop, 놓을 때 1회 커밋.
+// PickerModal이 컨트롤을 만들어 컨텍스트로 내려주고, 각 픽커가 재정렬 대상 행을 PickerReorderRow로
+// 감싼다. 커밋(본 목록과 같은 순서 API·낙관 반영)은 각 픽커가 reorder.onReorder로 준다.
+interface PickerReorderCtx {
+  /** 재정렬 대상 key들의 현재 표시 순서(index 계산의 원천). */
+  order: string[];
+  controls: VarReorderControls;
+  /** 각 행이 자기 실측 높이를 등록(가변 높이 hop 계산에 쓴다). */
+  registerHeight: (key: string, h: number) => void;
+}
+const PickerReorderContext = createContext<PickerReorderCtx | null>(null);
+
+// 드래그 세션 직후 따라오는 자식 DOM click(행 탭 → 선택/수정, 휴지통 삭제)을 눌러 무시하는 가드.
+// 반환 함수가 true면 "지금 무시하라"(드래그 세션 중/직후). 재정렬 컨텍스트 밖(예: 전체(미분류) 행,
+// 재정렬 비활성)에서는 항상 false라 평소 탭은 그대로 동작한다. 탭 재정렬 didDragRef와 같은 패턴.
+// 꾹 눌렀다 이동 없이 뗀 승격 탭은 onFinalize가 onActivate로 직접 발화하므로, 이 가드가 막아도
+// 이중 발화 없이 한 번만 동작한다(자식 click은 여기서 막고, 승격은 우회 경로로).
+export function usePickerReorderGuard() {
+  const ctx = useContext(PickerReorderContext);
+  return useCallback(() => ctx?.controls.didDragRef.current ?? false, [ctx]);
+}
+
+// 픽커 행 왼→오 스와이프 액션([수정][삭제]) 배선 — 본 목록(분류·태그 탭)의 스와이프 문법을 픽커 안으로
+// 옮긴 것. 본 목록처럼 "한 번에 한 행만 열림"(다른 행 스와이프 시 이전 행 닫기) + "드래그 직후 오탭 무시"를
+// 모달 레벨의 refs로 조정한다. PickerModal이 컨텍스트를 내려주고, PickerReorderRow가 대상 행을
+// SwipeableRow로 감싼다. 스와이프(가로)·세로 드래그(재정렬)·탭(선택/수정)은 본 목록과 같은 방향·타이밍
+// 규칙(withDragActivation: activeOffsetY ±6 + failOffsetX ±12, 스와이프: activeOffsetX ±10)으로 공존한다.
+interface PickerSwipeCtx {
+  /** SwipeableRow 메서드 등록(닫기 명령용). null이면 해제(언마운트). */
+  register: (key: string, methods: SwipeableRowMethods | null) => void;
+  /** 열림/닫힘 알림 — 열리면 이전에 열린 행을 닫는다(한 번에 하나만). */
+  onOpenChange: (key: string, open: boolean) => void;
+  /** 스와이프 드래그 시작/끝 알림(끝나고 잠깐 뒤 false) — 드래그 직후 오탭 무시용. */
+  setDragging: (dragging: boolean) => void;
+  /** 지금 스와이프 드래그 중(직후 포함)인가 — 행 탭 가드. */
+  isDragging: () => boolean;
+  /** 이 행이 현재 열려 있는가. */
+  isOpen: (key: string) => boolean;
+  /** 이 행의 스와이프를 닫는다. */
+  closeRow: (key: string) => void;
+}
+const PickerSwipeContext = createContext<PickerSwipeCtx | null>(null);
+
+// 행 탭(선택/수정) 직전에 부르는 스와이프 가드. 반환 true면 "이 탭은 무시하라":
+//  · 스와이프 드래그 직후(오탭) → 무시.
+//  · 이 행이 이미 열려 있으면 → 스와이프를 닫고 탭을 무시(본 목록 openRow와 같은 규칙).
+// 스와이프 컨텍스트 밖(예: '전체(미분류)' 행)이나 key가 없으면 항상 false라 평소 탭은 그대로 동작한다.
+export function usePickerSwipeTapGuard(rowKey?: string) {
+  const ctx = useContext(PickerSwipeContext);
+  return useCallback(() => {
+    if (!ctx || !rowKey) return false;
+    if (ctx.isDragging()) return true;
+    if (ctx.isOpen(rowKey)) {
+      ctx.closeRow(rowKey);
+      return true;
+    }
+    return false;
+  }, [ctx, rowKey]);
+}
+
+// 재정렬 대상 행 래퍼 — 본 목록의 (Var)ReorderRow + 롱프레스 드래그 제스처를 픽커 행에 씌운다.
+// reorder가 없거나(비활성) 이 key가 순서 목록에 없으면(예: 전체(미분류) 행) 그대로 자식만 렌더.
+// 행 기존 상호작용(탭=선택/수정, 휴지통 삭제)은 자식(PickerRow) 내부 Pressable이 그대로 처리하고,
+// 드래그는 250ms 롱프레스 뒤에만 활성돼 Race로 공존한다(리스트 문법 그대로).
+export function PickerReorderRow({
+  rowKey,
+  swipeActions,
+  children,
+}: {
+  rowKey: string;
+  /** 왼→오 스와이프로 드러나는 액션([수정][삭제]). 없으면 스와이프 없음('전체' 행 등 비대상은 애초에 미감쌈). */
+  swipeActions?: SwipeAction[];
+  children: ReactNode;
+}) {
+  const ctx = useContext(PickerReorderContext);
+  const swipe = useContext(PickerSwipeContext);
+  const onLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      ctx?.registerHeight(rowKey, e.nativeEvent.layout.height);
+    },
+    [ctx, rowKey],
+  );
+  // 본 목록과 같은 배치: (Var)ReorderRow > SwipeableRow > GestureDetector(세로 드래그) > 행.
+  // 스와이프 컨텍스트·액션이 있을 때만 SwipeableRow로 감싼다(없으면 그대로 — 스와이프 없는 행).
+  const withSwipe = (inner: ReactNode): ReactNode =>
+    swipe && swipeActions && swipeActions.length > 0 ? (
+      <SwipeableRow
+        ref={(r) => swipe.register(rowKey, r)}
+        actions={swipeActions}
+        onDragStateChange={(dragging) => swipe.setDragging(dragging)}
+        onOpenChange={(open) => swipe.onOpenChange(rowKey, open)}
+      >
+        {inner}
+      </SwipeableRow>
+    ) : (
+      inner
+    );
+  if (!ctx) return <>{withSwipe(children)}</>;
+  const index = ctx.order.indexOf(rowKey);
+  if (index < 0) return <>{withSwipe(children)}</>;
+  const isDragging = ctx.controls.draggingId === rowKey;
+  return (
+    // 잡은 행은 이 래퍼(형제 래퍼들과 같은 레벨)를 z-lift해 이웃 위로 올린다 — 내부 LIFT zIndex는
+    // 한 단계 안쪽이라 형제 래퍼를 못 넘으므로 래퍼 자체를 든다(그림자 금지, z만).
+    <View onLayout={onLayout} style={isDragging ? reorderRowStyles.reorderLifted : undefined}>
+      <VarReorderRow index={index} isDragging={isDragging} controls={ctx.controls}>
+        {withSwipe(
+          // GestureDetector의 직계 자식은 host ref를 줘야 한다(웹에서 DOM 노드 부착) —
+          // PickerRow류는 일반 함수 컴포넌트라 ref가 없으므로 View로 감싼다.
+          <GestureDetector gesture={ctx.controls.getGesture(rowKey)}>
+            <View collapsable={false}>{children}</View>
+          </GestureDetector>,
+        )}
+      </VarReorderRow>
+    </View>
+  );
+}
+
+const reorderRowStyles = StyleSheet.create({
+  reorderLifted: { zIndex: 10, elevation: 10 },
+});
 
 // 메시지 ⋮ 메뉴에서 뜨는 두 픽커(분류·태그)의 공용 골격.
 // ModalCard의 시각 문법(연한 스크림 + 중앙 카드 1px border·라운드 0·bg background·폭 360)을
@@ -84,6 +211,15 @@ interface PickerModalProps {
   scrollToKey?: string | null;
   /** 타이틀 행 오른쪽 슬롯(선택) — 전체 삭제 휴지통 등. 항목이 없을 땐 호출부가 null로 숨긴다. */
   titleAccessory?: ReactNode;
+  /** 목록 드래그 순서 변경(선택). order=재정렬 대상 key들의 표시 순서, onReorder=놓을 때 새 순서(id 배열).
+   *  대상 행은 각 픽커가 PickerReorderRow로 감싼다. 커밋 계약(본 목록과 같은 순서 API·낙관 반영)은 호출부 몫.
+   *  onActivate=꾹 눌렀다 이동 없이 뗀 "승격 탭"의 행 동작(선택/수정) — 자식 DOM Pressable을 우회한
+   *  직접 발화라 드래그 가드와 충돌하지 않는다(빠른 탭은 자식 Pressable이 그대로 처리). */
+  reorder?: {
+    order: string[];
+    onReorder: (ids: string[]) => void;
+    onActivate?: (id: string) => void;
+  } | null;
   /** 행 리스트(각 픽커가 PickerRow로 렌더). */
   children: ReactNode;
 }
@@ -108,10 +244,69 @@ export function PickerModal({
   descriptionPlaceholder,
   scrollToKey = null,
   titleAccessory,
+  reorder = null,
   children,
 }: PickerModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // ── 목록 드래그 순서 변경 배선 ──────────────────────────────────────────
+  // 본 목록(분류·태그)의 가변 높이 재정렬 엔진(useVarReorder)을 픽커 ScrollView 안에서 재사용한다.
+  // 순서/커밋은 reorder prop이 최신을 들고, 행 실측 높이는 onLayout으로 모아 hop 계산에 쓴다.
+  const reorderRef = useRef(reorder);
+  reorderRef.current = reorder;
+  const reorderOrderRef = useRef<string[]>(reorder?.order ?? []);
+  reorderOrderRef.current = reorder?.order ?? [];
+  const rowHeights = useRef<Map<string, number>>(new Map());
+  const reorderControls = useVarReorder<string>({
+    getOrder: () => reorderOrderRef.current,
+    getId: (id) => id,
+    getHeight: (id) => rowHeights.current.get(id) ?? PICKER_TILE_SIZE + 12,
+    onCommit: (nextIds) => reorderRef.current?.onReorder(nextIds),
+    // 꾹 눌렀다 이동 없이 뗌 → 행 탭(선택/수정) 승격. 픽커 행 탭은 자식 DOM Pressable이 처리하므로
+    // composeRowGesture Tap을 만들지 않는(onActivate 미전달) 대신 이 onPromote로만 승격 발화한다.
+    onPromote: (id) => reorderRef.current?.onActivate?.(id),
+  });
+  const registerHeight = useCallback((key: string, h: number) => {
+    if (h > 0) rowHeights.current.set(key, h);
+  }, []);
+  const reorderCtx = useMemo<PickerReorderCtx | null>(
+    () =>
+      reorder
+        ? { order: reorder.order, controls: reorderControls, registerHeight }
+        : null,
+    [reorder, reorderControls, registerHeight],
+  );
+
+  // ── 행 스와이프 액션 배선 ────────────────────────────────────────────────
+  // 본 목록(분류·태그 탭)의 스와이프 조정(한 번에 한 행만 열림 · 드래그 직후 오탭 무시)을 픽커에서 재현한다.
+  const swipeRefs = useRef<Map<string, SwipeableRowMethods | null>>(new Map());
+  const openRowKey = useRef<string | null>(null);
+  const swipeDragging = useRef(false);
+  const swipeCtx = useMemo<PickerSwipeCtx>(
+    () => ({
+      register: (key, methods) => {
+        if (methods) swipeRefs.current.set(key, methods);
+        else swipeRefs.current.delete(key);
+      },
+      onOpenChange: (key, open) => {
+        if (open) {
+          const prev = openRowKey.current;
+          if (prev && prev !== key) swipeRefs.current.get(prev)?.close();
+          openRowKey.current = key;
+        } else if (openRowKey.current === key) {
+          openRowKey.current = null;
+        }
+      },
+      setDragging: (dragging) => {
+        swipeDragging.current = dragging;
+      },
+      isDragging: () => swipeDragging.current,
+      isOpen: (key) => openRowKey.current === key,
+      closeRow: (key) => swipeRefs.current.get(key)?.close(),
+    }),
+    [],
+  );
 
   // 스크롤 레지스트리 — 행의 y offset을 key로 모으고, scrollToKey로 그 offset까지 스크롤한다.
   const scrollRef = useRef<ScrollView>(null);
@@ -157,6 +352,9 @@ export function PickerModal({
     if (visible) return;
     offsets.current.clear();
     pendingKey.current = null;
+    // 다음 열림에서 stale한 열림/드래그 상태로 오작동하지 않게 스와이프 상태도 초기화.
+    openRowKey.current = null;
+    swipeDragging.current = false;
   }, [visible]);
 
   // Android 하드웨어 뒤로가기(다른 모달과 동일).
@@ -248,15 +446,21 @@ export function PickerModal({
 
           {/* 목록이 길면 카드 안에서 스크롤. 행들은 scrollCtx로 자기 offset을 등록한다. */}
           <PickerScrollContext.Provider value={scrollCtx}>
-            <ScrollView
-              ref={scrollRef}
-              style={styles.scroll}
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {children}
-            </ScrollView>
+            <PickerReorderContext.Provider value={reorderCtx}>
+              <PickerSwipeContext.Provider value={swipeCtx}>
+                <ScrollView
+                  ref={scrollRef}
+                  style={styles.scroll}
+                  contentContainerStyle={styles.scrollContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  // 드래그 중엔 스크롤을 멈춰 손가락 이동이 재정렬에만 쓰이게 한다(본 목록과 동일).
+                  scrollEnabled={reorderControls.draggingId === null}
+                >
+                  {children}
+                </ScrollView>
+              </PickerSwipeContext.Provider>
+            </PickerReorderContext.Provider>
           </PickerScrollContext.Provider>
 
           {/* 픽커 공통 푸터: 우측 정렬 공용 Button.
@@ -301,17 +505,13 @@ interface PickerRowProps {
   label: string;
   /** 이름 밑 회색 한 줄(선택) — 분류·태그의 설명. 목록 화면 행과 같은 문법. */
   description?: string | null;
-  /** 행 오른쪽 휴지통(항목 삭제, 선택). 누르면 호출부가 확인창 → 삭제를 수행한다. */
-  onDelete?: () => void;
-  /** 휴지통 접근성 라벨(onDelete와 함께). */
-  deleteLabel?: string;
   /** 선택(활성) — 배경을 surface로 채운다(앱의 "선택 active" 관례, 체크 아이콘 없음). */
   selected: boolean;
   disabled?: boolean;
   onPress: () => void;
   /** 다중 선택(태그)=checkbox, 단일(분류)=radio — a11y 상태 표현만 다르다. */
   multi: boolean;
-  /** 스크롤 타깃 등록용 key(추가 직후·선택 항목으로 스크롤). 보통 항목 id. */
+  /** 스크롤 타깃 등록용 key(추가 직후·선택 항목으로 스크롤). 보통 항목 id. 스와이프 열림/닫힘 판별에도 쓴다. */
   scrollKey?: string;
 }
 
@@ -326,12 +526,14 @@ export function PickerRow({
   onPress,
   multi,
   scrollKey,
-  onDelete,
-  deleteLabel,
 }: PickerRowProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const onLayout = usePickerRowScroll(scrollKey);
+  // 드래그 세션 직후 따라오는 click을 눌러 무시(순서만 바꿨는데 선택이 새는 누수 방지).
+  const dragGuarded = usePickerReorderGuard();
+  // 스와이프 드래그 직후 오탭 무시 + 열린 행 탭 = 닫기(본 목록과 같은 규칙).
+  const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
     <Pressable
       onLayout={onLayout}
@@ -339,7 +541,11 @@ export function PickerRow({
         styles.row,
         (selected || pressed) && styles.rowActive,
       ]}
-      onPress={onPress}
+      onPress={() => {
+        if (dragGuarded()) return;
+        if (swipeGuarded()) return;
+        onPress();
+      }}
       disabled={disabled}
       accessibilityRole={multi ? 'checkbox' : 'radio'}
       accessibilityState={
@@ -361,19 +567,44 @@ export function PickerRow({
           </Text>
         ) : null}
       </View>
-      {/* 행 오른쪽 휴지통 — 항목 삭제(호출부가 확인창·삭제 담당). 행 탭(선택)과 분리된 버튼. */}
-      {onDelete ? (
-        <TouchableOpacity
-          style={styles.rowDelete}
-          onPress={onDelete}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          accessibilityRole="button"
-          accessibilityLabel={deleteLabel ?? label}
-        >
-          <Trash2 size={16} strokeWidth={2} color={colors.textTertiary} />
-        </TouchableOpacity>
-      ) : null}
     </Pressable>
+  );
+}
+
+interface PickerSectionHeaderProps {
+  /** 펼침 상태 — 접히면 호출부가 아래 행들을 숨긴다(헤더 자체는 항상 보임). */
+  expanded: boolean;
+  onToggle: () => void;
+  /** 이 섹션 행 수(전체 행 제외) — 0이어도 헤더는 그대로 보이고, 접기는 무해하다. */
+  count: number;
+}
+
+// 픽커 목록 "목록" 섹션 헤더 — 본 목록(FriendsScreen·TagsScreen·AutoScreen)의 접이식 섹션 헤더와
+// 같은 시각 문법·동작([∨/›] + 라벨 + 개수, 탭하면 접힘/펼침)을 픽커 카드 안에서 재현한다.
+// 카드가 이미 좌우 20px 인셋을 주므로 본 목록과 달리 paddingHorizontal은 두지 않는다(행들과 flush).
+export function PickerSectionHeader({ expanded, onToggle, count }: PickerSectionHeaderProps) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <TouchableOpacity
+      style={styles.sectionRow}
+      onPress={onToggle}
+      activeOpacity={0.6}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={t('common.listSection')}
+    >
+      {expanded ? (
+        <ChevronDown size={16} strokeWidth={2} color={colors.textSecondary} />
+      ) : (
+        <ChevronRight size={16} strokeWidth={2} color={colors.textSecondary} />
+      )}
+      <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
+        {t('common.listSection')}
+      </Text>
+      <Text variant="micro" color={colors.textSecondary}>{count}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -477,6 +708,18 @@ const makeStyles = (colors: ThemeColors) =>
       height: 46,
       minWidth: 92,
     },
+    // '목록' 섹션 헤더 — 본 목록 sectionRow와 같은 간격(paddingTop 16·paddingBottom 4·gap 10),
+    // 좌우는 카드 인셋을 그대로 쓰므로 paddingHorizontal 없음(행들과 flush).
+    sectionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingTop: 16,
+      paddingBottom: 4,
+      gap: 10,
+    },
+    sectionTitle: {
+      flex: 1,
+    },
     // 각 행: [타일][이름], 타일 높이 기준 최소 높이.
     row: {
       flexDirection: 'row',
@@ -497,9 +740,4 @@ const makeStyles = (colors: ThemeColors) =>
       paddingRight: 8,
     },
     rowLabel: {},
-    // 행 오른쪽 휴지통 — 조용한 tertiary, 터치는 hitSlop 보강.
-    rowDelete: {
-      paddingHorizontal: 4,
-      paddingVertical: 4,
-    },
   });

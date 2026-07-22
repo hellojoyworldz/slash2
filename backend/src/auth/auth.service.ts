@@ -126,6 +126,8 @@ export class AuthService {
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
       selfDescription: user.selfDescription ?? null,
+      tagAllColor: user.tagAllColor ?? null,
+      tagAllDescription: user.tagAllDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
       autoFavorites: user.autoFavorites ?? null,
@@ -142,6 +144,8 @@ export class AuthService {
       displayName?: string;
       selfColor?: string;
       selfDescription?: string;
+      tagAllColor?: string;
+      tagAllDescription?: string;
       customColors?: string[];
       autoOrder?: string[];
       autoFavorites?: string[];
@@ -165,6 +169,14 @@ export class AuthService {
       // 빈 문자열은 저장하지 않고 null로 통일 — friends.description과 같은 관례.
       const trimmed = changes.selfDescription.trim();
       user.selfDescription = trimmed || null;
+    }
+    if (changes.tagAllColor !== undefined) {
+      user.tagAllColor = changes.tagAllColor;
+    }
+    if (changes.tagAllDescription !== undefined) {
+      // selfDescription과 같은 관례 — 빈 문자열은 null로 통일.
+      const trimmed = changes.tagAllDescription.trim();
+      user.tagAllDescription = trimmed || null;
     }
     if (changes.customColors !== undefined) {
       // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
@@ -219,6 +231,8 @@ export class AuthService {
       emailVerified: user.emailVerified,
       selfColor: user.selfColor ?? null,
       selfDescription: user.selfDescription ?? null,
+      tagAllColor: user.tagAllColor ?? null,
+      tagAllDescription: user.tagAllDescription ?? null,
       customColors: user.customColors ?? [],
       autoOrder: user.autoOrder ?? null,
       autoFavorites: user.autoFavorites ?? null,

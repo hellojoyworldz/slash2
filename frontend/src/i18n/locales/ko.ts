@@ -12,6 +12,8 @@ export default {
     close: '닫기',
     // 분류·태그·자동구분 리스트의 두 번째(본) 섹션 제목 공통 라벨. 즐겨찾기 섹션과 짝.
     listSection: '목록',
+    // "전체" 방/행 공통 라벨(분류 전체·태그 전체·자동구분 전체 행 제목, 전체 방 헤더).
+    all: '전체',
   },
   // 스크린리더용 라벨 (화면에 표시되지 않음)
   a11y: {
@@ -156,6 +158,8 @@ export default {
     empty: '아직 태그가 없어요. 위에서 추가해보세요.',
     emptyHint: "오른쪽 위 '추가'를 눌러\n첫 태그를 만들어보세요",
     roomEmpty: '아직 이 태그의 메시지가 없어요',
+    // 태그 전체 방 빈 상태. (전체 행 부제는 friends.sendToMe 공통 키 재사용)
+    allRoomEmpty: '아직 태그가 달린 메시지가 없어요',
     removeLabel: '{{name}} 태그 삭제',
     deleteTitle: '태그 삭제',
     deleteMessage: "'{{name}}' 태그를 모든 메시지에서 제거할까요?",
@@ -195,11 +199,17 @@ export default {
     deleteAllTitle: '분류 전체 삭제',
     deleteAllMessage: '모든 분류를 삭제할까요? 메시지는 미분류로 남습니다.',
     favoritesSection: '즐겨찾기',
+    hideTab: '{{name}} 숨기기',
+    showTab: '{{name}} 보이기',
+    editTabs: '탭 편집',
+    finishEditTabs: '편집 완료',
   },
   auto: {
     title: '자동구분',
     // 종류 이름이 접미사로 자연스럽게 붙도록 '종류로'로 통일(장소/영상/…/링크 모두 무난).
     empty: '아직 {{name}} 종류로 구분된 메시지가 없어요',
+    // 자동구분 전체 방 빈 상태. (전체 행 부제는 friends.sendToMe 공통 키 재사용)
+    allRoomEmpty: '아직 자동구분된 메시지가 없어요',
     names: {
       place: '장소',
       video: '영상',

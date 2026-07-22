@@ -40,6 +40,8 @@ export interface TabReorderControls {
   drag: SharedValue<number>;
   /** 균일 슬롯 크기(축 방향). onItemLayout이 측정. */
   pitch: SharedValue<number>;
+  /** variableSize 모드: 형제 슬롯이 비켜나는 폭(잡은 슬롯 자신의 크기 + 슬롯 간격). onStart에서 확정. */
+  slotShift: SharedValue<number>;
   /** key별 드래그 제스처(캐시됨, 8px 이동으로 활성). 탭 래퍼의 GestureDetector에 물린다. */
   getGesture: (key: string) => PanGesture;
   /** 각 보이는 탭 래퍼의 onLayout — 슬롯 위치를 측정해 pitch를 잡는다. */
@@ -55,6 +57,15 @@ export function useTabReorder(opts: {
   visibleOrderRef: MutableRefObject<string[]>;
   /** 확정된 보이는 탭들의 새 순서. 숨긴 탭 재구성·낙관 반영·서버 저장은 호출부가 한다. */
   onCommit: (newVisible: string[]) => void;
+  /** 있으면 이 ms만큼 꾹 누른 뒤에야 드래그가 활성된다(캡슐 재정렬 — 사용자 명시 "꾹 누르면").
+   *  없으면 기존 동작: 롱프레스 없이 8px 이동으로 즉시 활성(탭바·레일). */
+  activateAfterLongPress?: number;
+  /** true면 슬롯 폭이 제각각(텍스트 캡슐 등)이라 측정 좌표로 hop·비켜남을 계산한다.
+   *  false(기본)면 균일 슬롯 가정(탭바·레일) — 기존 pitch 기반 수식 그대로(회귀 방지). */
+  variableSize?: boolean;
+  /** 드래그(롱프레스)가 활성된 순간(onStart)에 호출 — 캡슐 편집 모드 진입 등. 이동 없이 떼도
+   *  onStart는 롱프레스 시점에 발화하므로 "꾹 눌러 편집 모드"와 "꾹 눌러 드래그"가 한 제스처로 이어진다. */
+  onDragStart?: () => void;
 }): TabReorderControls {
   const { visibleOrderRef } = opts;
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -62,12 +73,19 @@ export function useTabReorder(opts: {
   const targetIndex = useSharedValue(-1);
   const drag = useSharedValue(0);
   const pitch = useSharedValue(1);
+  const slotShift = useSharedValue(1);
 
   // 제스처는 key별 1회만 생성·캐시하므로 최신 값들은 ref로 읽는다.
   const axisRef = useRef(opts.axis);
   axisRef.current = opts.axis;
   const commitRef = useRef(opts.onCommit);
   commitRef.current = opts.onCommit;
+  const longPressRef = useRef(opts.activateAfterLongPress);
+  longPressRef.current = opts.activateAfterLongPress;
+  const variableRef = useRef(opts.variableSize ?? false);
+  variableRef.current = opts.variableSize ?? false;
+  const onDragStartRef = useRef(opts.onDragStart);
+  onDragStartRef.current = opts.onDragStart;
 
   const startIndexRef = useRef(0);
   const boundsRef = useRef({ min: 0, max: 0 });
@@ -76,6 +94,9 @@ export function useTabReorder(opts: {
   const posRef = useRef<number[]>([]);
   const sizeRef = useRef<number[]>([]);
   const didDragRef = useRef(false);
+  // variableSize 모드 스냅샷(onStart에서 확정) — 슬롯 중심 좌표들과 잡은 슬롯 중심.
+  const centersRef = useRef<number[]>([]);
+  const startCenterRef = useRef(0);
 
   const onItemLayout = useCallback(
     (visibleIndex: number, e: LayoutChangeEvent) => {
@@ -102,38 +123,93 @@ export function useTabReorder(opts: {
       const cache = gesturesRef.current;
       const cached = cache.get(key);
       if (cached) return cached;
-      const pan = Gesture.Pan()
+      let pan = Gesture.Pan()
         .runOnJS(true)
         // 롱프레스 없이 "잡자마자 끌기"(브라우저 탭 드래그처럼). 바/레일은 스크롤이 없어 양보할
         // 팬이 없으므로 어느 쪽으로든 8px 움직이면 즉시 활성 — 움직임 없는 누르기는 활성 안 돼
         // 탭(네비게이션)에 그대로 양보한다. failOffset은 두지 않는다(양보 대상 없음).
         .activeOffsetX([-8, 8])
-        .activeOffsetY([-8, 8])
+        .activeOffsetY([-8, 8]);
+      // 캡슐 등: 꾹(롱프레스) 눌러야 드래그 활성 — 빠른 탭(전환)·눈 토글에 양보한다.
+      const lp = longPressRef.current;
+      if (lp != null) pan = pan.activateAfterLongPress(lp);
+      pan = pan
         .onStart(() => {
           const arr = visibleOrderRef.current;
           const idx = arr.indexOf(key);
           if (idx < 0) return;
           const n = arr.length;
-          const p = pitchRef.current || 1;
           startIndexRef.current = idx;
-          boundsRef.current = { min: -idx * p, max: (n - 1 - idx) * p };
+          if (variableRef.current) {
+            // 슬롯 폭이 제각각 — 측정 좌표로 중심을 잡는다(마진·가변폭에 정확).
+            const pos = posRef.current;
+            const size = sizeRef.current;
+            const fallback = pitchRef.current || 1;
+            const centers: number[] = [];
+            for (let i = 0; i < n; i++) {
+              const s = size[i] ?? fallback;
+              const p = pos[i] ?? i * fallback;
+              centers[i] = p + s / 2;
+            }
+            centersRef.current = centers;
+            startCenterRef.current = centers[idx];
+            const startSize = size[idx] ?? fallback;
+            // 슬롯 간격(gap) — 인접 두 슬롯 좌표 델타에서 앞 슬롯 폭을 뺀다(없으면 0).
+            let gap = 0;
+            if (pos[0] != null && pos[1] != null && size[0] != null) {
+              gap = Math.max(0, pos[1] - pos[0] - size[0]);
+            }
+            slotShift.value = startSize + gap;
+            boundsRef.current = {
+              min: centers[0] - centers[idx],
+              max: centers[n - 1] - centers[idx],
+            };
+          } else {
+            const p = pitchRef.current || 1;
+            boundsRef.current = { min: -idx * p, max: (n - 1 - idx) * p };
+          }
           activeIndex.value = idx;
           targetIndex.value = idx;
           drag.value = 0;
-          // 이 세션은 드래그다(8px 이동으로 활성) — 뒤따르는 탭/클릭 네비게이션을 눌러 무시한다.
+          // 이 세션은 드래그다 — 뒤따르는 탭/클릭 네비게이션·전환을 눌러 무시한다.
           didDragRef.current = true;
+          // 롱프레스 활성 순간 편집 모드 진입 등(캡슐). 이동으로 이어지면 재정렬도 그대로.
+          onDragStartRef.current?.();
           beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
           setDraggingKey(key); // 세션당 1회 리렌더(들린 스타일)
         })
         .onUpdate((event) => {
           const n = visibleOrderRef.current.length;
           if (n === 0) return;
-          const p = pitchRef.current || 1;
           const t = axisRef.current === 'x' ? event.translationX : event.translationY;
           const { min, max } = boundsRef.current;
           drag.value = clamp(t, min, max);
-          const hop = Math.round(drag.value / p);
-          targetIndex.value = clamp(startIndexRef.current + hop, 0, n - 1);
+          if (variableRef.current) {
+            // 경계(min/max)는 명시적으로 맨앞·맨뒤로 매핑한다 — 중심 좌표가 끝 슬롯 중심에서 딱
+            // 멈춰(useVarReorder와 동일 이유) 맨끝에 못 닿는 것을 막는다. 그 사이는 잡은 슬롯 중심이
+            // 넘어선 "다른" 슬롯 개수 = 새 배열에서의 목표 index.
+            let target: number;
+            if (drag.value <= min) {
+              target = 0;
+            } else if (drag.value >= max) {
+              target = n - 1;
+            } else {
+              const centers = centersRef.current;
+              const draggedCenter = startCenterRef.current + drag.value;
+              const start = startIndexRef.current;
+              let count = 0;
+              for (let i = 0; i < n; i++) {
+                if (i === start) continue;
+                if ((centers[i] ?? 0) < draggedCenter) count++;
+              }
+              target = count;
+            }
+            targetIndex.value = clamp(target, 0, n - 1);
+          } else {
+            const p = pitchRef.current || 1;
+            const hop = Math.round(drag.value / p);
+            targetIndex.value = clamp(startIndexRef.current + hop, 0, n - 1);
+          }
         })
         .onFinalize(() => {
           const start = startIndexRef.current;
@@ -170,6 +246,7 @@ export function useTabReorder(opts: {
     targetIndex,
     drag,
     pitch,
+    slotShift,
     getGesture,
     onItemLayout,
     didDragRef,
@@ -182,15 +259,17 @@ export function useTabItemAnimatedStyle(
   controls: TabReorderControls,
   index: number,
   axis: ReorderAxis,
+  // variableSize면 비켜남 폭을 잡은 슬롯 크기(slotShift)로 — 균일이면 기존 pitch 그대로(회귀 방지).
+  variableSize = false,
 ): ViewStyle {
-  const { activeIndex, targetIndex, drag, pitch } = controls;
+  const { activeIndex, targetIndex, drag, pitch, slotShift } = controls;
   const isX = axis === 'x';
   const offset = useDerivedValue(() => {
     const ai = activeIndex.value;
     if (ai === -1) return 0; // 유휴/커밋: 즉시 0(데이터가 새 순서로 바뀌므로 점프 없음)
     if (index === ai) return 0; // 잡은 탭은 drag로 처리
     const ti = targetIndex.value;
-    const p = pitch.value;
+    const p = variableSize ? slotShift.value : pitch.value;
     if (ai < ti && index > ai && index <= ti) return withTiming(-p, SHIFT_TIMING);
     if (ai > ti && index >= ti && index < ai) return withTiming(p, SHIFT_TIMING);
     return withTiming(0, SHIFT_TIMING);

@@ -16,7 +16,7 @@ export default function AutoRoute() {
   const { appStyle } = useAppStyle();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { setAutoKind } = useSelectedRoom();
+  const { setAutoKind, setAutoAll } = useSelectedRoom();
   // 데스크톱(스플릿뷰)에서는 화면 이동 대신 오른쪽 대화 패널을 자동구분 방으로 교체한다.
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -45,6 +45,10 @@ export default function AutoRoute() {
       onOpenAuto={(kind: AutoKind) => {
         if (isDesktop) setAutoKind(kind);
         else router.push({ pathname: '/auto-room', params: { kind } });
+      }}
+      onOpenAutoAll={() => {
+        if (isDesktop) setAutoAll(true);
+        else router.push({ pathname: '/auto-room', params: { kind: 'all' } });
       }}
       onLogout={onLogout}
     />

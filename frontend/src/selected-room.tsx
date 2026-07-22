@@ -39,9 +39,17 @@ interface SelectedRoomState {
   autoKind: AutoKind | null;
   setAutoKind: (kind: AutoKind | null) => void;
   /** 데스크톱 오른쪽 패널이 태그 방을 보여줄 때의 태그. null이면 태그 방 아님.
-   *  렌더 우선순위: tag > autoKind > room(일반). */
+   *  렌더 우선순위: tagAll > autoAll > tag > autoKind > room(일반). */
   tag: Tag | null;
   setTag: (tag: Tag | null) => void;
+  /** 데스크톱 오른쪽 패널이 "태그 전체" 방(태그 하나 이상 달린 메시지 모음, 보기 전용)을 보여주는지. */
+  tagAll: boolean;
+  /** true면 태그 전체 방 선택(다른 방 선택 해제). false면 그 선택만 해제. */
+  setTagAll: (v: boolean) => void;
+  /** 데스크톱 오른쪽 패널이 "자동구분 전체" 방(링크가 하나라도 잡힌 메시지 모음, 보기 전용)을 보여주는지. */
+  autoAll: boolean;
+  /** true면 자동구분 전체 방 선택(다른 방 선택 해제). false면 그 선택만 해제. */
+  setAutoAll: (v: boolean) => void;
   /** 방 목록에 영향 주는 변경(전송·삭제·분류)의 카운터 — 목록 새로고침 신호 */
   roomsVersion: number;
   bumpRooms: () => void;
@@ -62,20 +70,49 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
   // 자동구분/태그를 고르면 렌더 우선순위(tag > autoKind > room)로 그 방을 띄운다.
   const [autoKind, setAutoKindState] = useState<AutoKind | null>(null);
   const [tag, setTagState] = useState<Tag | null>(null);
+  // "전체" 방(태그/자동구분 통합, 보기 전용)은 개별 선택과 상호배타 — 각 setter가 서로를 해제한다.
+  const [tagAll, setTagAllState] = useState(false);
+  const [autoAll, setAutoAllState] = useState(false);
   const setRoom = useCallback((next: SelectedRoom | null) => {
     setRoomState(next);
     setAutoKindState(null);
     setTagState(null);
+    setTagAllState(false);
+    setAutoAllState(false);
   }, []);
-  // 자동구분을 고르면 태그 선택을 해제한다(우선순위 충돌 방지).
+  // 자동구분을 고르면 태그·전체 선택을 해제한다(우선순위 충돌 방지).
   const setAutoKind = useCallback((kind: AutoKind | null) => {
     setAutoKindState(kind);
     setTagState(null);
+    setTagAllState(false);
+    setAutoAllState(false);
   }, []);
-  // 태그를 고르면 자동구분 선택을 해제한다(태그가 최우선).
+  // 태그를 고르면 자동구분·전체 선택을 해제한다.
   const setTag = useCallback((next: Tag | null) => {
     setTagState(next);
     setAutoKindState(null);
+    setTagAllState(false);
+    setAutoAllState(false);
+  }, []);
+  // 태그 전체 방 선택(true) — 다른 모든 방 선택을 해제한다. false면 그 선택만 끈다(전체 방에서 나감).
+  const setTagAll = useCallback((v: boolean) => {
+    setTagAllState(v);
+    if (v) {
+      setTagState(null);
+      setAutoKindState(null);
+      setAutoAllState(false);
+      setRoomState(null);
+    }
+  }, []);
+  // 자동구분 전체 방 선택(true) — 다른 모든 방 선택을 해제한다. false면 그 선택만 끈다.
+  const setAutoAll = useCallback((v: boolean) => {
+    setAutoAllState(v);
+    if (v) {
+      setTagState(null);
+      setAutoKindState(null);
+      setTagAllState(false);
+      setRoomState(null);
+    }
   }, []);
   const [roomsVersion, setRoomsVersion] = useState(0);
   const bumpRooms = useCallback(() => setRoomsVersion((v) => v + 1), []);
@@ -100,6 +137,10 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoKind,
       tag,
       setTag,
+      tagAll,
+      setTagAll,
+      autoAll,
+      setAutoAll,
       roomsVersion,
       bumpRooms,
       classifyTab,
@@ -114,6 +155,10 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoKind,
       tag,
       setTag,
+      tagAll,
+      setTagAll,
+      autoAll,
+      setAutoAll,
       roomsVersion,
       bumpRooms,
       classifyTab,

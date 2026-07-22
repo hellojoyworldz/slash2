@@ -31,18 +31,45 @@ export default function AutoRoomRoute() {
   const { appStyle } = useAppStyle();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { setAutoKind } = useSelectedRoom();
+  const { setAutoKind, setAutoAll } = useSelectedRoom();
   const params = useLocalSearchParams<{ kind?: string }>();
+  // 특수값 'all' = 자동구분 전체 방(링크가 하나라도 잡힌 메시지 모음, 보기 전용). parseKind는 'all'을 null로 떨군다.
+  const isAll = params.kind === 'all';
   const kind = parseKind(params.kind);
 
   const isDesktop = width >= layout.desktopBreakpoint;
   useEffect(() => {
-    if (isDesktop && kind) setAutoKind(kind);
-  }, [isDesktop, kind, setAutoKind]);
+    if (!isDesktop) return;
+    if (isAll) setAutoAll(true);
+    else if (kind) setAutoKind(kind);
+  }, [isDesktop, isAll, kind, setAutoKind, setAutoAll]);
 
   // 목록형엔 자동구분 방 개념이 없다 — 분류 보드로 돌려보낸다.
   if (appStyle === 'list') return <Redirect href="/friends" />;
   if (isDesktop) return <Redirect href="/auto" />;
+
+  // 자동구분 전체 방(보기 전용) — 특수 파라미터로 진입.
+  if (isAll) {
+    return (
+      <ChatScreen
+        key="auto:all"
+        token={token}
+        autoAll
+        friendId={null}
+        friendName={null}
+        bottomTabBar
+        onBack={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace('/auto');
+        }}
+        onLogout={async () => {
+          await logout();
+          router.replace('/login');
+        }}
+      />
+    );
+  }
+
   // 잘못된/빈 종류로 들어오면 자동구분 목록으로.
   if (!kind) return <Redirect href="/auto" />;
 

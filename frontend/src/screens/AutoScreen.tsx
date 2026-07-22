@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import {
+  Asterisk,
   ChevronDown,
   ChevronRight,
   FileText,
@@ -64,6 +65,8 @@ const ROW_HEIGHT = 68;
 interface Props {
   token: string | null;
   onOpenAuto: (kind: AutoKind) => void;
+  /** "전체" 행 탭 → 자동구분 전체 방 열기(링크가 하나라도 잡힌 메시지 모음, 보기 전용). */
+  onOpenAutoAll: () => void;
   onLogout: () => void;
   /** 그룹 탭 캡슐 아래에 임베드될 때 true — 헤더는 그룹 컨테이너가 지므로 여기선 렌더하지 않는다. */
   embedded?: boolean;
@@ -72,12 +75,19 @@ interface Props {
 // 자동구분 탭 — 분류·태그 탭과 동일한 문법. 종류 6종은 정적이라 즐겨찾기는 users.autoFavorites에 저장한다.
 // 접이식 '즐겨찾기' 섹션(★ 종류, 전용 순서 드래그) + 접이식 '자동구분' 섹션(전체 6종, autoOrder 드래그).
 // 왼→오 스와이프 [즐겨찾기] 하나. 즐겨찾기해도 '자동구분' 섹션에서 빠지지 않는다(분류·태그와 동일).
-export function AutoScreen({ token, onOpenAuto, onLogout, embedded = false }: Props) {
+export function AutoScreen({
+  token,
+  onOpenAuto,
+  onOpenAutoAll,
+  onLogout,
+  embedded = false,
+}: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 데스크톱 스플릿뷰에서만 현재 선택된 자동구분을 강조한다.
-  const { autoKind } = useSelectedRoom();
+  // autoAll: "전체" 자동구분 방이 열렸는지(상단 전체 행 강조).
+  const { autoKind, autoAll } = useSelectedRoom();
   // 자동구분 순서·즐겨찾기(사용자 값 우선) + 저장 후 컨텍스트 갱신.
   const { autoOrder, setAutoOrder, autoFavorites, setAutoFavorites } = useAuth();
   const { width } = useWindowDimensions();
@@ -326,6 +336,32 @@ export function AutoScreen({ token, onOpenAuto, onLogout, embedded = false }: Pr
         }
         ListHeaderComponent={
           <>
+            {/* "전체" 행 — 링크가 하나라도 잡힌 메시지 모음(보기 전용). 분류 탭의 전체(나에게) 행을 미러하되,
+                프로필은 ✳(asterisk) 타일(무채/잉크, 자동구분 정체성 글리프), 스와이프·드래그·더블탭은 없다. */}
+            <TouchableOpacity
+              style={[styles.allRow, isDesktop && autoAll && styles.allRowActive]}
+              onPress={onOpenAutoAll}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel={t('common.all')}
+              accessibilityState={{ selected: isDesktop && autoAll }}
+            >
+              <View style={styles.allTile}>
+                <Asterisk size={26} strokeWidth={2} color={colors.ink} />
+              </View>
+              <View style={styles.allInfo}>
+                <Text variant="heading">{t('common.all')}</Text>
+                <Text
+                  variant="label"
+                  color={colors.textSecondary}
+                  style={styles.allStatus}
+                >
+                  {t('friends.sendToMe')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <View style={styles.divider} />
+
             {/* 즐겨찾기 섹션 — favOrder(부분집합) 순. 하나도 없으면 렌더 안 함. */}
             {favOrder.length > 0 ? (
               <>
@@ -424,6 +460,34 @@ const makeStyles = (colors: ThemeColors) =>
     listContent: {
       paddingTop: 4,
       paddingBottom: 20,
+    },
+    // "전체" 행 — 분류 탭 전체(나에게) 행과 동일 규격(큰 타일 + 제목 + 부제).
+    allRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+    },
+    // 데스크톱에서 전체 방 선택 시 — 연회색 면으로 강조(다른 선택 행과 동일 문법).
+    allRowActive: {
+      backgroundColor: colors.surface,
+    },
+    // ✳ 아이덴티티 타일 — 무채 surface 채움 + 1px 보더(태그 전체의 # 타일과 대구), 라운드 0.
+    allTile: {
+      width: 56,
+      height: 56,
+      borderRadius: 0,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    allInfo: {
+      marginLeft: 14,
+    },
+    allStatus: {
+      marginTop: 3,
     },
     sectionRow: {
       flexDirection: 'row',

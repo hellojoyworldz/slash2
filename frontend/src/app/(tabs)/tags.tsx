@@ -16,7 +16,7 @@ export default function TagsRoute() {
   const { appStyle } = useAppStyle();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { setTag } = useSelectedRoom();
+  const { setTag, setTagAll } = useSelectedRoom();
   // 데스크톱(스플릿뷰)에서는 화면 이동 대신 오른쪽 대화 패널을 태그 방으로 교체한다.
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -50,6 +50,10 @@ export default function TagsRoute() {
             pathname: '/tag-room',
             params: { tagId: tag.id, name: tag.name },
           });
+      }}
+      onOpenTagAll={() => {
+        if (isDesktop) setTagAll(true);
+        else router.push({ pathname: '/tag-room', params: { tagId: 'all' } });
       }}
       onLogout={onLogout}
     />

@@ -30,6 +30,14 @@ export const AUTO_FILTERS: AutoFilter[] = [
   'link',
 ];
 
+// 태그/자동구분 "전체" 방을 뜻하는 특수 조회값. 태그 id는 uuid라 이 값과 충돌하지 않는다.
+export const ROOM_ALL = 'all';
+
+// "자동구분" 목록 조회 필터. 6종 + 특수값 'all'(자동구분(링크)이 하나라도 잡힌 전체).
+// autoCounts는 AutoFilter(6종)만 세므로 'all'을 포함하지 않는 별도 타입으로 분리한다.
+export type AutoQueryFilter = AutoFilter | typeof ROOM_ALL;
+export const AUTO_QUERY_FILTERS: AutoQueryFilter[] = [...AUTO_FILTERS, ROOM_ALL];
+
 export interface LinkMeta {
   placeName?: string; // 장소명 (og:title이 장소명인 경우 포함)
   address?: string;

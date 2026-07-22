@@ -8,9 +8,11 @@ import {
 } from 'react';
 import { Friend, Message } from './api';
 import { useAuth } from './auth';
+import { useCategoryEdit } from './category-edit';
 import { CategoryPickerModal } from './components/CategoryPickerModal';
 import { MessageActionMenu } from './components/MessageActionMenu';
 import { TagPickerModal } from './components/TagPickerModal';
+import { useTagCreate } from './tag-create';
 
 // 메시지 액션(⋮ 메뉴 · 태그 선택)을 루트에 상주시킨다.
 // 이유: 예전엔 이 모달들을 화면(ChatScreen·ListBoardScreen) 안에서 렌더해, 데스크톱
@@ -181,7 +183,13 @@ export function MessageActionsProvider({ children }: { children: ReactNode }) {
 // 태그 삭제 확인 다이얼로그가 태그 모달 위에 정상적으로 뜬다.
 export function MessageActionsHost() {
   const ctx = useContext(SessionContext);
-  const { token } = useAuth();
+  // 선택 픽커 "전체" 행 — 분류 부제(selfDescription)·태그 전체 색/부제(tagAll*)를 auth에서 직접 읽는다.
+  const { token, selfDescription, tagAllColor, tagAllDescription } = useAuth();
+  // 선택 픽커 행 스와이프 [수정] → 루트 상주 편집 폼(분류=색·프로필, 태그=이름·설명·색)을 픽커 위에 연다.
+  // 관리 모드 픽커(category-edit·tag-create 호스트)가 쓰는 것과 같은 경로를 선택 모드에도 이관.
+  // "전체" 행은 self 프로필 편집(open({self:true})) / 태그 전체 프로필 편집(openTagAllEdit)으로 연다.
+  const { open: openCategoryEditor } = useCategoryEdit();
+  const { openTagRename, openTagAllEdit } = useTagCreate();
   if (!ctx) {
     throw new Error('MessageActionsHost는 MessageActionsProvider 안에서만 쓸 수 있습니다');
   }
@@ -221,6 +229,12 @@ export function MessageActionsHost() {
         onSaved={(updated) => session?.onSaved?.(updated)}
         staged={session?.staged}
         onPicked={(tagIds) => session?.onPickedTags?.(tagIds)}
+        // 행 스와이프 [수정] — 태그 이름·설명·색 폼(관리 모드와 같은 경로). 저장 시 bumpRooms로 목록 갱신.
+        onEditTag={openTagRename}
+        // "전체" 행 — 태그 전체 프로필 색/부제 + 스와이프 [수정](태그 전체 프로필 편집 폼).
+        tagAllColor={tagAllColor}
+        tagAllDescription={tagAllDescription}
+        onEditTagAll={openTagAllEdit}
       />
 
       <CategoryPickerModal
@@ -229,11 +243,16 @@ export function MessageActionsHost() {
         message={session?.message ?? null}
         friends={session?.friends ?? []}
         selfColor={session?.selfColor ?? null}
+        selfDescription={selfDescription}
         onClose={close}
         onChanged={(updated) => session?.onCategoryChanged?.(updated)}
         onFriendsChanged={() => session?.onFriendsChanged?.()}
         staged={session?.staged}
         onPicked={(friendId) => session?.onPickedFriend?.(friendId)}
+        // 행 스와이프 [수정] — 분류 색·프로필 편집 폼(관리 모드와 같은 경로).
+        onEditFriend={(friend) => openCategoryEditor(friend)}
+        // "전체" 행 스와이프 [수정] — self 프로필 편집 폼.
+        onEditSelf={() => openCategoryEditor({ self: true })}
       />
     </>
   );

@@ -11,6 +11,7 @@ export default {
     notice: 'Notice',
     close: 'Close',
     listSection: 'List',
+    all: 'All',
   },
   // Screen-reader labels (not visible on screen)
   a11y: {
@@ -156,6 +157,7 @@ export default {
     empty: 'No tags yet. Add one above.',
     emptyHint: 'Tap “Add” at the top right\nto create your first tag',
     roomEmpty: 'No messages with this tag yet',
+    allRoomEmpty: 'No tagged messages yet',
     removeLabel: 'Delete tag {{name}}',
     deleteTitle: 'Delete tag',
     deleteMessage: 'Remove “{{name}}” from all messages?',
@@ -195,10 +197,15 @@ export default {
     deleteAllTitle: 'Delete all categories',
     deleteAllMessage: 'Delete all categories? Messages will stay uncategorized.',
     favoritesSection: 'Favorites',
+    hideTab: 'Hide {{name}}',
+    showTab: 'Show {{name}}',
+    editTabs: 'Edit tabs',
+    finishEditTabs: 'Done editing',
   },
   auto: {
     title: 'Auto-sort',
     empty: 'No messages sorted as {{name}} yet',
+    allRoomEmpty: 'No auto-sorted messages yet',
     names: {
       place: 'Places',
       video: 'Videos',

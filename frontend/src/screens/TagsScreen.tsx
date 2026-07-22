@@ -20,6 +20,7 @@ import {
   Trash2,
 } from 'lucide-react-native';
 import { api, Tag } from '../api';
+import { useAuth } from '../auth';
 import { HashTile } from '../components/HashTile';
 import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
@@ -39,6 +40,8 @@ interface Props {
   token: string | null;
   /** 행 탭 → 태그 방 열기(모바일 push / 데스크톱 스플릿뷰 패널 교체). */
   onOpenTag: (tag: Tag) => void;
+  /** "전체" 행 탭 → 태그 전체 방 열기(태그 하나 이상 달린 메시지 모음, 보기 전용). */
+  onOpenTagAll: () => void;
   onLogout: () => void;
   /** 그룹 탭 캡슐 아래에 임베드될 때 true — 헤더는 그룹 컨테이너가 지므로 여기선 렌더하지 않는다. */
   embedded?: boolean;
@@ -53,15 +56,24 @@ const ROW_HEIGHT = 68;
 // 행 = [# 타일][태그명(+★+고정 핀)(+설명 한 줄)][우측 messageCount][그립]. 색은 분류의 것이라 태그는 색 없음.
 // 왼→오 스와이프 [즐겨찾기][삭제][수정] — 태그엔 고정 없음(사용자 확정).
 // 즐겨찾기해도 '태그' 섹션에서 빠지지 않는다(분류와 동일).
-export function TagsScreen({ token, onOpenTag, onLogout, embedded = false }: Props) {
+export function TagsScreen({
+  token,
+  onOpenTag,
+  onOpenTagAll,
+  onLogout,
+  embedded = false,
+}: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { tags, setTags, reload, removeTag } = useTagCrud(token);
   // 데스크톱 스플릿뷰 강조 + 목록 갱신 신호(bumpRooms) — 고정/수정/추가가 보드·선택모달에 반영되게.
-  const { tag: selectedTag, roomsVersion, bumpRooms } = useSelectedRoom();
-  // 태그 추가(관리 모달)·이름수정은 루트 상주 호스트 — 여기선 열기만.
-  const { openTagCreate, openTagRename } = useTagCreate();
+  // tagAll: 데스크톱에서 "전체" 태그 방이 열렸는지(상단 전체 행 강조).
+  const { tag: selectedTag, tagAll, roomsVersion, bumpRooms } = useSelectedRoom();
+  // 태그 추가(관리 모달)·이름수정·전체 프로필 편집은 루트 상주 호스트 — 여기선 열기만.
+  const { openTagCreate, openTagRename, openTagAllEdit } = useTagCreate();
+  // "전체" 행 프로필 — 색·부제(커스텀 설명이 있으면 그것, 없으면 '전체 메시지 보기').
+  const { tagAllColor, tagAllDescription } = useAuth();
   const { width } = useWindowDimensions();
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -380,6 +392,63 @@ export function TagsScreen({ token, onOpenTag, onLogout, embedded = false }: Pro
         }
         ListHeaderComponent={
           <>
+            {/* "전체" 행 — 태그 하나 이상 달린 메시지 모음(보기 전용). 분류 탭의 전체(나에게) 행을 미러.
+                프로필은 # 글리프 타일(태그 전체 프로필 색 반영). 스와이프 [수정] = 전체 프로필 편집(삭제·즐겨찾기 없음). */}
+            <SwipeableRow
+              ref={(ref) => {
+                swipeRefs.current.set('tagall', ref);
+              }}
+              actions={[
+                {
+                  key: 'edit',
+                  icon: Pencil,
+                  label: t('tags.editTitle'),
+                  onPress: openTagAllEdit,
+                },
+              ]}
+              onDragStateChange={(dragging) => {
+                swipeDragging.current = dragging;
+              }}
+              onOpenChange={(open) => {
+                if (open) {
+                  const prev = openRowId.current;
+                  if (prev && prev !== 'tagall') swipeRefs.current.get(prev)?.close();
+                  openRowId.current = 'tagall';
+                } else if (openRowId.current === 'tagall') {
+                  openRowId.current = null;
+                }
+              }}
+            >
+              <TouchableOpacity
+                style={[styles.allRow, isDesktop && tagAll && styles.allRowActive]}
+                onPress={() => {
+                  if (swipeDragging.current) return;
+                  if (openRowId.current === 'tagall') {
+                    swipeRefs.current.get('tagall')?.close();
+                    return;
+                  }
+                  onOpenTagAll();
+                }}
+                activeOpacity={0.6}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.all')}
+                accessibilityState={{ selected: isDesktop && tagAll }}
+              >
+                <HashTile color={tagAllColor ?? null} size={56} />
+                <View style={styles.allInfo}>
+                  <Text variant="heading">{t('common.all')}</Text>
+                  <Text
+                    variant="label"
+                    color={colors.textSecondary}
+                    style={styles.allStatus}
+                  >
+                    {tagAllDescription || t('friends.sendToMe')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </SwipeableRow>
+            <View style={styles.divider} />
+
             {/* 즐겨찾기 섹션 — favorite=true인 태그만, favoritePosition 순. 하나도 없으면 렌더 안 함. */}
             {favorites.length > 0 ? (
               <>
@@ -498,6 +567,23 @@ const makeStyles = (colors: ThemeColors) =>
       flexGrow: 1,
       paddingTop: 4,
       paddingBottom: 20,
+    },
+    // "전체" 행 — 분류 탭 전체(나에게) 행과 동일 규격(큰 타일 + 제목 + 부제).
+    allRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+    },
+    // 데스크톱에서 전체 방 선택 시 — 연회색 면으로 강조(다른 선택 행과 동일 문법).
+    allRowActive: {
+      backgroundColor: colors.surface,
+    },
+    allInfo: {
+      marginLeft: 14,
+    },
+    allStatus: {
+      marginTop: 3,
     },
     sectionRow: {
       flexDirection: 'row',

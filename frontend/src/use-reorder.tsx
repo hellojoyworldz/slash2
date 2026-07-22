@@ -63,6 +63,9 @@ const SHIFT_TIMING = { duration: 130 } as const;
 // 행 아무데나 꾹 눌렀다 끌면 재정렬되는 롱프레스 시간(ms). 이 시간 전에 손가락이 움직이면
 // 드래그는 활성되지 않고 리스트 스크롤(세로)·스와이프(가로)에 양보한다.
 export const LONG_PRESS_MS = 250;
+// 롱프레스로 팬이 활성됐지만 이동이 이 픽셀 이하면 "꾹 눌렀다 그냥 뗌"으로 보고 탭(행 열기)으로
+// 승격한다. 이 값을 넘게 움직였으면 드래그 시도로 보고 승격하지 않는다(재정렬만 또는 무시).
+const TAP_PROMOTE_MAX_MOVE = 6;
 // 더블탭 두 번째 탭을 기다리는 최대 지연(ms) — 싱글탭(방 열기)이 이만큼만 늦어지도록 짧게.
 const DOUBLE_TAP_MAX_DELAY = 200;
 
@@ -211,6 +214,8 @@ export function useReorder(opts: {
   }, [rowHeight, rowH]);
   const startIndexRef = useRef(0);
   const boundsRef = useRef({ min: 0, max: 0 });
+  // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize에서 "꾹 눌렀다 그냥 뗌"(탭 승격) 판별.
+  const movedRef = useRef(false);
 
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
@@ -254,6 +259,7 @@ export function useReorder(opts: {
             min: -idx * rowH.value,
             max: (n - 1 - idx) * rowH.value,
           };
+          movedRef.current = false;
           activeIndex.value = idx;
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
@@ -264,6 +270,7 @@ export function useReorder(opts: {
         .onUpdate((event) => {
           const n = orderRef.current.length;
           if (n === 0) return;
+          if (Math.abs(event.translationY) > TAP_PROMOTE_MAX_MOVE) movedRef.current = true;
           const { min, max } = boundsRef.current;
           dragY.value = clamp(event.translationY, min, max);
           const hop = Math.round(dragY.value / rowH.value);
@@ -272,13 +279,18 @@ export function useReorder(opts: {
         .onFinalize(() => {
           const start = startIndexRef.current;
           const target = targetIndex.value;
+          const activated = activeIndex.value !== -1;
           const n = orderRef.current.length;
-          if (target !== start && target >= 0 && target < n && activeIndex.value !== -1) {
+          if (activated && target !== start && target >= 0 && target < n) {
             const next = [...orderRef.current];
             const [moved] = next.splice(start, 1);
             next.splice(target, 0, moved);
             orderRef.current = next;
             commitRef.current(next);
+          } else if (activated && target === start && !movedRef.current) {
+            // 꾹 눌렀다 이동 없이 뗌 → 팬이 Tap 제스처를 눌러 죽였으므로 여기서 행 열기를 승격 발화.
+            // (빠른 탭은 팬이 활성되지 않아 여긴 안 옴 → Tap 제스처가 처리, 이중 발화 없음.)
+            onActivateRef.current?.(id);
           }
           // 커밋과 동시에 리셋 — activeIndex=-1이면 offset이 즉시 0이 되어 새 데이터 순서와
           // 정확히 맞물려 시각 점프가 없다.
@@ -375,6 +387,10 @@ export interface VarReorderControls {
   getGesture: (id: string) => RowGesture;
   moveByOne: (id: string, delta: number) => void;
   CellRendererComponent: ComponentType<any>;
+  /** 드래그 세션이 활성된 동안 true(onStart~onFinalize 후 다음 매크로태스크). 픽커처럼 행 탭을
+   *  자식 DOM Pressable이 처리하는 목록에서, 드래그 세션 직후 따라오는 click을 눌러 무시하는 가드.
+   *  (탭 제스처를 composeRowGesture로 얹는 목록은 이 ref가 필요 없다 — Race가 이미 갈라준다.) */
+  didDragRef: MutableRefObject<boolean>;
 }
 
 export function useVarReorder<T>(opts: {
@@ -382,10 +398,14 @@ export function useVarReorder<T>(opts: {
   getId: (item: T) => string;
   getHeight: (item: T) => number;
   onCommit: (next: T[]) => void;
-  /** 싱글탭(행 열기). 없으면 탭 없는 행. */
+  /** 싱글탭(행 열기) — composeRowGesture에 Tap을 얹는다(목록 행). 없으면 탭 없는 행(픽커: DOM Pressable이 탭 처리). */
   onActivate?: (id: string) => void;
   /** 더블탭(수정). 없으면 수정 없음. */
   onEditRequest?: (id: string) => void;
+  /** "꾹 눌렀다 이동 없이 뗌"을 탭으로 승격할 때 부를 콜백. composeRowGesture Tap을 만들지 않으면서
+   *  (자식 DOM Pressable이 탭을 처리하는 픽커) onFinalize 승격 경로만 필요할 때 쓴다.
+   *  없으면 승격은 onActivate로 폴백한다(목록 행). */
+  onPromote?: (id: string) => void;
 }): VarReorderControls {
   const activeIndex = useSharedValue(-1);
   const activeIndexRef = useRef(-1);
@@ -398,6 +418,10 @@ export function useVarReorder<T>(opts: {
   const dragTopOffsetRef = useRef(0);
   const othersHeightsRef = useRef<number[]>([]);
   const gesturesRef = useRef(new Map<string, RowGesture>());
+  // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize의 탭 승격 판별.
+  const movedRef = useRef(false);
+  // 드래그 세션 가드(픽커 자식 DOM click 무시용) — onStart에서 set, onFinalize 후 매크로태스크에 해제.
+  const didDragRef = useRef(false);
 
   // 제스처는 한 번만 생성·캐시되므로 최신 getters/onCommit을 ref로 읽는다.
   const getOrderRef = useRef(opts.getOrder);
@@ -406,12 +430,14 @@ export function useVarReorder<T>(opts: {
   const onCommitRef = useRef(opts.onCommit);
   const onActivateRef = useRef(opts.onActivate);
   const onEditRef = useRef(opts.onEditRequest);
+  const onPromoteRef = useRef(opts.onPromote);
   getOrderRef.current = opts.getOrder;
   getIdRef.current = opts.getId;
   getHeightRef.current = opts.getHeight;
   onCommitRef.current = opts.onCommit;
   onActivateRef.current = opts.onActivate;
   onEditRef.current = opts.onEditRequest;
+  onPromoteRef.current = opts.onPromote;
 
   const getGesture = useCallback(
     (id: string) => {
@@ -433,6 +459,8 @@ export function useVarReorder<T>(opts: {
           dragTopOffsetRef.current = topOffset;
           dragBoundsRef.current = { min: -topOffset, max: total - h - topOffset };
           othersHeightsRef.current = heights.filter((_, i) => i !== idx);
+          movedRef.current = false;
+          didDragRef.current = true; // 이 세션은 드래그 — 뒤따르는 자식 DOM click을 눌러 무시(픽커)
           activeIndex.value = idx;
           activeIndexRef.current = idx;
           targetIndex.value = idx;
@@ -443,6 +471,7 @@ export function useVarReorder<T>(opts: {
         .onUpdate((event) => {
           const n = getOrderRef.current().length;
           if (n === 0) return;
+          if (Math.abs(event.translationY) > TAP_PROMOTE_MAX_MOVE) movedRef.current = true;
           const { min, max } = dragBoundsRef.current;
           dragY.value = clamp(event.translationY, min, max);
           const draggedTop = dragTopOffsetRef.current + dragY.value;
@@ -470,13 +499,18 @@ export function useVarReorder<T>(opts: {
         .onFinalize(() => {
           const start = startIndexRef.current;
           const target = targetIndex.value;
+          const activated = activeIndex.value !== -1;
           const list = getOrderRef.current();
           const n = list.length;
-          if (target !== start && target >= 0 && target < n && activeIndex.value !== -1) {
+          if (activated && target !== start && target >= 0 && target < n) {
             const next = [...list];
             const [moved] = next.splice(start, 1);
             next.splice(target, 0, moved);
             onCommitRef.current(next);
+          } else if (activated && target === start && !movedRef.current) {
+            // 꾹 눌렀다 이동 없이 뗌 → 행 탭으로 승격. 픽커는 onPromote(자식 DOM Pressable을 우회한
+            // 직접 발화)로, 목록 행은 onActivate로. 자식 click은 didDragRef 가드에 막혀 이중 발화 없음.
+            (onPromoteRef.current ?? onActivateRef.current)?.(id);
           }
           activeIndex.value = -1;
           activeIndexRef.current = -1;
@@ -484,6 +518,10 @@ export function useVarReorder<T>(opts: {
           dragY.value = 0;
           endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
           setDraggingId(null);
+          // pointerup 뒤 따라오는 click(웹)까지 가드를 유지한 뒤 다음 매크로태스크에서 해제.
+          setTimeout(() => {
+            didDragRef.current = false;
+          }, 0);
         });
       const composite = composeRowGesture(dragPan, {
         activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
@@ -522,6 +560,7 @@ export function useVarReorder<T>(opts: {
     getGesture,
     moveByOne,
     CellRendererComponent,
+    didDragRef,
   };
 }
 

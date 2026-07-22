@@ -11,6 +11,10 @@ export interface User {
   selfColor?: string | null;
   // "전체"(자기 자신) 방 설명(상태메시지). 없으면 null.
   selfDescription?: string | null;
+  // "태그 전체" 방 프로필 색(hex). null이면 프론트가 기본 무채 # 타일로 표시. selfColor와 동일 계약.
+  tagAllColor?: string | null;
+  // "태그 전체" 방 설명(상태메시지). 없으면 null.
+  tagAllDescription?: string | null;
   // 사용자가 저장한 커스텀 프로필 색 목록(hex). 편집기 스와치 그리드에 프리셋 다음에 나열.
   customColors?: string[];
   // 자동구분 표시 순서(6종 순열). null이면 프론트가 기본 순서로 표시.
@@ -255,6 +259,9 @@ export const api = {
       displayName?: string;
       selfColor?: string | null;
       selfDescription?: string;
+      // "태그 전체" 방 프로필 색·설명 (selfColor/selfDescription과 동일 계약).
+      tagAllColor?: string | null;
+      tagAllDescription?: string;
       customColors?: string[];
       autoOrder?: AutoKind[];
       // 자동구분 즐겨찾기(6종 부분집합). 잘못되면 400 code 'invalid_order'.
@@ -292,8 +299,10 @@ export const api = {
       before?: string;
       friendId?: string;
       // 자동구분 통합 조회. 있으면 서버가 friendId를 무시하고 전 방에서 이 종류만 모은다.
-      auto?: AutoKind;
+      // 특수값 'all' = 자동구분(링크)이 하나라도 잡힌 전체 방.
+      auto?: AutoKind | 'all';
       // 태그 통합 조회. 있으면 서버가 friendId를 무시하고 이 태그가 붙은 메시지를 전 방에서 모은다.
+      // 특수값 'all' = 태그가 하나 이상 달린 전체 방.
       tagId?: string;
     } = {},
   ) => {

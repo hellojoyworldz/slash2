@@ -11,6 +11,7 @@ export default {
     notice: 'お知らせ',
     close: '閉じる',
     listSection: '一覧',
+    all: 'すべて',
   },
   // スクリーンリーダー用ラベル（画面には表示されない）
   a11y: {
@@ -156,6 +157,7 @@ export default {
     empty: 'まだタグがありません。上から追加してみましょう。',
     emptyHint: '右上の「追加」を押して\n最初のタグを作りましょう',
     roomEmpty: 'このタグのメッセージはまだありません',
+    allRoomEmpty: 'タグ付きのメッセージはまだありません',
     removeLabel: 'タグ「{{name}}」を削除',
     deleteTitle: 'タグを削除',
     deleteMessage: '「{{name}}」をすべてのメッセージから削除しますか？',
@@ -195,10 +197,15 @@ export default {
     deleteAllTitle: 'カテゴリを全削除',
     deleteAllMessage: 'すべてのカテゴリを削除しますか？メッセージは未分類のまま残ります。',
     favoritesSection: 'お気に入り',
+    hideTab: '{{name}}を非表示',
+    showTab: '{{name}}を表示',
+    editTabs: 'タブを編集',
+    finishEditTabs: '編集を完了',
   },
   auto: {
     title: '自動分類',
     empty: 'まだ{{name}}に分類されたメッセージはありません',
+    allRoomEmpty: '自動分類されたメッセージはまだありません',
     names: {
       place: '場所',
       video: '動画',

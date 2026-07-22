@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Trash2 } from 'lucide-react-native';
+import { Pencil, Trash2 } from 'lucide-react-native';
 import { api, Friend, Message } from '../api';
 import { errorText } from '../i18n/errors';
 import { confirmDialog, notify } from '../notify';
@@ -11,9 +11,14 @@ import { CategoryAvatar } from './CategoryAvatar';
 import {
   PICKER_TILE_SIZE,
   PickerModal,
+  PickerReorderRow,
   PickerRow,
+  PickerSectionHeader,
+  usePickerReorderGuard,
   usePickerRowScroll,
+  usePickerSwipeTapGuard,
 } from './PickerModal';
+import { SwipeAction } from './SwipeableRow';
 import { Text } from './Text';
 
 // "전체(미분류)" 행의 스크롤 key 센티널(friendId=null 자리).
@@ -26,8 +31,10 @@ interface Props {
   message: Message | null;
   /** 선택지로 보여줄 분류 목록(화면이 로드한 것을 넘긴다). */
   friends: Friend[];
-  /** "전체(미분류)" 행 아바타 색(전체 프로필 색). */
+  /** "전체" 행 아바타 색(전체 프로필 색). */
   selfColor: string | null;
+  /** "전체" 행 부제 — 커스텀 설명(selfDescription)이 있으면 그것, 없으면 '전체 메시지 보기'는 호출부 폴백 대신 여기서 처리. */
+  selfDescription?: string | null;
   /** 스크림 탭·Android 뒤로가기·웹 Esc로 닫기 */
   onClose: () => void;
   /** PATCH 성공 시 서버가 돌려준 최신 메시지로 목록·상세를 갱신하도록 화면에 위임(보기 모드). */
@@ -45,6 +52,8 @@ interface Props {
   manage?: boolean;
   /** 관리 모드 행 탭 시 그 분류의 수정 폼을 연다(선택 모드엔 넘기지 않음 — 행 탭=선택 유지). */
   onEditFriend?: (friend: Friend) => void;
+  /** "전체" 프로필(색·설명) 편집 폼을 연다(self 모드). 있으면 전체 행에 스와이프 [수정] + 관리 모드 탭이 붙는다. */
+  onEditSelf?: () => void;
 }
 
 // 분류 선택 픽커 — 태그 픽커와 한 문법(PickerModal 골격 + PickerRow 행).
@@ -58,6 +67,7 @@ export function CategoryPickerModal({
   message,
   friends,
   selfColor,
+  selfDescription,
   onClose,
   onChanged,
   onFriendsChanged,
@@ -65,6 +75,7 @@ export function CategoryPickerModal({
   onPicked,
   manage = false,
   onEditFriend,
+  onEditSelf,
 }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -81,6 +92,8 @@ export function CategoryPickerModal({
   const [deletingAll, setDeletingAll] = useState(false);
   // 스크롤 타깃 — 열릴 때 현재 분류, 추가 직후 새 분류. PickerModal이 이 key로 스크롤.
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  // '목록' 섹션 접힘 상태 — 본 목록 섹션 헤더와 같은 문법. 모달 로컬(열 때마다 펼침으로 리셋).
+  const [listExpanded, setListExpanded] = useState(true);
 
   useEffect(() => {
     if (!visible) return;
@@ -95,6 +108,7 @@ export function CategoryPickerModal({
     setNewDescription('');
     // 선택 픽커: 현재 분류로 스크롤(길면 화면 밖일 수 있어). 관리 모드는 선택이 없으니 스크롤 안 함.
     setScrollTarget(manage ? null : initial ?? ALL_KEY);
+    setListExpanded(true);
   }, [visible, message?.id, manage]);
 
   // 행 탭 = 로컬 선택만 변경. PATCH 없음(저장 때 한 번에).
@@ -120,6 +134,8 @@ export function CategoryPickerModal({
       // 선택 픽커는 새 분류를 선택 상태로, 관리 모드는 선택 없음. 둘 다 새 항목으로 스크롤.
       if (!manage) setCurrentFriendId(created.id);
       setScrollTarget(created.id);
+      // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다.
+      setListExpanded(true);
     } catch (e) {
       notify(t('common.notice'), errorText(e));
     } finally {
@@ -175,6 +191,67 @@ export function CategoryPickerModal({
     }
   };
 
+  // 목록 드래그 재정렬 커밋 — 본 목록(분류)과 같은 순서 계약(friends 순서 API). 낙관 반영 후 서버 저장,
+  // 성공하면 onFriendsChanged로 본 화면 목록을 동기화(재조회가 같은 순서로 맞물려 깜빡임 없음).
+  // 실패하면 직전 순서로 복원. 픽커 목록 정렬 = friends prop(=listFriends, position ASC)로 본 목록과 동일.
+  const onReorderFriends = useCallback(
+    (ids: string[]) => {
+      const byId = new Map(localFriends.map((f) => [f.id, f]));
+      const next = ids
+        .map((id) => byId.get(id))
+        .filter((f): f is Friend => f != null);
+      if (next.length !== localFriends.length) return;
+      const prev = localFriends;
+      setLocalFriends(next);
+      if (!token) return;
+      api
+        .reorderFriends(token, ids)
+        .then(() => onFriendsChanged())
+        .catch(() => {
+          setLocalFriends(prev);
+          onFriendsChanged();
+        });
+    },
+    [localFriends, token, onFriendsChanged],
+  );
+
+  // 행 왼→오 스와이프 액션 [수정][삭제] — 본 목록(분류 탭) 스와이프와 같은 문법.
+  // [삭제][수정] — 본 목록과 좌우 순서까지 동일(수정이 맨 오른쪽).
+  // 수정 = 색·프로필 편집 폼(관리 모드 onEditFriend / 선택 모드도 props로 이관받아 동일 동작),
+  // 삭제 = 기존 휴지통과 같은 계약(onDeleteFriend가 confirmDialog 포함). 선택·관리 모드 공통.
+  const swipeActionsFor = (friend: Friend): SwipeAction[] => [
+    {
+      key: 'delete',
+      icon: Trash2,
+      label: t('common.delete'),
+      onPress: () => void onDeleteFriend(friend),
+    },
+    ...(onEditFriend
+      ? [
+          {
+            key: 'edit',
+            icon: Pencil,
+            label: t('friends.editTitle'),
+            onPress: () => onEditFriend(friend),
+          },
+        ]
+      : []),
+  ];
+
+  // "전체" 행 부제 — 커스텀 설명(selfDescription)이 있으면 그것, 없으면 '전체 메시지 보기'(전체 부제 공통 키).
+  const allSubtitle = selfDescription || t('friends.sendToMe');
+  // "전체" 행 스와이프 — [수정]만(삭제 없음). self 프로필 편집 폼을 연다. 양 모드 공통.
+  const selfSwipeActions: SwipeAction[] = onEditSelf
+    ? [
+        {
+          key: 'edit',
+          icon: Pencil,
+          label: t('friends.editTitle'),
+          onPress: onEditSelf,
+        },
+      ]
+    : [];
+
   // [저장] — 변경 없으면 no-op으로 닫고, 바뀐 경우만 PATCH. 실패 시 알리고 모달을 유지(재시도 가능).
   const onSave = async () => {
     if (saving) return;
@@ -228,6 +305,20 @@ export function CategoryPickerModal({
       onChangeNewDescription={setNewDescription}
       descriptionPlaceholder={t('friends.descriptionPlaceholder')}
       scrollToKey={scrollTarget}
+      // 목록 드래그 순서 변경 — 선택·관리 모드 공통(모드 차이는 푸터만). 대상 행은 PickerReorderRow로 감싼다.
+      // onActivate = 꾹 눌렀다 이동 없이 뗀 승격 탭의 행 동작(관리=수정 폼, 선택=분류 선택).
+      reorder={{
+        order: localFriends.map((f) => f.id),
+        onReorder: onReorderFriends,
+        onActivate: (id) => {
+          if (manage) {
+            const f = localFriends.find((x) => x.id === id);
+            if (f && onEditFriend) onEditFriend(f);
+          } else {
+            select(id);
+          }
+        },
+      }}
       // 타이틀 오른쪽 휴지통 = 전체 삭제. 항목이 없으면 숨긴다.
       titleAccessory={
         localFriends.length > 0 ? (
@@ -244,57 +335,91 @@ export function CategoryPickerModal({
       }
     >
       {manage ? (
-        // 관리 모드: 선택 없이 읽기 전용 분류 목록(추가만). "전체(미분류)"는 분류가 아니라 표시 안 함.
-        localFriends.length === 0 ? (
-          <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
-            {t('friends.emptyHint')}
-          </Text>
-        ) : (
-          localFriends.map((friend) => (
+        // 관리 모드: 최상단 "전체" 프로필 행(탭·스와이프 [수정] = self 편집) + 읽기 전용 분류 목록(추가만).
+        <>
+          {/* "전체" 프로필 행 — 재정렬·삭제 대상 아님(order 밖 rowKey). 탭 = self 편집 폼. */}
+          <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
             <CategoryManageRow
-              key={friend.id}
-              name={friend.name}
-              description={friend.description ?? null}
-              color={friend.color ?? null}
-              scrollKey={friend.id}
-              onEdit={onEditFriend ? () => onEditFriend(friend) : undefined}
-              onDelete={() => void onDeleteFriend(friend)}
-              deleteLabel={t('common.delete')}
+              name={t('chats.myRoom')}
+              description={allSubtitle}
+              color={selfColor}
+              scrollKey={ALL_KEY}
+              onEdit={onEditSelf}
             />
-          ))
-        )
+          </PickerReorderRow>
+          <PickerSectionHeader
+            expanded={listExpanded}
+            onToggle={() => setListExpanded((v) => !v)}
+            count={localFriends.length}
+          />
+          {listExpanded &&
+            (localFriends.length === 0 ? (
+              <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
+                {t('friends.emptyHint')}
+              </Text>
+            ) : (
+              localFriends.map((friend) => (
+                <PickerReorderRow
+                  key={friend.id}
+                  rowKey={friend.id}
+                  swipeActions={swipeActionsFor(friend)}
+                >
+                  <CategoryManageRow
+                    name={friend.name}
+                    description={friend.description ?? null}
+                    color={friend.color ?? null}
+                    scrollKey={friend.id}
+                    onEdit={onEditFriend ? () => onEditFriend(friend) : undefined}
+                  />
+                </PickerReorderRow>
+              ))
+            ))}
+        </>
       ) : (
         <>
-          {/* 전체(미분류) — selfColor 아바타. friendId=null로 되돌린다. */}
-          <PickerRow
-            tile={<CategoryAvatar color={selfColor} size={PICKER_TILE_SIZE} />}
-            label={t('list.uncategorized')}
-            selected={currentFriendId === null}
-            onPress={() => select(null)}
-            multi={false}
-            scrollKey={ALL_KEY}
-          />
-          {localFriends.map((friend) => (
+          {/* "전체" 프로필 행 — selfColor 아바타 + 전체 부제. 탭 = friendId=null(미분류) 선택,
+              스와이프 [수정] = self 프로필 편집(양 모드 공통). 재정렬·삭제 대상 아님(order 밖 rowKey). */}
+          <PickerReorderRow rowKey={ALL_KEY} swipeActions={selfSwipeActions}>
             <PickerRow
-              key={friend.id}
-              tile={<CategoryAvatar color={friend.color ?? null} size={PICKER_TILE_SIZE} />}
-              label={friend.name}
-              description={friend.description ?? null}
-              selected={currentFriendId === friend.id}
-              onPress={() => select(friend.id)}
+              tile={<CategoryAvatar color={selfColor} size={PICKER_TILE_SIZE} />}
+              label={t('chats.myRoom')}
+              description={allSubtitle}
+              selected={currentFriendId === null}
+              onPress={() => select(null)}
               multi={false}
-              scrollKey={friend.id}
-              onDelete={() => void onDeleteFriend(friend)}
-              deleteLabel={t('common.delete')}
+              scrollKey={ALL_KEY}
             />
-          ))}
+          </PickerReorderRow>
+          <PickerSectionHeader
+            expanded={listExpanded}
+            onToggle={() => setListExpanded((v) => !v)}
+            count={localFriends.length}
+          />
+          {listExpanded &&
+            localFriends.map((friend) => (
+              <PickerReorderRow
+                key={friend.id}
+                rowKey={friend.id}
+                swipeActions={swipeActionsFor(friend)}
+              >
+                <PickerRow
+                  tile={<CategoryAvatar color={friend.color ?? null} size={PICKER_TILE_SIZE} />}
+                  label={friend.name}
+                  description={friend.description ?? null}
+                  selected={currentFriendId === friend.id}
+                  onPress={() => select(friend.id)}
+                  multi={false}
+                  scrollKey={friend.id}
+                />
+              </PickerReorderRow>
+            ))}
         </>
       )}
     </PickerModal>
   );
 }
 
-// 관리 모드 읽기 전용 행 — 선택 픽커 행(PickerRow)과 같은 여백/타일 정렬(선택 표시·Pressable 없음).
+// 관리 모드 행 — 선택 픽커 행(PickerRow)과 같은 여백/타일 정렬. 탭 = 수정 폼(색·프로필), 삭제·수정은 스와이프.
 // 스크롤 타깃 등록(추가 직후 새 분류로 스크롤)을 위해 onLayout을 단다.
 function CategoryManageRow({
   name,
@@ -302,27 +427,31 @@ function CategoryManageRow({
   color,
   scrollKey,
   onEdit,
-  onDelete,
-  deleteLabel,
 }: {
   name: string;
   description: string | null;
   color: string | null;
   scrollKey: string;
-  /** 있으면 타일·이름 영역 탭 = 수정 폼 열기(휴지통은 별도 탭 영역으로 공존). */
+  /** 있으면 행 탭 = 수정 폼 열기(스와이프 [수정]과 같은 동작). */
   onEdit?: () => void;
-  onDelete: () => void;
-  deleteLabel: string;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const onLayout = usePickerRowScroll(scrollKey);
+  // 드래그 세션 직후 따라오는 click을 눌러 무시(순서만 바꿨는데 수정 폼이 새는 누수 방지).
+  const dragGuarded = usePickerReorderGuard();
+  // 스와이프 드래그 직후 오탭 무시 + 열린 행 탭 = 닫기(본 목록과 같은 규칙).
+  const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
     <View style={styles.manageRow} onLayout={onLayout}>
-      {/* 타일+이름 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
+      {/* 행 전체 탭 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
       <Pressable
         style={({ pressed }) => [styles.manageTap, pressed && styles.manageTapActive]}
-        onPress={onEdit}
+        onPress={() => {
+          if (dragGuarded()) return;
+          if (swipeGuarded()) return;
+          onEdit?.();
+        }}
         disabled={!onEdit}
         accessibilityRole="button"
         accessibilityLabel={name}
@@ -339,16 +468,6 @@ function CategoryManageRow({
           ) : null}
         </View>
       </Pressable>
-      {/* 행 오른쪽 휴지통 — 선택 픽커 행(PickerRow)과 같은 위치·문법(탭 영역 분리). */}
-      <TouchableOpacity
-        style={styles.manageDelete}
-        onPress={onDelete}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        accessibilityRole="button"
-        accessibilityLabel={deleteLabel}
-      >
-        <Trash2 size={16} strokeWidth={2} color={colors.textTertiary} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -383,9 +502,5 @@ const makeStyles = (colors: ThemeColors) =>
       flex: 1,
       marginLeft: 12,
       paddingRight: 8,
-    },
-    manageDelete: {
-      paddingHorizontal: 4,
-      paddingVertical: 4,
     },
   });

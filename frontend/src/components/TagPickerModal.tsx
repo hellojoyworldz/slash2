@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
-import { Trash2 } from 'lucide-react-native';
+import { Pencil, Trash2 } from 'lucide-react-native';
 import { api, Message, Tag } from '../api';
 import { errorText } from '../i18n/errors';
 import { confirmDialog, notify } from '../notify';
@@ -13,9 +13,14 @@ import { HashTile } from './HashTile';
 import {
   PICKER_TILE_SIZE,
   PickerModal,
+  PickerReorderRow,
   PickerRow,
+  PickerSectionHeader,
+  usePickerReorderGuard,
   usePickerRowScroll,
+  usePickerSwipeTapGuard,
 } from './PickerModal';
+import { SwipeAction } from './SwipeableRow';
 import { Text } from './Text';
 
 interface Props {
@@ -38,7 +43,16 @@ interface Props {
   manage?: boolean;
   /** 관리 모드 행 탭 시 그 태그의 이름·설명 수정 폼을 연다(선택 모드엔 넘기지 않음 — 행 탭=선택 유지). */
   onEditTag?: (tag: Tag) => void;
+  /** "태그 전체" 방 프로필 색(hex) — 최상단 전체 행 # 타일 배경. */
+  tagAllColor?: string | null;
+  /** "태그 전체" 방 설명 — 전체 행 부제(없으면 '전체 메시지 보기'). */
+  tagAllDescription?: string | null;
+  /** "태그 전체" 프로필(색·설명) 편집 폼을 연다. 있으면 전체 행에 스와이프 [수정] + 관리 모드 탭이 붙는다. */
+  onEditTagAll?: () => void;
 }
+
+// 최상단 "전체" 행의 스크롤/재정렬 제외 key 센티널(태그가 아니라 프로필 행).
+const TAG_ALL_KEY = '__tagall__';
 
 // 태그 선택 픽커 — 분류 픽커와 한 문법(PickerModal 골격 + PickerRow 행).
 // "고르기 → 저장": 위는 새 태그 이름 입력 + [추가](중복 409 → errors.tag_name_taken, 생성은
@@ -56,6 +70,9 @@ export function TagPickerModal({
   onPicked,
   manage = false,
   onEditTag,
+  tagAllColor,
+  tagAllDescription,
+  onEditTagAll,
 }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -73,6 +90,8 @@ export function TagPickerModal({
   const [deletingAll, setDeletingAll] = useState(false);
   // 스크롤 타깃 — 열릴 때 첫 선택 태그, 추가 직후 새 태그. PickerModal이 이 key로 스크롤.
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  // '목록' 섹션 접힘 상태 — 본 목록 섹션 헤더와 같은 문법. 모달 로컬(열 때마다 펼침으로 리셋).
+  const [listExpanded, setListExpanded] = useState(true);
 
   // 열릴 때(또는 대상 변경 시): 태그 목록 fetch + 대상 메시지의 현재 태그로 선택 초기화.
   useEffect(() => {
@@ -83,6 +102,7 @@ export function TagPickerModal({
     setNewDescription('');
     // 선택된 태그가 있으면(목록 순서상 첫 번째) 열릴 때 그 항목으로 스크롤(길면 화면 밖일 수 있어).
     setScrollTarget(init.size > 0 ? [...init][0] : null);
+    setListExpanded(true);
     reload();
   }, [visible, token, message?.id, reload]);
 
@@ -131,6 +151,8 @@ export function TagPickerModal({
     if (!manage) setSelected((prev) => new Set(prev).add(created.id));
     // 새 항목으로 스크롤(목록 어디에 들어가든 보이게).
     setScrollTarget(created.id);
+    // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다.
+    setListExpanded(true);
   };
 
   // 타이틀 휴지통 — 확인창 → 모든 태그를 모든 메시지에서 제거. 선택도 비운다.
@@ -158,6 +180,79 @@ export function TagPickerModal({
       setDeletingAll(false);
     }
   };
+
+  // 목록 드래그 재정렬 커밋 — 본 목록(태그)과 같은 순서 계약(tags 순서 API). 낙관 반영 후 서버 저장,
+  // 성공하면 onTagsChanged로 본 화면 목록을 동기화. 실패하면 서버 순서로 복원(reload).
+  // 픽커 목록 정렬 = useTagCrud(listTags, position ASC)로 본 목록과 동일 정렬.
+  const onReorderTags = useCallback(
+    (ids: string[]) => {
+      const byId = new Map(tags.map((x) => [x.id, x]));
+      const next = ids
+        .map((id) => byId.get(id))
+        .filter((x): x is Tag => x != null);
+      if (next.length !== tags.length) return;
+      setTags(next);
+      if (!token) return;
+      api
+        .reorderTags(token, ids)
+        .then(() => onTagsChanged())
+        .catch(() => {
+          reload();
+          onTagsChanged();
+        });
+    },
+    [tags, setTags, reload, token, onTagsChanged],
+  );
+
+  // 행 왼→오 스와이프 액션 [삭제][수정] — 본 목록(태그 탭)과 좌우 순서까지 동일(수정이 맨 오른쪽).
+  // 수정 = 이름·설명·프로필 색 폼(관리 모드 onEditTag / 선택 모드도 props로 이관받아 동일 동작),
+  // 삭제 = 기존 휴지통과 같은 계약(onDeleteTag가 removeTag의 confirmDialog 포함). 선택·관리 모드 공통.
+  const swipeActionsFor = (tag: Tag): SwipeAction[] => [
+    {
+      key: 'delete',
+      icon: Trash2,
+      label: t('tags.removeLabel', { name: tag.name }),
+      onPress: () => void onDeleteTag(tag),
+    },
+    ...(onEditTag
+      ? [
+          {
+            key: 'edit',
+            icon: Pencil,
+            label: t('tags.editTitle'),
+            onPress: () => onEditTag(tag),
+          },
+        ]
+      : []),
+  ];
+
+  // "전체" 행 부제 — 커스텀 설명(tagAllDescription)이 있으면 그것, 없으면 '전체 메시지 보기'(전체 부제 공통 키).
+  const allSubtitle = tagAllDescription || t('friends.sendToMe');
+  // "전체" 행 스와이프 — [수정]만(삭제 없음). 태그 전체 프로필 편집 폼을 연다. 양 모드 공통.
+  const tagAllSwipeActions: SwipeAction[] = onEditTagAll
+    ? [
+        {
+          key: 'edit',
+          icon: Pencil,
+          label: t('tags.editTitle'),
+          onPress: onEditTagAll,
+        },
+      ]
+    : [];
+  // "전체" 프로필 행(양 모드 공통) — # 타일 + '전체' + 부제. 관리 모드 탭 = 편집, 선택 모드 탭 = 무동작.
+  // 스와이프 [수정]은 양 모드 공통. 재정렬·삭제 대상 아님(order 밖 rowKey).
+  const tagAllRow =
+    tagAllColor !== undefined || onEditTagAll ? (
+      <PickerReorderRow rowKey={TAG_ALL_KEY} swipeActions={tagAllSwipeActions}>
+        <TagManageRow
+          name={t('chats.myRoom')}
+          color={tagAllColor ?? null}
+          description={allSubtitle}
+          scrollKey={TAG_ALL_KEY}
+          onEdit={manage ? onEditTagAll : undefined}
+        />
+      </PickerReorderRow>
+    ) : null;
 
   // [저장] — tagIds 전체를 PATCH. 실패 시 알리고 모달을 유지(재시도 가능).
   const onSave = async () => {
@@ -205,6 +300,20 @@ export function TagPickerModal({
       onChangeNewDescription={setNewDescription}
       descriptionPlaceholder={t('friends.descriptionPlaceholder')}
       scrollToKey={scrollTarget}
+      // 목록 드래그 순서 변경 — 선택·관리 모드 공통(모드 차이는 푸터만). 대상 행은 PickerReorderRow로 감싼다.
+      // onActivate = 꾹 눌렀다 이동 없이 뗀 승격 탭의 행 동작(관리=수정 폼, 선택=태그 토글).
+      reorder={{
+        order: tags.map((x) => x.id),
+        onReorder: onReorderTags,
+        onActivate: (id) => {
+          if (manage) {
+            const tag = tags.find((x) => x.id === id);
+            if (tag && onEditTag) onEditTag(tag);
+          } else {
+            toggle(id);
+          }
+        },
+      }}
       // 타이틀 오른쪽 휴지통 = 전체 삭제. 항목이 없으면 숨긴다.
       titleAccessory={
         tags.length > 0 ? (
@@ -220,45 +329,50 @@ export function TagPickerModal({
         ) : null
       }
     >
-      {tags.length === 0 ? (
-        <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
-          {t('tags.empty')}
-        </Text>
-      ) : manage ? (
-        // 관리 모드: 선택 체크 없이 읽기 전용 목록(추가만). 관리(수정·삭제·고정·순서)는 태그 탭 몫.
-        tags.map((tag) => (
-          <TagManageRow
-            key={tag.id}
-            name={tag.name}
-            color={tag.color ?? null}
-            description={tag.description ?? null}
-            scrollKey={tag.id}
-            onEdit={onEditTag ? () => onEditTag(tag) : undefined}
-            onDelete={() => void onDeleteTag(tag)}
-            deleteLabel={t('tags.removeLabel', { name: tag.name })}
-          />
-        ))
-      ) : (
-        tags.map((tag) => (
-          <PickerRow
-            key={tag.id}
-            tile={<HashTile color={tag.color ?? null} />}
-            label={tag.name}
-            description={tag.description ?? null}
-            selected={selected.has(tag.id)}
-            onPress={() => toggle(tag.id)}
-            multi
-            scrollKey={tag.id}
-            onDelete={() => void onDeleteTag(tag)}
-            deleteLabel={t('tags.removeLabel', { name: tag.name })}
-          />
-        ))
-      )}
+      {tagAllRow}
+      <PickerSectionHeader
+        expanded={listExpanded}
+        onToggle={() => setListExpanded((v) => !v)}
+        count={tags.length}
+      />
+      {listExpanded &&
+        (tags.length === 0 ? (
+          <Text variant="caption" color={colors.textTertiary} style={styles.emptyHint}>
+            {t('tags.empty')}
+          </Text>
+        ) : manage ? (
+          // 관리 모드: 선택 체크 없이 읽기 전용 목록(추가만). 관리(수정·삭제·고정·순서)는 태그 탭 몫.
+          tags.map((tag) => (
+            <PickerReorderRow key={tag.id} rowKey={tag.id} swipeActions={swipeActionsFor(tag)}>
+              <TagManageRow
+                name={tag.name}
+                color={tag.color ?? null}
+                description={tag.description ?? null}
+                scrollKey={tag.id}
+                onEdit={onEditTag ? () => onEditTag(tag) : undefined}
+              />
+            </PickerReorderRow>
+          ))
+        ) : (
+          tags.map((tag) => (
+            <PickerReorderRow key={tag.id} rowKey={tag.id} swipeActions={swipeActionsFor(tag)}>
+              <PickerRow
+                tile={<HashTile color={tag.color ?? null} />}
+                label={tag.name}
+                description={tag.description ?? null}
+                selected={selected.has(tag.id)}
+                onPress={() => toggle(tag.id)}
+                multi
+                scrollKey={tag.id}
+              />
+            </PickerReorderRow>
+          ))
+        ))}
     </PickerModal>
   );
 }
 
-// 관리 모드 읽기 전용 행 — 선택 픽커 행과 같은 여백/타일 정렬(선택 표시·Pressable 없음).
+// 관리 모드 행 — 선택 픽커 행과 같은 여백/타일 정렬. 탭 = 이름·설명·프로필 색 폼, 삭제·수정은 스와이프.
 // 스크롤 타깃 등록(추가 직후 새 태그로 스크롤)을 위해 onLayout을 단다.
 function TagManageRow({
   name,
@@ -266,27 +380,31 @@ function TagManageRow({
   description,
   scrollKey,
   onEdit,
-  onDelete,
-  deleteLabel,
 }: {
   name: string;
   color: string | null;
   description: string | null;
   scrollKey: string;
-  /** 있으면 타일·이름 영역 탭 = 수정 폼 열기(휴지통은 별도 탭 영역으로 공존). */
+  /** 있으면 행 탭 = 수정 폼 열기(스와이프 [수정]과 같은 동작). */
   onEdit?: () => void;
-  onDelete: () => void;
-  deleteLabel: string;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const onLayout = usePickerRowScroll(scrollKey);
+  // 드래그 세션 직후 따라오는 click을 눌러 무시(순서만 바꿨는데 수정 폼이 새는 누수 방지).
+  const dragGuarded = usePickerReorderGuard();
+  // 스와이프 드래그 직후 오탭 무시 + 열린 행 탭 = 닫기(본 목록과 같은 규칙).
+  const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
     <View style={styles.manageRow} onLayout={onLayout}>
-      {/* 타일+이름 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
+      {/* 행 전체 탭 = 수정 진입(선택 픽커 행의 눌림 피드백과 같은 surface 채움). */}
       <Pressable
         style={({ pressed }) => [styles.manageTap, pressed && styles.manageTapActive]}
-        onPress={onEdit}
+        onPress={() => {
+          if (dragGuarded()) return;
+          if (swipeGuarded()) return;
+          onEdit?.();
+        }}
         disabled={!onEdit}
         accessibilityRole="button"
         accessibilityLabel={name}
@@ -303,16 +421,6 @@ function TagManageRow({
           ) : null}
         </View>
       </Pressable>
-      {/* 행 오른쪽 휴지통 — 선택 픽커 행(PickerRow)과 같은 위치·문법(탭 영역 분리). */}
-      <TouchableOpacity
-        style={styles.manageDelete}
-        onPress={onDelete}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        accessibilityRole="button"
-        accessibilityLabel={deleteLabel}
-      >
-        <Trash2 size={16} strokeWidth={2} color={colors.textTertiary} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -347,9 +455,5 @@ const makeStyles = (colors: ThemeColors) =>
       flex: 1,
       marginLeft: 12,
       paddingRight: 8,
-    },
-    manageDelete: {
-      paddingHorizontal: 4,
-      paddingVertical: 4,
     },
   });

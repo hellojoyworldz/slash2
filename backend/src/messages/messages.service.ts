@@ -9,8 +9,8 @@ import { Friend } from '../friends/friend.entity';
 import { Tag } from '../tags/tag.entity';
 import { LinkClassifierService } from './link-classifier.service';
 import { LinkPreviewService } from './link-preview.service';
-import { Message } from './message.entity';
-import type { AutoFilter, MessageLink } from './message.entity';
+import { Message, ROOM_ALL } from './message.entity';
+import type { AutoFilter, AutoQueryFilter, MessageLink } from './message.entity';
 
 // 목록/단건 응답에 실리는 직렬화 형태: Message 컬럼 + tagIds(항상 배열). 관계(tags/user/friend)는 노출하지 않는다.
 export type MessageResponse = Omit<Message, 'tags' | 'user' | 'friend'> & {
@@ -195,7 +195,7 @@ export class MessagesService {
       q?: string;
       before?: string;
       friendId?: string;
-      auto?: AutoFilter;
+      auto?: AutoQueryFilter;
       tagId?: string;
     },
   ) {
@@ -207,12 +207,24 @@ export class MessagesService {
       .take(PAGE_SIZE + 1);
 
     if (options.tagId) {
-      query.innerJoin('m.tags', 't', 't.id = :tagId', { tagId: options.tagId });
+      if (options.tagId === ROOM_ALL) {
+        // 태그 전체 방: 태그가 하나 이상 달린 모든 메시지. innerJoin은 태그 수만큼 행이
+        // 중복되므로 EXISTS로 존재만 확인한다(조인테이블 message_tags).
+        query.andWhere(
+          `EXISTS (SELECT 1 FROM message_tags mt WHERE mt."messageId" = m.id)`,
+        );
+      } else {
+        query.innerJoin('m.tags', 't', 't.id = :tagId', { tagId: options.tagId });
+      }
     } else if (options.auto) {
       // 멀티링크 메시지는 links 배열의 각 원소 linkType으로 매칭 — 여러 종류가 섞여 있으면
       // 매칭되는 모든 방에 나타난다. links가 비었거나 null인 레거시 행은 단일 필드(m.linkType)로 폴백.
       // memo: kind='text' / link: 자동구분 안 된 링크(linkType null) / 나머지: 그 linkType의 링크
-      if (options.auto === 'memo') {
+      if (options.auto === ROOM_ALL) {
+        // 자동구분 전체 방: 링크가 하나라도 있는(kind='link') 모든 메시지.
+        // = place∪video∪item∪article∪link (memo 제외). 레거시 미분류 링크도 포함된다.
+        query.andWhere("m.kind = 'link'");
+      } else if (options.auto === 'memo') {
         query.andWhere("m.kind = 'text'");
       } else if (options.auto === 'link') {
         query.andWhere(

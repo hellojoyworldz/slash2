@@ -6,9 +6,10 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
-import { AUTO_FILTERS } from './message.entity';
-import type { AutoFilter } from './message.entity';
+import { AUTO_QUERY_FILTERS, ROOM_ALL } from './message.entity';
+import type { AutoQueryFilter } from './message.entity';
 
 export class CreateMessageDto {
   @IsString()
@@ -74,13 +75,16 @@ export class ListMessagesQuery {
   friendId?: string;
 
   // 있으면 friendId 필터는 무시하고 전체 방을 가로질러 이 값 기준으로 필터한다.
+  // 특수값 'all' = 자동구분(링크)이 하나라도 잡힌 전체 방.
   @IsOptional()
-  @IsIn(AUTO_FILTERS)
-  auto?: AutoFilter;
+  @IsIn(AUTO_QUERY_FILTERS)
+  auto?: AutoQueryFilter;
 
   // 있으면 auto/friendId 필터를 모두 무시하고 전체 방을 가로질러 이 태그가 붙은 메시지만 반환한다.
-  // (tagId가 auto보다 우선 — 서비스에서 처리)
+  // (tagId가 auto보다 우선 — 서비스에서 처리). 특수값 'all' = 태그가 하나 이상 달린 전체 방
+  // (uuid가 아니므로 그때만 IsUUID 검증을 건너뛴다).
   @IsOptional()
+  @ValidateIf((o) => o.tagId !== ROOM_ALL)
   @IsUUID()
   tagId?: string;
 }

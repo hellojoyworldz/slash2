@@ -218,7 +218,18 @@ export default function TabsLayout() {
   const { appStyle } = useAppStyle();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
-  const { room, setRoom, autoKind, setAutoKind, tag, setTag } = useSelectedRoom();
+  const {
+    room,
+    setRoom,
+    autoKind,
+    setAutoKind,
+    tag,
+    setTag,
+    tagAll,
+    setTagAll,
+    autoAll,
+    setAutoAll,
+  } = useSelectedRoom();
   const router = useRouter();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -425,10 +436,38 @@ export default function TabsLayout() {
         </GestureDetector>
 
         {/* ③ 대화 패널: 항상 상주, 남은 폭 전부. 방 선택 시 여기만 교체.
-            렌더 우선순위: tag > autoKind > room(일반). 태그·자동구분은 보기 전용 방.
+            렌더 우선순위: tagAll > autoAll > tag > autoKind > room(일반). 태그·자동구분·전체는 보기 전용 방.
             뒤로가기는 데스크톱에선 숨긴다(왼쪽 리스트가 상주 — 사용자 확정). 워드마크 탭=전체. */}
         <View style={styles.chatPane}>
-          {tag ? (
+          {tagAll ? (
+            <ChatScreen
+              key="tag:all"
+              token={token}
+              tagAll
+              friendId={null}
+              friendName={null}
+              showBack={false}
+              onBack={() => setTagAll(false)}
+              onLogout={async () => {
+                await logout();
+                router.replace('/login');
+              }}
+            />
+          ) : autoAll ? (
+            <ChatScreen
+              key="auto:all"
+              token={token}
+              autoAll
+              friendId={null}
+              friendName={null}
+              showBack={false}
+              onBack={() => setAutoAll(false)}
+              onLogout={async () => {
+                await logout();
+                router.replace('/login');
+              }}
+            />
+          ) : tag ? (
             <ChatScreen
               key={`tag:${tag.id}`}
               token={token}
@@ -495,6 +534,12 @@ export default function TabsLayout() {
   // 목록으로 튕기지 말고 그 방의 /chat 라우트로 이어준다.
   // wasDesktopRef가 "그 순간"만 한정하므로, 모바일에서 목록으로 되돌아가도
   // 다시 /chat으로 끌려가지 않는다(무한 리다이렉트 방지). room이 있을 때만.
+  if (wasDesktopRef.current && tagAll) {
+    return <Redirect href={{ pathname: '/tag-room', params: { tagId: 'all' } }} />;
+  }
+  if (wasDesktopRef.current && autoAll) {
+    return <Redirect href={{ pathname: '/auto-room', params: { kind: 'all' } }} />;
+  }
   if (wasDesktopRef.current && tag) {
     return (
       <Redirect

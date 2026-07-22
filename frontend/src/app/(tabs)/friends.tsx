@@ -17,7 +17,8 @@ export default function FriendsRoute() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   // 분류 캡슐이 태그/자동구분으로 전환되면 그 행 탭도 각 화면과 동일하게 방을 연다.
-  const { setRoom, setTag, setAutoKind } = useSelectedRoom();
+  const { setRoom, setTag, setTagAll, setAutoKind, setAutoAll } =
+    useSelectedRoom();
   // 데스크톱(스플릿뷰)에서는 화면 이동 대신 오른쪽 대화 패널을 교체한다.
   const isDesktop = width >= layout.desktopBreakpoint;
 
@@ -63,9 +64,17 @@ export default function FriendsRoute() {
             params: { tagId: tag.id, name: tag.name },
           });
       }}
+      onOpenTagAll={() => {
+        if (isDesktop) setTagAll(true);
+        else router.push({ pathname: '/tag-room', params: { tagId: 'all' } });
+      }}
       onOpenAuto={(kind: AutoKind) => {
         if (isDesktop) setAutoKind(kind);
         else router.push({ pathname: '/auto-room', params: { kind } });
+      }}
+      onOpenAutoAll={() => {
+        if (isDesktop) setAutoAll(true);
+        else router.push({ pathname: '/auto-room', params: { kind: 'all' } });
       }}
       onLogout={onLogout}
     />

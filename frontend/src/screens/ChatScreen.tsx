@@ -45,6 +45,13 @@ interface Props {
    *  자동구분 방과 동일하게 friendId는 무시되고, 입력창·프로필 편집(펜)이 숨겨진다.
    *  헤더는 #태그명, 말풍선은 메시지별 자기 분류 색. */
   tag?: Tag | null;
+  /** 태그 전체 방 모드: 태그가 하나 이상 달린 메시지를 전 방 통합으로 모아 보는 "보기 전용" 방.
+   *  자동구분 방과 동일하게 friendId는 무시되고, 입력창·프로필 편집(펜)·공지가 없다.
+   *  헤더는 #전체, 말풍선은 메시지별 자기 분류 색. */
+  tagAll?: boolean;
+  /** 자동구분 전체 방 모드: 링크가 하나라도 잡힌 메시지를 전 방 통합으로 모아 보는 "보기 전용" 방.
+   *  자동구분 방과 동일한 보기 전용 경로. 헤더는 전체. */
+  autoAll?: boolean;
   /** 하단에 탭바가 깔린 채로(모바일 (tabs) 방 라우트) 렌더될 때 true.
    *  이 경우 하단 safe-area는 탭바가 책임지므로 입력창은 안전영역 패딩을 빼
    *  탭바와의 이중 여백(빈틈)을 없앤다. 데스크톱 상주 패널은 false(입력창이 창 바닥). */
@@ -60,6 +67,8 @@ export function ChatScreen({
   showBack = true,
   auto = null,
   tag = null,
+  tagAll = false,
+  autoAll = false,
   bottomTabBar = false,
 }: Props) {
   const { t } = useTranslation();
@@ -72,7 +81,8 @@ export function ChatScreen({
   // 분류/전체 프로필 편집기(루트 상주) — 헤더 펜 아이콘에서 연다.
   const { open: openCategoryEditor } = useCategoryEdit();
   // 태그 이름·설명 수정 폼(루트 상주) — 태그 방 헤더 펜에서 연다.
-  const { openTagRename } = useTagCreate();
+  // openTagAllEdit — 태그 전체 방 헤더 ⋮에서 태그 전체 프로필(색·설명) 편집 폼을 연다.
+  const { openTagRename, openTagAllEdit } = useTagCreate();
   // 메시지 액션(⋮ 메뉴·태그 선택·내용 수정)은 루트 상주 호스트로 이동 — 여기선 열기만.
   const { openMessageMenu } = useMessageActions();
   // 메시지 상세 모달(공지 배너 탭)도 루트 상주 호스트 — 여기선 열기만.
@@ -86,14 +96,22 @@ export function ChatScreen({
     setRoomTag(tag);
   }, [tag]);
   // 자동구분·태그 방은 입력창·펜(분류 프로필)·공지가 없는 "보기 전용" 방(전 방 통합 모음).
-  const viewOnly = !!auto || !!roomTag;
+  // 태그 전체·자동구분 전체 방도 동일하게 보기 전용(어느 방/태그로 보낼지 정의가 없다).
+  const viewOnly = !!auto || !!roomTag || tagAll || autoAll;
+  // 입력창을 숨기는 방 — 일반 태그 방(roomTag)만 예외로 입력이 열린다(전송 시 그 태그 자동 부착).
+  // 자동구분·태그 전체·자동구분 전체는 어느 방/태그로 보낼지 정의가 없어 입력창을 숨긴다.
+  const hideInput = !!auto || autoAll || tagAll;
   // 방 구분 키. 저장된 draft가 이 값과 일치할 때만 복원한다(다른 방이면 빈 상태).
   // 자동구분/태그 방은 friendId(null)로 'self'와 겹치지 않게 접두어로 태깅한다(이름 수정엔 불변 — id 기준).
-  const roomKey = roomTag
-    ? `tag:${roomTag.id}`
-    : auto
-      ? `auto:${auto}`
-      : friendId ?? 'self';
+  const roomKey = tagAll
+    ? 'tag:all'
+    : autoAll
+      ? 'auto:all'
+      : roomTag
+        ? `tag:${roomTag.id}`
+        : auto
+          ? `auto:${auto}`
+          : friendId ?? 'self';
   // 마운트 시 1회: 같은 방의 draft가 있으면 검색·입력 상태를 그걸로 시작한다.
   const [initialDraft] = useState(() => readChatDraft(roomKey));
   const [messages, setMessages] = useState<Message[]>([]);
@@ -263,12 +281,17 @@ export function ChatScreen({
       try {
         const page = await api.listMessages(token, {
           q: query || undefined,
-          // 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합, 일반 방은 friendId로 조회.
-          ...(roomTag
-            ? { tagId: roomTag.id }
-            : auto
-              ? { auto }
-              : { friendId: friendId ?? undefined }),
+          // 태그/자동구분 전체 방은 특수값 'all', 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합,
+          // 일반 방은 friendId로 조회.
+          ...(tagAll
+            ? { tagId: 'all' }
+            : autoAll
+              ? { auto: 'all' as const }
+              : roomTag
+                ? { tagId: roomTag.id }
+                : auto
+                  ? { auto }
+                  : { friendId: friendId ?? undefined }),
         });
         // 응답이 도착했을 때 검색어가 이미 바뀌었으면 버린다.
         if (activeQuery.current !== query) return;
@@ -284,7 +307,7 @@ export function ChatScreen({
         setLoading(false);
       }
     },
-    [token, friendId, auto, roomTag, onLogout, t],
+    [token, friendId, auto, roomTag, tagAll, autoAll, onLogout, t],
   );
 
   // 분류 시트와 친구 이름 태그·말풍선 색에 쓸 친구 목록.
@@ -356,11 +379,15 @@ export function ChatScreen({
       const page = await api.listMessages(token, {
         q: activeQuery.current || undefined,
         before: oldest.id,
-        ...(roomTag
-          ? { tagId: roomTag.id }
-          : auto
-            ? { auto }
-            : { friendId: friendId ?? undefined }),
+        ...(tagAll
+          ? { tagId: 'all' }
+          : autoAll
+            ? { auto: 'all' as const }
+            : roomTag
+              ? { tagId: roomTag.id }
+              : auto
+                ? { auto }
+                : { friendId: friendId ?? undefined }),
       });
       setMessages((prev) => [...prev, ...page.items]);
       setHasMore(page.hasMore);
@@ -482,14 +509,22 @@ export function ChatScreen({
   // 자동구분 방이면 종류 이름(장소/영상/…)을 헤더·빈상태에 쓴다.
   const autoName = auto ? t(`auto.names.${auto}`) : null;
   // 태그 방이면 #태그명을 헤더 제목으로 쓴다(로컬 roomTag라 이름 수정 즉시 반영).
-  const tagTitle = roomTag ? `#${roomTag.name}` : null;
-  const roomName = tagTitle ?? autoName ?? currentFriend?.name ?? friendName;
+  // 태그 전체 방은 태그 섹터 문법(#) 그대로 #전체, 자동구분 전체 방은 전체(접두어 없음).
+  const tagTitle = tagAll
+    ? `#${t('common.all')}`
+    : roomTag
+      ? `#${roomTag.name}`
+      : null;
+  const autoTitle = autoAll ? t('common.all') : autoName;
+  const roomName = tagTitle ?? autoTitle ?? currentFriend?.name ?? friendName;
 
-  // 헤더 우측 편집(⋮) 대상 — 태그 방=태그 수정, 전체 방=전체 프로필, 분류 방=그 분류.
-  // 자동구분 방(편집 대상 없음)은 없음. 동작·a11y 라벨은 기존 연필과 동일, 표현만 ⋮로.
+  // 헤더 우측 편집(⋮) 대상 — 태그 방=태그 수정, 태그 전체 방=태그 전체 프로필, 전체 방=전체 프로필, 분류 방=그 분류.
+  // 자동구분·자동구분 전체 방(편집 대상 없음)은 없음. 동작·a11y 라벨은 기존 연필과 동일, 표현만 ⋮로.
   const headerEdit = roomTag
     ? { onPress: openTagEditor, label: t('tags.editTitle') }
-    : viewOnly
+    : tagAll
+      ? { onPress: openTagAllEdit, label: t('tags.editTitle') }
+      : viewOnly
       ? null
       : friendId === null
         ? {
@@ -593,11 +628,15 @@ export function ChatScreen({
               <Text variant="body" color={colors.textSecondary} style={styles.emptyText}>
                 {activeQuery.current
                   ? t('chat.noResults')
-                  : roomTag
-                    ? t('tags.roomEmpty')
-                    : auto
-                      ? t('auto.empty', { name: autoName })
-                      : t('chat.emptyFirstLink', { name: roomName ?? t('common.me') })}
+                  : tagAll
+                    ? t('tags.allRoomEmpty')
+                    : autoAll
+                      ? t('auto.allRoomEmpty')
+                      : roomTag
+                        ? t('tags.roomEmpty')
+                        : auto
+                          ? t('auto.empty', { name: autoName })
+                          : t('chat.emptyFirstLink', { name: roomName ?? t('common.me') })}
               </Text>
             </View>
           </View>
@@ -660,10 +699,10 @@ export function ChatScreen({
               />
         )}
 
-        {/* 자동구분 방만 입력창을 숨긴다(어느 방으로 보낼지 정의가 없는 보기 전용 모음).
-            태그 방은 입력창을 연다 — 전송 시 분류 없는 새 메시지에 이 태그가 자동 부착된다.
+        {/* 자동구분·태그 전체·자동구분 전체 방은 입력창을 숨긴다(어느 방/태그로 보낼지 정의가 없는 보기 전용 모음).
+            일반 태그 방만 입력창을 연다 — 전송 시 분류 없는 새 메시지에 이 태그가 자동 부착된다.
             (펜·공지 배너 등 나머지 편집 UI는 viewOnly로 태그 방에서도 계속 숨김) */}
-        {auto ? null : (
+        {hideInput ? null : (
         <View style={[styles.inputBar, bottomTabBar && styles.inputBarWithTabBar]}>
           <TextInput
             ref={inputRef}

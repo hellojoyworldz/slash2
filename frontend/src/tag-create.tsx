@@ -5,11 +5,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react-native';
-import { StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { api, Tag } from './api';
 import { useAuth } from './auth';
 import { HashTile } from './components/HashTile';
@@ -33,10 +34,15 @@ import { useTheme } from './theme-context';
 // (관리 픽커 행 탭 → 수정 폼이 픽커 위에 뜬다). category-edit의 session/manageSession 미러.
 type TagManageSession = { onChanged?: () => void };
 type TagRenameSession = { tag: Tag; onDone?: (tag: Tag) => void };
+// "태그 전체" 방 프로필(색·설명) 편집 세션 — self 프로필 편집(category-edit self 모드)의 태그판.
+// 이름은 '전체' 고정이라 없고, 저장은 updateProfile({tagAllColor, tagAllDescription}). 빈 세션 객체로 연다.
+type TagAllSession = Record<string, never>;
 
 interface TagCreateState {
   openTagCreate: (onChanged?: () => void) => void;
   openTagRename: (tag: Tag, onRenamed?: (tag: Tag) => void) => void;
+  /** "태그 전체" 방 프로필(색·설명) 편집 폼을 연다(태그 탭 전체 행·태그 픽커 전체 행·태그 전체 채팅 헤더 ⋮). */
+  openTagAllEdit: () => void;
 }
 
 const TagCreateContext = createContext<TagCreateState | null>(null);
@@ -45,13 +51,16 @@ const TagCreateContext = createContext<TagCreateState | null>(null);
 const TagSessionContext = createContext<{
   manageSession: TagManageSession | null;
   renameSession: TagRenameSession | null;
+  tagAllSession: TagAllSession | null;
   closeManage: () => void;
   closeRename: () => void;
+  closeTagAll: () => void;
 } | null>(null);
 
 export function TagCreateProvider({ children }: { children: ReactNode }) {
   const [manageSession, setManageSession] = useState<TagManageSession | null>(null);
   const [renameSession, setRenameSession] = useState<TagRenameSession | null>(null);
+  const [tagAllSession, setTagAllSession] = useState<TagAllSession | null>(null);
   const openTagCreate = useCallback(
     (onChanged?: () => void) => setManageSession({ onChanged }),
     [],
@@ -61,18 +70,21 @@ export function TagCreateProvider({ children }: { children: ReactNode }) {
       setRenameSession({ tag, onDone: onRenamed }),
     [],
   );
+  const openTagAllEdit = useCallback(() => setTagAllSession({}), []);
   const value = useMemo(
-    () => ({ openTagCreate, openTagRename }),
-    [openTagCreate, openTagRename],
+    () => ({ openTagCreate, openTagRename, openTagAllEdit }),
+    [openTagCreate, openTagRename, openTagAllEdit],
   );
   const sessionValue = useMemo(
     () => ({
       manageSession,
       renameSession,
+      tagAllSession,
       closeManage: () => setManageSession(null),
       closeRename: () => setRenameSession(null),
+      closeTagAll: () => setTagAllSession(null),
     }),
-    [manageSession, renameSession],
+    [manageSession, renameSession, tagAllSession],
   );
   return (
     <TagCreateContext.Provider value={value}>
@@ -95,6 +107,8 @@ export function TagCreateHost() {
     <>
       <TagManageHost session={ctx.manageSession} onClose={ctx.closeManage} />
       <TagRenameHost session={ctx.renameSession} onClose={ctx.closeRename} />
+      {/* "태그 전체" 프로필 편집 폼 — 관리 픽커 위에 떠야 하므로 맨 나중(=위)에 둔다. */}
+      <TagAllEditHost session={ctx.tagAllSession} onClose={ctx.closeTagAll} />
     </>
   );
 }
@@ -108,10 +122,11 @@ function TagManageHost({
   session: TagManageSession | null;
   onClose: () => void;
 }) {
-  const { token } = useAuth();
+  const { token, tagAllColor, tagAllDescription } = useAuth();
   const { bumpRooms } = useSelectedRoom();
   // 관리 픽커 행 탭 → 그 태그 이름·설명 수정 폼 열기. 같은 프로바이더의 openTagRename 재사용.
-  const { openTagRename } = useTagCreate();
+  // "전체" 행 탭·스와이프 [수정] → 태그 전체 프로필 편집 폼(openTagAllEdit).
+  const { openTagRename, openTagAllEdit } = useTagCreate();
   return (
     <TagPickerModal
       visible={!!session}
@@ -119,6 +134,9 @@ function TagManageHost({
       message={null}
       manage
       onEditTag={openTagRename}
+      tagAllColor={tagAllColor}
+      tagAllDescription={tagAllDescription}
+      onEditTagAll={openTagAllEdit}
       onClose={onClose}
       onTagsChanged={() => {
         bumpRooms();
@@ -268,6 +286,110 @@ function TagRenameHost({
   );
 }
 
+// "태그 전체" 방 프로필(색·설명) 편집 — category-edit의 self 모드를 태그판(# 타일)으로 미러.
+// 이름은 '전체' 고정(편집 불가 박스), 설명 입력 + ProfileColorSection(무채 포함), 삭제 없음.
+// 저장 = updateProfile({tagAllColor, tagAllDescription}) 낙관(auth 세터) + 서버 + bumpRooms.
+function TagAllEditHost({
+  session,
+  onClose,
+}: {
+  session: TagAllSession | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const {
+    token,
+    tagAllColor,
+    setTagAllColor,
+    tagAllDescription,
+    setTagAllDescription,
+  } = useAuth();
+  const { bumpRooms } = useSelectedRoom();
+
+  const [description, setDescription] = useState('');
+  // 태그 전체 프로필 색. 태그는 기본 무채(색 없음) — null이면 무채 스와치가 선택된 상태로 보인다.
+  const [color, setColor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  // 프리필은 "세션이 새로 열릴 때"만 — 진행 중 값 변화가 입력을 리셋하지 않게 ref로 읽는다(category-edit 패턴).
+  const colorRef = useRef(tagAllColor);
+  colorRef.current = tagAllColor;
+  const descriptionRef = useRef(tagAllDescription);
+  descriptionRef.current = tagAllDescription;
+
+  useEffect(() => {
+    if (!session) return;
+    setColor(colorRef.current ?? null);
+    setDescription(descriptionRef.current ?? '');
+    setBusy(false);
+    setError('');
+  }, [session]);
+
+  const submit = async () => {
+    if (busy || !token) return;
+    const trimmed = description.trim();
+    setBusy(true);
+    setError('');
+    try {
+      await api.updateProfile(token, {
+        tagAllColor: color,
+        tagAllDescription: trimmed,
+      });
+      setTagAllColor(color);
+      setTagAllDescription(trimmed || null);
+      bumpRooms();
+      onClose();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalCard
+      visible={!!session}
+      title={t('tags.editTitle')}
+      onClose={onClose}
+      confirmLabel={t('common.save')}
+      cancelLabel={t('common.cancel')}
+      onConfirm={submit}
+      busy={busy}
+    >
+      {/* 이름은 '전체' 고정 — self 프로필 편집과 같은 편집 불가 박스. */}
+      <View style={[styles.input, styles.fixedNameBox]}>
+        <Text variant="body" color={colors.textPrimary}>
+          {t('chats.myRoom')}
+        </Text>
+      </View>
+      <TextInput
+        style={[styles.input, styles.descriptionInput]}
+        value={description}
+        onChangeText={setDescription}
+        placeholder={t('friends.descriptionPlaceholder')}
+        placeholderTextColor={colors.textTertiary}
+        maxLength={80}
+        returnKeyType="done"
+        onSubmitEditing={submit}
+      />
+      {/* 프로필(색) 섹션 — 미리보기는 # 타일로 미러(태그 문법). */}
+      <ProfileColorSection
+        key={session ? 'tagall' : 'none'}
+        color={color}
+        onChange={setColor}
+        renderSwatch={(c, size) => <HashTile color={c} size={size} />}
+      />
+      {error ? (
+        <Text variant="caption" color={colors.textSecondary} style={styles.error}>
+          {error}
+        </Text>
+      ) : null}
+    </ModalCard>
+  );
+}
+
 export function useTagCreate(): TagCreateState {
   const value = useContext(TagCreateContext);
   if (!value) {
@@ -290,6 +412,10 @@ const makeStyles = (colors: ThemeColors) =>
     },
     descriptionInput: {
       marginTop: 8,
+    },
+    // "전체" 이름 자리 — TextInput과 같은 박스, 편집 불가 고정 텍스트만 세로 가운데(self 편집과 동일).
+    fixedNameBox: {
+      justifyContent: 'center',
     },
     error: {
       marginTop: 8,

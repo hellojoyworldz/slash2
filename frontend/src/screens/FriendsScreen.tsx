@@ -10,16 +10,20 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
+  EllipsisVertical,
   Pencil,
   Plus,
   Star,
   StarOff,
   Trash2,
+  X,
 } from 'lucide-react-native';
 import {
   FlatList,
+  Pressable,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
@@ -33,7 +37,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { api, ApiError, AutoKind, Friend, Tag } from '../api';
+import { api, ApiError, AutoKind, Friend, HideableTab, Tag, TabKey } from '../api';
 import { useAuth } from '../auth';
 import { useCategoryEdit } from '../category-edit';
 import { CategoryAvatar } from '../components/CategoryAvatar';
@@ -42,6 +46,11 @@ import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
 import { ClassifyTab, useSelectedRoom } from '../selected-room';
+import { resolveHiddenTabs, resolveTabOrder } from '../tab-menu';
+import {
+  useTabItemAnimatedStyle,
+  useTabReorder,
+} from '../tab-reorder';
 import { useTagCreate } from '../tag-create';
 import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
@@ -141,6 +150,8 @@ function useDragReorder(
   // 건드리지 않으므로 리렌더/리마운트/제스처 간섭이 없다.
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const startIndexRef = useRef(0);
+  // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize의 탭 승격("꾹 눌렀다 그냥 뗌") 판별.
+  const movedRef = useRef(false);
   // 드래그 세션 동안의 경계값(픽셀) — onStart에서 그 시점 순서의 실제 높이로 계산해 고정한다.
   const dragBoundsRef = useRef({ min: 0, max: 0 });
   // 잡은 행의 원래 상단 오프셋(누적 높이) — 드래그 중 목표 슬롯 계산에 쓴다.
@@ -180,6 +191,7 @@ function useDragReorder(
           dragTopOffsetRef.current = topOffset;
           dragBoundsRef.current = { min: -topOffset, max: total - h - topOffset };
           othersHeightsRef.current = heights.filter((_, i) => i !== idx);
+          movedRef.current = false;
           activeIndex.value = idx;
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
@@ -191,6 +203,7 @@ function useDragReorder(
         .onUpdate((event) => {
           const n = getListRef.current().length;
           if (n === 0) return;
+          if (Math.abs(event.translationY) > 6) movedRef.current = true;
           const { min, max } = dragBoundsRef.current;
           // 잡은 행: translationY 그대로, 리스트 상하 경계(실제 누적 높이)로만 클램프.
           dragY.value = clamp(event.translationY, min, max);
@@ -228,14 +241,19 @@ function useDragReorder(
         .onFinalize(() => {
           const start = startIndexRef.current;
           const target = targetIndex.value;
+          const activated = activeIndex.value !== -1;
           const list = getListRef.current();
           const n = list.length;
           // 놓을 때 딱 한 번 커밋: splice 결과를 onCommit에 넘긴다(상태·저장은 호출부 몫).
-          if (target !== start && target >= 0 && target < n && activeIndex.value !== -1) {
+          if (activated && target !== start && target >= 0 && target < n) {
             const next = [...list];
             const [moved] = next.splice(start, 1);
             next.splice(target, 0, moved);
             onCommitRef.current(next);
+          } else if (activated && target === start && !movedRef.current) {
+            // 꾹 눌렀다 이동 없이 뗌 → 팬이 Tap을 눌러 죽였으므로 여기서 행 열기를 승격 발화.
+            // (빠른 탭은 팬이 활성 안 돼 여긴 안 옴 → Tap 제스처가 처리, 이중 발화 없음.)
+            onActivateRef.current?.(id);
           }
           // 커밋과 동시에 리셋 — activeIndex=-1이면 모든 offset이 즉시 0이 되어(withTiming 아님)
           // 새 데이터 순서와 정확히 맞물려 시각 점프가 없다. (setState 뒤에 리셋 = 같은 프레임에서 정합)
@@ -315,7 +333,7 @@ export function FriendsList({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { selfColor } = useAuth();
+  const { selfColor, selfDescription } = useAuth();
   // roomsVersion: 대화 패널·분류 편집(루트 CategoryEditProvider)이 개수·목록을 바꾸는 신호.
   // room: 데스크톱 스플릿뷰에서 현재 방 — active 행 강조에 쓴다.
   const { roomsVersion, room, setRoom, bumpRooms } = useSelectedRoom();
@@ -816,7 +834,7 @@ export function FriendsList({
                       color={colors.textSecondary}
                       style={styles.profileStatus}
                     >
-                      {t('friends.sendToMe')}
+                      {selfDescription || t('friends.sendToMe')}
                     </Text>
                   </View>
                 </View>
@@ -915,54 +933,294 @@ interface Props {
   onOpenFriend: (friend: Friend) => void;
   /** 태그 캡슐에서 행 탭 시 태그 방 열기(TagsScreen과 동일 라우팅) */
   onOpenTag: (tag: Tag) => void;
+  /** 태그 캡슐 "전체" 행 탭 시 태그 전체 방 열기(TagsScreen과 동일 라우팅) */
+  onOpenTagAll: () => void;
   /** 자동구분 캡슐에서 행 탭 시 자동구분 방 열기(AutoScreen과 동일 라우팅) */
   onOpenAuto: (kind: AutoKind) => void;
+  /** 자동구분 캡슐 "전체" 행 탭 시 자동구분 전체 방 열기(AutoScreen과 동일 라우팅) */
+  onOpenAutoAll: () => void;
   onLogout: () => void;
 }
 
 // 캡슐 3종의 라벨은 레일 탭과 같은 i18n 키를 재사용한다(분류/태그/자동구분).
-const CLASSIFY_TABS: { key: ClassifyTab; labelKey: string }[] = [
-  { key: 'friends', labelKey: 'tabs.friends' },
-  { key: 'tags', labelKey: 'tabs.tags' },
-  { key: 'auto', labelKey: 'tabs.auto' },
-];
+const CLASSIFY_LABEL_KEYS: Record<ClassifyTab, string> = {
+  friends: 'tabs.friends',
+  tags: 'tabs.tags',
+  auto: 'tabs.auto',
+};
+
+// 캡슐(ClassifyTab) ↔ 메뉴/노출 키(TabKey). 분류 캡슐은 메뉴의 'categories'와 한 몸 —
+// 순서는 tabOrder 안의 categories·tags·auto 상대 순서로, 노출은 hiddenTabs로 공유된다.
+const CLASSIFY_TO_TABKEY: Record<ClassifyTab, TabKey> = {
+  friends: 'categories',
+  tags: 'tags',
+  auto: 'auto',
+};
+const TABKEY_TO_CLASSIFY: Partial<Record<TabKey, ClassifyTab>> = {
+  categories: 'friends',
+  tags: 'tags',
+  auto: 'auto',
+};
+// 캡슐이 차지하는 세 메뉴 키 — 커밋 시 이 슬롯들의 자리만 새 상대 순서로 치환한다.
+const CLASSIFY_TABKEYS: TabKey[] = ['categories', 'tags', 'auto'];
+
+// 캡슐 하나 — 재정렬 애니메이션(가로) + 슬롯 실측(onLayout) + 롱프레스 드래그 제스처를 얹는다.
+// 평소엔 본체 탭 = 화면 전환. 꾹 누르면(reorder onDragStart) 편집 모드로 들어가고, 그때만 숨김
+// 가능 캡슐(태그·자동구분)에 iOS 앱 삭제 배지 문법의 X(숨김)/＋(되켜기) 배지가 캡슐 밖으로 삐져나온다.
+function ClassifyCapsule({
+  capKey,
+  index,
+  reorder,
+  active,
+  isHidden,
+  isDragging,
+  editMode,
+  canHide,
+  label,
+  hideLabel,
+  showLabel,
+  onPress,
+  onToggleHidden,
+}: {
+  capKey: ClassifyTab;
+  index: number;
+  reorder: ReturnType<typeof useTabReorder>;
+  active: boolean;
+  /** 편집 모드에서 되켜기 대상(숨김 상태)으로 흐리게 렌더할지 — 숨김 캡슐은 편집 모드에서만 나타난다. */
+  isHidden: boolean;
+  isDragging: boolean;
+  editMode: boolean;
+  /** 숨김 가능(태그·자동구분)이면 편집 모드에서 배지가 붙는다. 분류(false)는 배지 없음·항상 노출. */
+  canHide: boolean;
+  label: string;
+  hideLabel: string;
+  showLabel: string;
+  onPress: () => void;
+  onToggleHidden: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeCapsuleStyles(colors), [colors]);
+  const animStyle = useTabItemAnimatedStyle(reorder, index, 'x', true);
+  const dimmed = editMode && isHidden;
+  const fg = active
+    ? colors.onAccent
+    : dimmed
+      ? colors.textTertiary
+      : colors.textSecondary;
+  // 편집 모드에서만 배지 노출. 숨김 캡슐엔 ＋(되켜기), 노출 캡슐엔 X(숨김) — 서로 대구.
+  const showBadge = editMode && canHide;
+  return (
+    // overflow는 기본 visible — 배지가 캡슐 밖으로(음수 오프셋) 삐져나오도록 클립하지 않는다.
+    <Animated.View
+      style={[animStyle, isDragging && styles.capsuleLifted]}
+      onLayout={(e) => reorder.onItemLayout(index, e)}
+    >
+      <GestureDetector gesture={reorder.getGesture(capKey)}>
+        <Pressable
+          style={[
+            styles.capsule,
+            active ? styles.capsuleActive : styles.capsuleInactive,
+            dimmed && styles.capsuleHidden,
+          ]}
+          onPress={onPress}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: active }}
+          accessibilityLabel={label}
+        >
+          <Text variant="label" color={fg}>
+            {label}
+          </Text>
+        </Pressable>
+      </GestureDetector>
+      {showBadge ? (
+        isHidden ? (
+          // 되켜기(＋) — 흑백 문법: background 채움 + 1px ink 보더 + ink ＋(X와 대구).
+          <TouchableOpacity
+            style={[styles.badge, styles.showBadge]}
+            onPress={onToggleHidden}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={showLabel}
+          >
+            <Plus size={12} strokeWidth={2.5} color={colors.ink} />
+          </TouchableOpacity>
+        ) : (
+          // 숨김(X) — 흑백 문법: ink 채움 + onAccent X. 그림자 금지, 하드 오프셋.
+          <TouchableOpacity
+            style={[styles.badge, styles.hideBadge]}
+            onPress={onToggleHidden}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={hideLabel}
+          >
+            <X size={12} strokeWidth={2.5} color={colors.onAccent} />
+          </TouchableOpacity>
+        )
+      ) : null}
+    </Animated.View>
+  );
+}
 
 // 분류 탭 최상단의 캡슐 세그먼트(분류 | 태그 | 자동구분). 앱 크롬 흑백 규칙:
 // 활성 = ink 채움 + inverse 글자, 비활성 = 1px 보더 아웃라인. 캡슐만 borderRadius 999 허용.
+// 캡슐을 꾹(250ms) 눌러 가로 드래그하면 순서가 바뀌고(tabOrder의 세 키 상대 순서로 저장 → 레일·탭바·
+// 더보기와 동기화), 롱프레스 활성 순간 편집 모드로 들어간다. 평소엔 숨긴 캡슐을 아예 렌더하지 않고,
+// 편집 모드에서만 숨긴 캡슐이 흐리게 나타나 ＋로 되켜기·노출 캡슐엔 X로 숨김(iOS 앱 삭제 배지 문법).
+// 분류 캡슐은 배지 없이 항상 노출·숨김 불가. 캡슐 라인 오른쪽 끝의 ⋮ 버튼도 편집 모드 진입 트리거이고,
+// 편집 모드 중엔 같은 자리에서 체크(완료)로 바뀐다 — 편집 모드 종료는 이 체크가 유일한 경로.
 function ClassifyCapsuleTabs({
   value,
   onChange,
+  editMode,
+  onEnterEditMode,
+  onExitEditMode,
 }: {
   value: ClassifyTab;
   onChange: (tab: ClassifyTab) => void;
+  editMode: boolean;
+  onEnterEditMode: () => void;
+  onExitEditMode: () => void;
 }) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeCapsuleStyles(colors), [colors]);
+  const { token, tabOrder, hiddenTabs, setTabOrder, setHiddenTabs } = useAuth();
+
+  const hiddenSet = useMemo(() => resolveHiddenTabs(hiddenTabs), [hiddenTabs]);
+  const isCapsuleHidden = useCallback(
+    (capKey: ClassifyTab) =>
+      capKey !== 'friends' &&
+      hiddenSet.includes(CLASSIFY_TO_TABKEY[capKey] as HideableTab),
+    [hiddenSet],
+  );
+  // 캡슐 전체 순서 = tabOrder에서 categories·tags·auto만 그 상대 순서로 뽑아 캡슐 키로 매핑.
+  const capsuleOrder = useMemo<ClassifyTab[]>(
+    () =>
+      resolveTabOrder(tabOrder)
+        .map((k) => TABKEY_TO_CLASSIFY[k])
+        .filter((c): c is ClassifyTab => c != null),
+    [tabOrder],
+  );
+  // 실제로 렌더하는 캡슐 — 평소엔 숨긴 캡슐 제외, 편집 모드에선 전부(숨긴 것도 흐리게 노출).
+  // 드래그 재정렬 도메인(visibleOrderRef·onItemLayout index)과 정확히 일치시켜야 한다.
+  const renderedOrder = useMemo<ClassifyTab[]>(
+    () => (editMode ? capsuleOrder : capsuleOrder.filter((c) => !isCapsuleHidden(c))),
+    [editMode, capsuleOrder, isCapsuleHidden],
+  );
+  // 드래그 제스처가 놓을 때 읽는 현재 순서(문자열) — 매 렌더 최신으로 동기화.
+  const visibleOrderRef = useRef<string[]>(renderedOrder);
+  visibleOrderRef.current = renderedOrder;
+
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
+  const tabOrderRef = useRef(tabOrder);
+  tabOrderRef.current = tabOrder;
+
+  // 커밋: 새 캡슐 순서를 tabOrder 안 세 키 슬롯에 치환(친구·채팅 등 다른 키 위치 불변) → 낙관 반영 + 서버 저장.
+  // 실제 재정렬은 편집 모드(세 캡슐 모두 렌더)에서만 일어나므로 세 키가 다 있을 때만 커밋한다(방어).
+  const commitCapsuleOrder = useCallback(
+    (newVisible: string[]) => {
+      if (newVisible.length !== CLASSIFY_TABKEYS.length) return;
+      const newKeys = (newVisible as ClassifyTab[]).map((c) => CLASSIFY_TO_TABKEY[c]);
+      const resolved = resolveTabOrder(tabOrderRef.current);
+      let i = 0;
+      const next = resolved.map((k) =>
+        CLASSIFY_TABKEYS.includes(k) ? newKeys[i++] : k,
+      );
+      const prev = tabOrderRef.current;
+      setTabOrder(next);
+      const tk = tokenRef.current;
+      if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => setTabOrder(prev));
+    },
+    [setTabOrder],
+  );
+
+  const reorder = useTabReorder({
+    axis: 'x',
+    visibleOrderRef,
+    onCommit: commitCapsuleOrder,
+    // 사용자 명시: "꾹 누르면" 순서 변경 — 빠른 탭(전환)엔 양보한다.
+    activateAfterLongPress: 250,
+    // 캡슐은 텍스트 폭이 제각각이라 측정 좌표 기반 hop·비켜남을 쓴다.
+    variableSize: true,
+    // 롱프레스 활성 순간 편집 모드 진입 — 이동으로 이어지면 재정렬도 그대로.
+    onDragStart: onEnterEditMode,
+  });
+
+  // 노출 토글 — 태그·자동구분만(분류는 항상 노출). 더보기 토글과 같은 hiddenTabs 상태. 낙관 + 실패 복원.
+  const toggleHidden = useCallback(
+    (capKey: ClassifyTab) => {
+      const key = CLASSIFY_TO_TABKEY[capKey] as HideableTab;
+      const currently = hiddenSet.includes(key);
+      const next = currently
+        ? hiddenSet.filter((k) => k !== key)
+        : [...hiddenSet, key];
+      const prev = hiddenTabs ?? null;
+      setHiddenTabs(next);
+      if (token) {
+        api.updateProfile(token, { hiddenTabs: next }).catch(() => setHiddenTabs(prev));
+      }
+    },
+    [hiddenSet, hiddenTabs, setHiddenTabs, token],
+  );
+
+  // 현재 선택 캡슐이 숨겨지면(X 배지든 더보기 토글이든) 선택을 분류로 이동.
+  useEffect(() => {
+    if (value === 'friends') return;
+    const key = CLASSIFY_TO_TABKEY[value] as HideableTab;
+    if (hiddenSet.includes(key)) onChange('friends');
+  }, [value, hiddenSet, onChange]);
+
   return (
     <View style={styles.bar} accessibilityRole="tablist">
-      {CLASSIFY_TABS.map((tab) => {
-        const active = value === tab.key;
-        const label = t(tab.labelKey);
-        return (
-          <TouchableOpacity
-            key={tab.key}
-            style={[styles.capsule, active ? styles.capsuleActive : styles.capsuleInactive]}
-            onPress={() => onChange(tab.key)}
-            activeOpacity={0.7}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            accessibilityLabel={label}
-          >
-            <Text
-              variant="label"
-              color={active ? colors.onAccent : colors.textSecondary}
-            >
-              {label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+      <View style={styles.capsuleGroup}>
+        {renderedOrder.map((capKey, index) => {
+          const active = value === capKey;
+          const label = t(CLASSIFY_LABEL_KEYS[capKey]);
+          const canHide = capKey !== 'friends'; // 분류는 숨김 불가 — 배지 없음·항상 노출
+          const isHidden = isCapsuleHidden(capKey);
+          return (
+            <ClassifyCapsule
+              key={capKey}
+              capKey={capKey}
+              index={index}
+              reorder={reorder}
+              active={active}
+              isHidden={isHidden}
+              isDragging={reorder.draggingKey === capKey}
+              editMode={editMode}
+              canHide={canHide}
+              label={label}
+              hideLabel={t('friends.hideTab', { name: label })}
+              showLabel={t('friends.showTab', { name: label })}
+              onPress={() => {
+                if (reorder.didDragRef.current) return; // 드래그 직후 오탭 무시
+                // 편집 모드 중엔 화면 전환 금지 — 흐린(숨긴) 캡슐 탭만 되켜기로 동작.
+                if (editMode) {
+                  if (isHidden) toggleHidden(capKey);
+                  return;
+                }
+                onChange(capKey);
+              }}
+              onToggleHidden={() => toggleHidden(capKey)}
+            />
+          );
+        })}
+      </View>
+      {/* 캡슐 라인 오른쪽 끝 — 평소엔 ⋮(편집 모드 진입), 편집 모드 중엔 체크(편집 완료)로 바뀐다. */}
+      <TouchableOpacity
+        style={styles.editToggle}
+        onPress={editMode ? onExitEditMode : onEnterEditMode}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        accessibilityRole="button"
+        accessibilityLabel={editMode ? t('friends.finishEditTabs') : t('friends.editTabs')}
+      >
+        {editMode ? (
+          <Check size={16} strokeWidth={2} color={colors.textSecondary} />
+        ) : (
+          <EllipsisVertical size={16} strokeWidth={2} color={colors.textSecondary} />
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -976,13 +1234,17 @@ export function FriendsScreen({
   onOpenChat,
   onOpenFriend,
   onOpenTag,
+  onOpenTagAll,
   onOpenAuto,
+  onOpenAutoAll,
   onLogout,
 }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeContainerStyles(colors), [colors]);
   const { classifyTab, setClassifyTab, bumpRooms } = useSelectedRoom();
+  // 캡슐 편집 모드(순간적 — X/＋ 배지 노출). 화면 로컬 state로 충분(900px 스왑 생존 불요).
+  const [capsuleEditMode, setCapsuleEditMode] = useState(false);
   // 그룹 헤더의 '추가'가 여는 관리 모달(루트 상주). 여긴 열기만.
   const { openManage: openCategoryManage } = useCategoryEdit();
   const { openTagCreate } = useTagCreate();
@@ -1014,20 +1276,41 @@ export function FriendsScreen({
     <View style={styles.container}>
       {/* 그룹 탭 상단 타이틀은 '그룹' 하나. 임베드된 화면들은 자기 타이틀을 렌더하지 않는다(캡슐이 알려주므로). */}
       <TabHeader title={t('tabs.group')} actions={addAction ? [addAction] : undefined} />
-      <ClassifyCapsuleTabs value={classifyTab} onChange={setClassifyTab} />
-      {classifyTab === 'tags' ? (
-        <TagsScreen token={token} onOpenTag={onOpenTag} onLogout={onLogout} embedded />
-      ) : classifyTab === 'auto' ? (
-        <AutoScreen token={token} onOpenAuto={onOpenAuto} onLogout={onLogout} embedded />
-      ) : (
-        <FriendsList
-          token={token}
-          onOpenChat={onOpenChat}
-          onOpenFriend={onOpenFriend}
-          onLogout={onLogout}
-          embedded
-        />
-      )}
+      <ClassifyCapsuleTabs
+        value={classifyTab}
+        onChange={setClassifyTab}
+        editMode={capsuleEditMode}
+        onEnterEditMode={() => setCapsuleEditMode(true)}
+        onExitEditMode={() => setCapsuleEditMode(false)}
+      />
+      {/* 캡슐 아래 본문 — 편집 모드 종료는 캡슐 라인의 체크 버튼이 유일한 경로(바깥 탭 종료 없음). */}
+      <View style={styles.body}>
+        {classifyTab === 'tags' ? (
+          <TagsScreen
+            token={token}
+            onOpenTag={onOpenTag}
+            onOpenTagAll={onOpenTagAll}
+            onLogout={onLogout}
+            embedded
+          />
+        ) : classifyTab === 'auto' ? (
+          <AutoScreen
+            token={token}
+            onOpenAuto={onOpenAuto}
+            onOpenAutoAll={onOpenAutoAll}
+            onLogout={onLogout}
+            embedded
+          />
+        ) : (
+          <FriendsList
+            token={token}
+            onOpenChat={onOpenChat}
+            onOpenFriend={onOpenFriend}
+            onLogout={onLogout}
+            embedded
+          />
+        )}
+      </View>
     </View>
   );
 }
@@ -1038,6 +1321,10 @@ const makeContainerStyles = (colors: ThemeColors) =>
       flex: 1,
       backgroundColor: colors.background,
     },
+    // 캡슐 아래 본문.
+    body: {
+      flex: 1,
+    },
   });
 
 const makeCapsuleStyles = (colors: ThemeColors) =>
@@ -1046,13 +1333,28 @@ const makeCapsuleStyles = (colors: ThemeColors) =>
     // 여기선 짧은 상단 여백만. 아래 임베드된 화면들은 자기 헤더를 렌더하지 않는다.
     bar: {
       flexDirection: 'row',
+      alignItems: 'center',
       gap: 8,
       paddingHorizontal: 20,
       paddingTop: 4,
       paddingBottom: 8,
     },
-    // 캡슐만 라운드 999 허용(앱 크롬 나머지는 라운드 0).
+    // 캡슐들이 차지하는 영역 — flex:1로 늘어나되, ⋮/체크 버튼은 그 오른쪽 고정 자리에 남는다.
+    capsuleGroup: {
+      flex: 1,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    // 캡슐 라인 맨 오른쪽 ⋮·체크 — ChatScreen 헤더 편집(⋮) 문법과 동일(크기 16·textSecondary).
+    editToggle: {
+      paddingHorizontal: 6,
+    },
+    // 캡슐만 라운드 999 허용(앱 크롬 나머지는 라운드 0). 라벨 + (있으면) 눈을 한 줄에.
     capsule: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
       borderRadius: 999,
       paddingHorizontal: 16,
       paddingVertical: 7,
@@ -1063,6 +1365,38 @@ const makeCapsuleStyles = (colors: ThemeColors) =>
     capsuleInactive: {
       borderWidth: 1,
       borderColor: colors.border,
+    },
+    // 편집 모드에서 숨긴 캡슐 = 흐리게(＋로 되켤 수 있게). 평소엔 아예 렌더 안 됨(겹침 없음).
+    capsuleHidden: {
+      opacity: 0.45,
+    },
+    // 드래그로 들린 캡슐 — 형제 위로(그림자 금지, z-lift만).
+    capsuleLifted: {
+      zIndex: 10,
+      elevation: 10,
+    },
+    // iOS 앱 삭제 배지 문법: 캡슐 우측 상단 밖으로 살짝 삐져나온 작은 원. 그림자 금지, 하드 오프셋.
+    badge: {
+      position: 'absolute',
+      top: -6,
+      right: -6,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 20,
+      elevation: 20,
+    },
+    // 숨김(X) — ink 채움 위 onAccent X.
+    hideBadge: {
+      backgroundColor: colors.ink,
+    },
+    // 되켜기(＋) — background 채움 + 1px ink 보더 + ink ＋(X와 대구).
+    showBadge: {
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.ink,
     },
   });
 

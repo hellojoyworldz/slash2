@@ -137,9 +137,10 @@ function CategoryManageHost({
   session: { onChanged?: () => void } | null;
   onClose: () => void;
 }) {
-  const { token } = useAuth();
+  const { token, selfColor, selfDescription } = useAuth();
   const { bumpRooms, roomsVersion } = useSelectedRoom();
   // 관리 픽커 행 탭 → 그 분류 수정 폼(색·프로필) 열기. 같은 프로바이더의 open을 재사용.
+  // "전체" 행 탭·스와이프 [수정]은 self 프로필 편집 폼(open({self:true}))으로 연다.
   const { open } = useCategoryEdit();
   const [friends, setFriends] = useState<Friend[]>([]);
   // 열릴 때마다 + 분류가 바뀔 때마다(roomsVersion) 최신 목록을 로드. 닫힘 땐 유지(재오픈 전 깜빡임 방지).
@@ -157,9 +158,11 @@ function CategoryManageHost({
       token={token}
       message={null}
       friends={friends}
-      selfColor={null}
+      selfColor={selfColor}
+      selfDescription={selfDescription}
       manage
       onEditFriend={open}
+      onEditSelf={() => open({ self: true })}
       onClose={onClose}
       onFriendsChanged={() => {
         bumpRooms();
