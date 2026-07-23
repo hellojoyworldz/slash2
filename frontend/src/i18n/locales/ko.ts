@@ -285,6 +285,14 @@ export default {
     modeSystem: '시스템',
     linkedGoogle: 'Google 연결됨',
     menu: '메뉴',
+    appInfo: '앱 정보',
+    version: '버전',
+    openSourceLicenses: '오픈소스 라이선스',
+    privacyPolicy: '개인정보처리방침',
+    terms: '이용약관',
+  },
+  licenses: {
+    title: '오픈소스 라이선스',
   },
   // 백엔드가 보내는 에러 코드 → 표시 문구. code 매칭 실패 시 requestFailed로 폴백.
   // 잘 알려진 서비스의 출처(siteName) 로케일 표시명

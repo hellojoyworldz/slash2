@@ -8,8 +8,12 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import {
   Asterisk,
+  ChevronRight,
+  ExternalLink,
   Eye,
   EyeOff,
   Hash,
@@ -26,6 +30,7 @@ import {
   View,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
+import { PRIVACY_ROUTE, TERMS_ROUTE } from '../legal';
 import { api, HideableTab, TabKey } from '../api';
 import { AppStyle, useAppStyle } from '../app-style';
 import { useAuth } from '../auth';
@@ -39,6 +44,7 @@ import {
   resolveHiddenTabs,
   resolveTabOrder,
 } from '../tab-menu';
+import { useSelectedRoom } from '../selected-room';
 import { ReorderRow, useReorder } from '../use-reorder';
 import {
   LANGUAGE_NAMES,
@@ -108,11 +114,21 @@ export function MoreScreen({
   const { t, i18n } = useTranslation();
   const { colors, mode, setMode } = useTheme();
   const { appStyle, setAppStyle } = useAppStyle();
+  const router = useRouter();
   const { width } = useWindowDimensions();
+
+  // 앱 버전 — expo-constants. 네이티브 빌드 번호가 있으면 괄호로 덧붙인다(웹은 없음).
+  const appVersion = Constants.expoConfig?.version ?? '—';
+  const buildVersion = Constants.nativeBuildVersion;
+  const versionText = buildVersion ? `${appVersion} (${buildVersion})` : appVersion;
   // 데스크톱은 레일에 심볼이 이미 있어 중복 금지 — 모바일(< desktopBreakpoint)에서만 로고 노출.
   const isMobile = width < layout.desktopBreakpoint;
+  // 데스크톱 3패널(채팅형·≥900)에서만 오른쪽 상세 패널이 존재한다 — 라이선스는 여기로 띄운다.
+  const desktopSplit = !isMobile && appStyle === 'chat';
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const current = i18n.language as Language;
+  // 오른쪽 상세 패널에 라이선스 문서를 띄우는 루트 상태(방 선택과 같은 문법, 900px 스왑 생존).
+  const { setInfoScreen } = useSelectedRoom();
 
   // 화면 스타일 전환 — 라우트 점프 없이 상태만 바꾼다. 두 스타일이 URL을 공유하므로
   // 현재 주소가 그대로 유효하다((tabs) 레이아웃과 각 라우트가 스타일에 맞게 렌더를 교체).
@@ -412,6 +428,70 @@ export function MoreScreen({
           </View>
         </View>
 
+        {/* 앱 정보 — 고정 하단 섹션(재정렬 대상 아님). 버전(비대화형) +
+            오픈소스 라이선스·개인정보처리방침·이용약관(모두 내부 화면으로 이동). */}
+        <View style={styles.sectionCard}>
+          <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
+            {t('more.appInfo')}
+          </Text>
+
+          {/* 버전 — 표시 전용(누를 수 없음) */}
+          <View style={styles.infoRow} accessible accessibilityRole="text">
+            <Text variant="label" style={styles.infoLabel}>
+              {t('more.version')}
+            </Text>
+            <Text variant="micro" color={colors.textTertiary}>
+              {versionText}
+            </Text>
+          </View>
+
+          {/* 오픈소스 라이선스 — 데스크톱 3패널은 오른쪽 상세 패널에(더보기는 왼쪽 유지),
+              모바일·목록형은 전폭 라우트로. 방 목록 행(ChatsScreen)의 desktop/mobile 문법과 동일. */}
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => {
+              if (desktopSplit) setInfoScreen('licenses');
+              else router.push('/licenses');
+            }}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={t('more.openSourceLicenses')}
+          >
+            <Text variant="label" style={styles.infoLabel}>
+              {t('more.openSourceLicenses')}
+            </Text>
+            <ChevronRight size={18} strokeWidth={2} color={colors.textTertiary} />
+          </TouchableOpacity>
+
+          {/* 개인정보처리방침 — 내부 화면으로 이동 */}
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => router.push(PRIVACY_ROUTE)}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={t('more.privacyPolicy')}
+          >
+            <Text variant="label" style={styles.infoLabel}>
+              {t('more.privacyPolicy')}
+            </Text>
+            <ExternalLink size={18} strokeWidth={2} color={colors.textTertiary} />
+          </TouchableOpacity>
+
+          {/* 이용약관 — 내부 화면으로 이동 */}
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={() => router.push(TERMS_ROUTE)}
+            activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={t('more.terms')}
+          >
+            <Text variant="label" style={styles.infoLabel}>
+              {t('more.terms')}
+            </Text>
+            <ExternalLink size={18} strokeWidth={2} color={colors.textTertiary} />
+          </TouchableOpacity>
+        </View>
+
         {/* 보조 액션이라 outline */}
         <Button
           label={t('more.logout')}
@@ -549,6 +629,17 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // ── 앱 정보 행 ── 라벨(좌) + 값/아이콘(우). 카드 위라 배경 투명, 균일 높이.
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 44,
+    paddingVertical: 4,
+  },
+  infoLabel: {
+    flex: 1,
+    marginRight: 12,
   },
   logoutBtn: {
     marginHorizontal: 20,

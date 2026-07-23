@@ -1,0 +1,200 @@
+[
+  {
+    "name": "@expo-google-fonts/azeret-mono",
+    "version": "0.4.1",
+    "license": "MIT AND OFL-1.1",
+    "repository": "https://github.com/expo/google-fonts"
+  },
+  {
+    "name": "@expo-google-fonts/ibm-plex-mono",
+    "version": "0.4.1",
+    "license": "MIT AND OFL-1.1",
+    "repository": "https://github.com/expo/google-fonts"
+  },
+  {
+    "name": "@expo/vector-icons",
+    "version": "15.1.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/vector-icons"
+  },
+  {
+    "name": "@floating-ui/react-native",
+    "version": "0.10.10",
+    "license": "MIT",
+    "repository": "https://github.com/floating-ui/floating-ui"
+  },
+  {
+    "name": "@gorhom/bottom-sheet",
+    "version": "5.2.14",
+    "license": "MIT",
+    "repository": "https://github.com/gorhom/react-native-bottom-sheet"
+  },
+  {
+    "name": "@react-native-async-storage/async-storage",
+    "version": "2.2.0",
+    "license": "MIT",
+    "repository": "https://github.com/react-native-async-storage/async-storage"
+  },
+  {
+    "name": "expo",
+    "version": "57.0.8",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-auth-session",
+    "version": "57.0.5",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-clipboard",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-constants",
+    "version": "57.0.7",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-crypto",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-font",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-haptics",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-linear-gradient",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-linking",
+    "version": "57.0.4",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-localization",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-router",
+    "version": "57.0.8",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-splash-screen",
+    "version": "57.0.5",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-status-bar",
+    "version": "57.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "expo-web-browser",
+    "version": "57.0.2",
+    "license": "MIT",
+    "repository": "https://github.com/expo/expo"
+  },
+  {
+    "name": "i18next",
+    "version": "26.3.6",
+    "license": "MIT",
+    "repository": "https://github.com/i18next/i18next"
+  },
+  {
+    "name": "lucide-react-native",
+    "version": "1.24.0",
+    "license": "ISC",
+    "repository": "https://github.com/lucide-icons/lucide"
+  },
+  {
+    "name": "react",
+    "version": "19.2.3",
+    "license": "MIT",
+    "repository": "https://github.com/facebook/react"
+  },
+  {
+    "name": "react-dom",
+    "version": "19.2.3",
+    "license": "MIT",
+    "repository": "https://github.com/facebook/react"
+  },
+  {
+    "name": "react-i18next",
+    "version": "17.0.9",
+    "license": "MIT",
+    "repository": "https://github.com/i18next/react-i18next"
+  },
+  {
+    "name": "react-native",
+    "version": "0.86.0",
+    "license": "MIT",
+    "repository": "https://github.com/facebook/react-native"
+  },
+  {
+    "name": "react-native-gesture-handler",
+    "version": "2.32.0",
+    "license": "MIT",
+    "repository": "https://github.com/software-mansion/react-native-gesture-handler"
+  },
+  {
+    "name": "react-native-reanimated",
+    "version": "4.5.0",
+    "license": "MIT",
+    "repository": "https://github.com/software-mansion/react-native-reanimated"
+  },
+  {
+    "name": "react-native-safe-area-context",
+    "version": "5.7.0",
+    "license": "MIT",
+    "repository": "https://github.com/AppAndFlow/react-native-safe-area-context"
+  },
+  {
+    "name": "react-native-screens",
+    "version": "4.26.2",
+    "license": "MIT",
+    "repository": "https://github.com/software-mansion/react-native-screens"
+  },
+  {
+    "name": "react-native-svg",
+    "version": "15.15.4",
+    "license": "MIT",
+    "repository": "https://github.com/react-native-community/react-native-svg"
+  },
+  {
+    "name": "react-native-web",
+    "version": "0.21.2",
+    "license": "MIT",
+    "repository": "https://github.com/necolas/react-native-web"
+  },
+  {
+    "name": "react-native-worklets",
+    "version": "0.10.0",
+    "license": "MIT",
+    "repository": "https://github.com/software-mansion/react-native-reanimated"
+  }
+]

@@ -54,6 +54,12 @@ export interface ChatDraft {
 // 화면 로컬 useState가 아니라 루트에 둔다(검색·입력 draft와 같은 원리).
 export type ClassifyTab = 'friends' | 'tags' | 'auto';
 
+// 데스크톱 3패널에서 오른쪽 상세 패널이 방(ChatScreen) 대신 보여주는 "정보 문서".
+// 현재는 오픈소스 라이선스뿐. 방 선택(room/tag/auto)과 달리 이걸 켜도 방 선택은 지우지 않아,
+// 닫으면(setInfoScreen(null)) 직전 방으로 돌아온다. 개인정보처리방침·이용약관은 여기 없다 —
+// 그 둘은 (tabs) 밖 최상위 단독 페이지라 3패널 셸과 무관하다.
+export type InfoScreen = 'licenses';
+
 interface SelectedRoomState {
   room: SelectedRoom | null;
   setRoom: (room: SelectedRoom | null) => void;
@@ -78,6 +84,10 @@ interface SelectedRoomState {
   /** 분류 탭 상단 캡슐이 고른 리스트(분류/태그/자동구분). 900px 스왑에도 살아남는다. */
   classifyTab: ClassifyTab;
   setClassifyTab: (tab: ClassifyTab) => void;
+  /** 데스크톱 오른쪽 패널이 방 대신 정보 문서(라이선스)를 보여줄 때의 종류. null이면 방을 보여준다.
+   *  최우선 렌더: infoScreen > tagAll > autoAll > tag > autoKind > room. 방 선택은 보존한다(닫으면 복귀). */
+  infoScreen: InfoScreen | null;
+  setInfoScreen: (v: InfoScreen | null) => void;
   /** 현재 방의 채팅 draft를 저장(덮어쓰기). ref라 리렌더를 일으키지 않는다. */
   saveChatDraft: (draft: ChatDraft) => void;
   /** roomKey가 일치할 때만 draft를 돌려준다. 아니면 null(빈 상태로 시작). */
@@ -101,12 +111,16 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
   // "전체" 방(태그/자동구분 통합, 보기 전용)은 개별 선택과 상호배타 — 각 setter가 서로를 해제한다.
   const [tagAll, setTagAllState] = useState(false);
   const [autoAll, setAutoAllState] = useState(false);
+  // 정보 문서(라이선스)는 방 선택보다 우선 렌더된다. 방을 고르면 정보 문서를 닫아
+  // 오른쪽 패널이 그 방으로 넘어가게 한다(반대 방향은 setInfoScreen이 방을 보존).
+  const [infoScreen, setInfoScreenState] = useState<InfoScreen | null>(null);
   const setRoom = useCallback((next: SelectedRoom | null) => {
     setRoomState(next);
     setAutoKindState(null);
     setTagState(null);
     setTagAllState(false);
     setAutoAllState(false);
+    setInfoScreenState(null);
   }, []);
   // 자동구분을 고르면 태그·전체 선택을 해제한다(우선순위 충돌 방지).
   const setAutoKind = useCallback((kind: AutoKind | null) => {
@@ -114,6 +128,7 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
     setTagState(null);
     setTagAllState(false);
     setAutoAllState(false);
+    setInfoScreenState(null);
   }, []);
   // 태그를 고르면 자동구분·전체 선택을 해제한다.
   const setTag = useCallback((next: Tag | null) => {
@@ -121,6 +136,7 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
     setAutoKindState(null);
     setTagAllState(false);
     setAutoAllState(false);
+    setInfoScreenState(null);
   }, []);
   // 태그 전체 방 선택(true) — 다른 모든 방 선택을 해제한다. false면 그 선택만 끈다(전체 방에서 나감).
   const setTagAll = useCallback((v: boolean) => {
@@ -130,6 +146,7 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoKindState(null);
       setAutoAllState(false);
       setRoomState(null);
+      setInfoScreenState(null);
     }
   }, []);
   // 자동구분 전체 방 선택(true) — 다른 모든 방 선택을 해제한다. false면 그 선택만 끈다.
@@ -140,7 +157,12 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoKindState(null);
       setTagAllState(false);
       setRoomState(null);
+      setInfoScreenState(null);
     }
+  }, []);
+  // 정보 문서 열기/닫기 — 방 선택은 건드리지 않는다. 닫으면(null) 오른쪽 패널이 직전 방으로 복귀.
+  const setInfoScreen = useCallback((v: InfoScreen | null) => {
+    setInfoScreenState(v);
   }, []);
   const [roomsVersion, setRoomsVersion] = useState(0);
   const bumpRooms = useCallback(() => setRoomsVersion((v) => v + 1), []);
@@ -234,6 +256,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       bumpRooms,
       classifyTab,
       setClassifyTab,
+      infoScreen,
+      setInfoScreen,
       saveChatDraft,
       readChatDraft,
       pollPreview,
@@ -254,6 +278,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       bumpRooms,
       classifyTab,
       setClassifyTab,
+      infoScreen,
+      setInfoScreen,
       saveChatDraft,
       readChatDraft,
       pollPreview,

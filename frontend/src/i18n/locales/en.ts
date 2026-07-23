@@ -278,6 +278,14 @@ export default {
     modeSystem: 'System',
     linkedGoogle: 'Linked with Google',
     menu: 'Menu',
+    appInfo: 'App info',
+    version: 'Version',
+    openSourceLicenses: 'Open source licenses',
+    privacyPolicy: 'Privacy policy',
+    terms: 'Terms of service',
+  },
+  licenses: {
+    title: 'Open source licenses',
   },
   sites: {
     googleMaps: 'Google Maps',

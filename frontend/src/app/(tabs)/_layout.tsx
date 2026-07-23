@@ -31,6 +31,7 @@ import {
   useTabReorder,
 } from '../../tab-reorder';
 import { ChatScreen } from '../../screens/ChatScreen';
+import { LicensesScreen } from '../../screens/LicensesScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout, ThemeColors } from '../../theme';
 import { useTheme } from '../../theme-context';
@@ -229,6 +230,8 @@ export default function TabsLayout() {
     setTagAll,
     autoAll,
     setAutoAll,
+    infoScreen,
+    setInfoScreen,
   } = useSelectedRoom();
   const router = useRouter();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -375,6 +378,13 @@ export default function TabsLayout() {
           <TabButton icon="chats" label="" rail={rail} hidden />
         </TabTrigger>
       ))}
+      {/* 오픈소스 라이선스: 더보기 하위 페이지. 방 라우트와 같은 이유로 (tabs) 안에
+          등록만 유지하고 바/레일에선 숨긴다 — 더보기처럼 목록 패널/전폭으로 렌더된다. */}
+      <TabTrigger name="licenses" href="/licenses" asChild>
+        <TabButton icon="more" label="" rail={rail} hidden />
+      </TabTrigger>
+      {/* 개인정보처리방침·이용약관은 (tabs) 밖 최상위 단독 라우트(/privacy·/terms)라
+          여기 트리거로 등록하지 않는다 — 레일·탭바 크롬 없는 전폭 문서 페이지로 뜬다. */}
     </>
   );
 
@@ -437,10 +447,19 @@ export default function TabsLayout() {
         </GestureDetector>
 
         {/* ③ 대화 패널: 항상 상주, 남은 폭 전부. 방 선택 시 여기만 교체.
-            렌더 우선순위: tagAll > autoAll > tag > autoKind > room(일반). 태그·자동구분·전체는 보기 전용 방.
-            뒤로가기는 데스크톱에선 숨긴다(왼쪽 리스트가 상주 — 사용자 확정). 워드마크 탭=전체. */}
+            렌더 우선순위: infoScreen(라이선스) > tagAll > autoAll > tag > autoKind > room(일반).
+            정보 문서는 방보다 우선하되 방 선택은 보존 — 닫으면(setInfoScreen(null)) 그 방으로 복귀한다.
+            태그·자동구분·전체는 보기 전용 방. 워드마크 탭=전체. */}
         <View style={styles.chatPane}>
-          {tagAll ? (
+          {infoScreen === 'licenses' ? (
+            // 라이선스 문서 — 오른쪽 상세 패널. 뒤로가기는 라우팅 대신 정보 문서만 닫아
+            // (setInfoScreen(null)) 직전 방으로 돌아온다(왼쪽 더보기는 그대로).
+            <LicensesScreen
+              key="info:licenses"
+              onBack={() => setInfoScreen(null)}
+              showBack={false}
+            />
+          ) : tagAll ? (
             <ChatScreen
               key="tag:all"
               token={token}
@@ -535,6 +554,11 @@ export default function TabsLayout() {
   // 목록으로 튕기지 말고 그 방의 /chat 라우트로 이어준다.
   // wasDesktopRef가 "그 순간"만 한정하므로, 모바일에서 목록으로 되돌아가도
   // 다시 /chat으로 끌려가지 않는다(무한 리다이렉트 방지). room이 있을 때만.
+  // 정보 문서(라이선스)를 오른쪽 패널에서 보다 좁은 화면으로 넘어오면, 그 문서의 전폭
+  // 라우트로 이어준다(방 생존 규칙과 동일). infoScreen이 최우선 렌더라 방보다 먼저 검사한다.
+  if (wasDesktopRef.current && infoScreen === 'licenses') {
+    return <Redirect href="/licenses" />;
+  }
   if (wasDesktopRef.current && tagAll) {
     return <Redirect href={{ pathname: '/tag-room', params: { tagId: 'all' } }} />;
   }
