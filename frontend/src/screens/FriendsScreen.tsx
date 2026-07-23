@@ -31,6 +31,7 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  ReduceMotion,
   SharedValue,
   useAnimatedStyle,
   useDerivedValue,
@@ -38,11 +39,17 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { api, ApiError, AutoKind, Friend, Tag } from '../api';
+import { hapticImpactLight, hapticImpactMedium, hapticSelection } from '../haptics';
 import { useAuth } from '../auth';
 import { useCollapsedSections } from '../collapsed-sections';
 import { useCategoryEdit } from '../category-edit';
 import { CategoryAvatar } from '../components/CategoryAvatar';
-import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import {
+  buildSwipeActionsA11y,
+  SwipeableRow,
+  SwipeableRowMethods,
+  SwipeAction,
+} from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
@@ -81,8 +88,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 // 들린 행: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로.
 const LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
-// 비켜나는 행 애니메이션 시간.
-const SHIFT_TIMING = { duration: 130 } as const;
+// 비켜나는 행 애니메이션 시간. reduceMotion: 접근성 "동작 줄이기" 시 즉시 착지로 대체.
+const SHIFT_TIMING = { duration: 130, reduceMotion: ReduceMotion.System } as const;
 
 // 표준 재정렬 아키텍처: 드래그 중 데이터·셀은 불변, translateY만 움직인다.
 // - 잡은 행(index === activeIndex): translateY = dragY(손가락 추종, 즉시).
@@ -159,6 +166,8 @@ function useDragReorder(
   const startIndexRef = useRef(0);
   // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize의 탭 승격("꾹 눌렀다 그냥 뗌") 판별.
   const movedRef = useRef(false);
+  // 마지막으로 selection 틱을 울린 hop 목표 — 슬롯이 바뀔 때만 1회씩 울린다.
+  const lastHopRef = useRef(-1);
   // 드래그 세션 동안의 경계값(픽셀) — onStart에서 그 시점 순서의 실제 높이로 계산해 고정한다.
   const dragBoundsRef = useRef({ min: 0, max: 0 });
   // 잡은 행의 원래 상단 오프셋(누적 높이) — 드래그 중 목표 슬롯 계산에 쓴다.
@@ -199,11 +208,13 @@ function useDragReorder(
           dragBoundsRef.current = { min: -topOffset, max: total - h - topOffset };
           othersHeightsRef.current = heights.filter((_, i) => i !== idx);
           movedRef.current = false;
+          lastHopRef.current = idx;
           activeIndex.value = idx;
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
           dragY.value = 0;
           beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
+          hapticImpactMedium(); // 리프트(잡힘) — 들어올림 피드백
           // 세션당 1회 리렌더(들린 스타일 + scrollEnabled false). 이후 드래그 중엔 setState 없음.
           setDraggingId(id);
         })
@@ -244,6 +255,11 @@ function useDragReorder(
           }
           // 데이터는 안 바꾸고 이 값만 갱신 → 다른 행들이 비켜난다(AnimatedRow offset).
           targetIndex.value = clamp(target, 0, n - 1);
+          // 슬롯 hop마다 selection 틱 1회(runOnJS(true) 제스처라 JS 스레드에서 직접 호출).
+          if (targetIndex.value !== lastHopRef.current) {
+            lastHopRef.current = targetIndex.value;
+            hapticSelection();
+          }
         })
         .onFinalize(() => {
           const start = startIndexRef.current;
@@ -257,6 +273,7 @@ function useDragReorder(
             const [moved] = next.splice(start, 1);
             next.splice(target, 0, moved);
             onCommitRef.current(next);
+            hapticImpactLight(); // 드롭(새 위치에 안착) — 가벼운 커밋 피드백
           } else if (activated && target === start && !movedRef.current) {
             // 꾹 눌렀다 이동 없이 뗌 → 팬이 Tap을 눌러 죽였으므로 여기서 행 열기를 승격 발화.
             // (빠른 탭은 팬이 활성 안 돼 여긴 안 옴 → Tap 제스처가 처리, 이중 발화 없음.)
@@ -618,32 +635,39 @@ export function FriendsList({
   ) => {
     const { refKey, drag, index, isDragging } = opts;
     const active = isDesktop && room?.friendId === item.id;
+    // 왼→오 스와이프 액션([즐겨찾기][삭제][수정]) — 아래 SwipeableRow와 스크린리더 대안(a11y 액션
+    // 병합) 양쪽이 이 배열을 공유한다.
+    const swipeActions: SwipeAction[] = [
+      {
+        key: 'favorite',
+        icon: item.favorite ? StarOff : Star,
+        label: item.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+        onPress: () => toggleFavorite(item),
+      },
+      {
+        key: 'delete',
+        icon: Trash2,
+        label: t('common.delete'),
+        onPress: () => confirmDeleteFriend(item),
+      },
+      {
+        key: 'edit',
+        icon: Pencil,
+        label: t('friends.editTitle'),
+        onPress: () => openCategoryEditor(item),
+      },
+    ];
+    // 스크린리더 대안: 스와이프 액션을 행의 기존 커스텀 접근성 액션(activate/edit/increment/decrement)과
+    // 병합한다. edit은 양쪽에 있으므로(swipeActions의 edit도 openCategoryEditor(item) = editRow(item)와
+    // 동일 동작) 중복 제거하고 기존 edit 하나만 남긴다.
+    const swipeA11y = buildSwipeActionsA11y(swipeActions);
     const row = (
       // 왼→오 스와이프로 [즐겨찾기][삭제][수정] 액션이 드러난다. 그립(세로)과는 방향으로 공존.
       <SwipeableRow
         ref={(ref) => {
           swipeRefs.current.set(refKey, ref);
         }}
-        actions={[
-          {
-            key: 'favorite',
-            icon: item.favorite ? StarOff : Star,
-            label: item.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
-            onPress: () => toggleFavorite(item),
-          },
-          {
-            key: 'delete',
-            icon: Trash2,
-            label: t('common.delete'),
-            onPress: () => confirmDeleteFriend(item),
-          },
-          {
-            key: 'edit',
-            icon: Pencil,
-            label: t('friends.editTitle'),
-            onPress: () => openCategoryEditor(item),
-          },
-        ]}
+        actions={swipeActions}
         onDragStateChange={(dragging) => {
           swipeDragging.current = dragging;
         }}
@@ -673,8 +697,10 @@ export function FriendsList({
             accessibilityActions={[
               { name: 'activate' },
               { name: 'edit', label: t('friends.editTitle') },
-              { name: 'increment' },
-              { name: 'decrement' },
+              { name: 'increment', label: t('a11y.moveUp') },
+              { name: 'decrement', label: t('a11y.moveDown') },
+              // 스와이프 전용 액션(즐겨찾기·삭제) — edit은 위에서 이미 있으므로 제외.
+              ...swipeA11y.accessibilityActions.filter((a) => a.name !== 'edit'),
             ]}
             onAccessibilityAction={(e) => {
               switch (e.nativeEvent.actionName) {
@@ -687,8 +713,12 @@ export function FriendsList({
                 case 'decrement':
                   drag.moveByOne(item.id, 1);
                   break;
-                default:
+                case 'activate':
                   openRow(refKey, item);
+                  break;
+                default:
+                  // favorite·delete 등 스와이프 전용 액션은 swipeActions의 onPress로 위임.
+                  swipeA11y.onAccessibilityAction(e);
               }
             }}
             onAccessibilityTap={() => openRow(refKey, item)}

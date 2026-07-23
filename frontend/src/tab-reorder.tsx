@@ -2,6 +2,7 @@ import { MutableRefObject, useCallback, useMemo, useRef, useState } from 'react'
 import { LayoutChangeEvent, ViewStyle } from 'react-native';
 import { Gesture } from 'react-native-gesture-handler';
 import {
+  ReduceMotion,
   SharedValue,
   useAnimatedStyle,
   useDerivedValue,
@@ -9,6 +10,7 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
+import { hapticImpactLight, hapticImpactMedium, hapticSelection } from './haptics';
 import { beginGlobalGrabbingCursor, endGlobalGrabbingCursor } from './use-reorder';
 
 // 탭바(모바일 하단, 가로)·레일(데스크톱, 세로)의 아이콘 직접 드래그 재정렬.
@@ -24,7 +26,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 
 // 들린 탭: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로. (use-reorder의 LIFT 미러)
 export const TAB_LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
-const SHIFT_TIMING = { duration: 130 } as const;
+// reduceMotion: 접근성 "동작 줄이기"가 켜지면 비켜남 애니메이션을 즉시 착지로 대체한다.
+const SHIFT_TIMING = { duration: 130, reduceMotion: ReduceMotion.System } as const;
 
 export type ReorderAxis = 'x' | 'y';
 
@@ -97,6 +100,8 @@ export function useTabReorder(opts: {
   // variableSize 모드 스냅샷(onStart에서 확정) — 슬롯 중심 좌표들과 잡은 슬롯 중심.
   const centersRef = useRef<number[]>([]);
   const startCenterRef = useRef(0);
+  // 마지막으로 햅틱을 울린 hop 목표 — 슬롯이 바뀔 때마다 1회씩만 selection 틱을 울린다.
+  const lastHopRef = useRef(-1);
 
   const onItemLayout = useCallback(
     (visibleIndex: number, e: LayoutChangeEvent) => {
@@ -171,11 +176,13 @@ export function useTabReorder(opts: {
           activeIndex.value = idx;
           targetIndex.value = idx;
           drag.value = 0;
+          lastHopRef.current = idx;
           // 이 세션은 드래그다 — 뒤따르는 탭/클릭 네비게이션·전환을 눌러 무시한다.
           didDragRef.current = true;
           // 롱프레스 활성 순간 편집 모드 진입 등(캡슐). 이동으로 이어지면 재정렬도 그대로.
           onDragStartRef.current?.();
           beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
+          hapticImpactMedium(); // 리프트(잡힘) — 들어올림 피드백
           setDraggingKey(key); // 세션당 1회 리렌더(들린 스타일)
         })
         .onUpdate((event) => {
@@ -210,6 +217,11 @@ export function useTabReorder(opts: {
             const hop = Math.round(drag.value / p);
             targetIndex.value = clamp(startIndexRef.current + hop, 0, n - 1);
           }
+          // 슬롯 hop마다 selection 틱 1회(runOnJS(true) 제스처라 JS 스레드에서 직접 호출).
+          if (targetIndex.value !== lastHopRef.current) {
+            lastHopRef.current = targetIndex.value;
+            hapticSelection();
+          }
         })
         .onFinalize(() => {
           const start = startIndexRef.current;
@@ -222,6 +234,7 @@ export function useTabReorder(opts: {
             next.splice(target, 0, moved);
             visibleOrderRef.current = next;
             commitRef.current(next);
+            hapticImpactLight(); // 드롭(새 위치에 안착) — 가벼운 커밋 피드백
           }
           // 커밋과 동시에 리셋 — activeIndex=-1이면 offset이 즉시 0이 되어 새 순서와 맞물려 점프 없음.
           activeIndex.value = -1;

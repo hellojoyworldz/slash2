@@ -15,7 +15,13 @@ import { api, ApiError, Message, RoomsSummary } from '../api';
 import { useAuth } from '../auth';
 import { useCategoryEdit } from '../category-edit';
 import { CategoryAvatar } from '../components/CategoryAvatar';
-import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import {
+  buildSwipeActionsA11y,
+  SwipeableRow,
+  SwipeableRowMethods,
+  SwipeAction,
+  SwipeActionsA11y,
+} from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
@@ -188,12 +194,16 @@ export function ChatsScreen({
     })),
   ];
 
-  const renderRow = (item: RoomRow, selected: boolean) => (
+  // a11y: 스와이프 액션은 포인터 제스처라 스크린리더에 안 보인다. 스와이프 행은 액션을 접근성
+  // 커스텀 액션으로 행 터처블에 얹어(a11y 인자) 로터/액션 메뉴로 [고정][삭제][수정]을 실행하게 한다.
+  const renderRow = (item: RoomRow, selected: boolean, a11y?: SwipeActionsA11y) => (
     <TouchableOpacity
       style={[styles.roomRow, selected && styles.roomRowActive]}
       activeOpacity={0.6}
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      accessibilityActions={a11y?.accessibilityActions}
+      onAccessibilityAction={a11y?.onAccessibilityAction}
       onPress={() => {
         // 스와이프 직후의 탭은 무시 (웹에서 드래그를 놓으면 탭으로도 인식됨)
         if (dragging.current) return;
@@ -263,34 +273,34 @@ export function ChatsScreen({
           const selected =
             isDesktop &&
             (item.isSelf ? room === null : room?.friendId === item.friendId);
-          return item.isSelf ? (
-            renderRow(item, selected)
-          ) : (
-            // 왼→오 스와이프로 [고정][삭제][수정] 액션이 드러난다.
+          if (item.isSelf) return renderRow(item, selected);
+          // 왼→오 스와이프로 [고정][삭제][수정] 액션이 드러난다.
+          const actions: SwipeAction[] = [
+            {
+              key: 'pin',
+              icon: item.pinned ? PinOff : Pin,
+              label: item.pinned ? t('a11y.unpin') : t('a11y.pin'),
+              onPress: () => togglePin(item),
+            },
+            {
+              key: 'delete',
+              icon: Trash2,
+              label: t('common.delete'),
+              onPress: () => confirmDeleteRoom(item),
+            },
+            {
+              key: 'edit',
+              icon: Pencil,
+              label: t('friends.editTitle'),
+              onPress: () => editRoom(item),
+            },
+          ];
+          return (
             <SwipeableRow
               ref={(ref) => {
                 if (item.friendId) swipeRefs.current.set(item.friendId, ref);
               }}
-              actions={[
-                {
-                  key: 'pin',
-                  icon: item.pinned ? PinOff : Pin,
-                  label: item.pinned ? t('a11y.unpin') : t('a11y.pin'),
-                  onPress: () => togglePin(item),
-                },
-                {
-                  key: 'delete',
-                  icon: Trash2,
-                  label: t('common.delete'),
-                  onPress: () => confirmDeleteRoom(item),
-                },
-                {
-                  key: 'edit',
-                  icon: Pencil,
-                  label: t('friends.editTitle'),
-                  onPress: () => editRoom(item),
-                },
-              ]}
+              actions={actions}
               onDragStateChange={(isDragging) => {
                 dragging.current = isDragging;
               }}
@@ -307,7 +317,8 @@ export function ChatsScreen({
                 }
               }}
             >
-              {renderRow(item, selected)}
+              {/* 스크린리더 대안: 스와이프 액션을 행 터처블의 접근성 커스텀 액션으로 노출. */}
+              {renderRow(item, selected, buildSwipeActionsA11y(actions))}
             </SwipeableRow>
           );
         }}

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { useModalA11yFocus } from '../use-a11y-focus';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -54,6 +55,8 @@ export function ModalCard({
 }: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // 열릴 때 스크린리더 포커스를 타이틀로 이동(공용 훅 — 앱 모든 모달의 시각 문법 기반).
+  const titleRef = useModalA11yFocus(visible);
 
   // Android 하드웨어 뒤로가기로 닫기(RN Modal의 onRequestClose 대체). 웹·iOS는 무영향.
   useEffect(() => {
@@ -84,13 +87,17 @@ export function ModalCard({
       >
         <View style={styles.card}>
           <View style={styles.titleRow}>
-            <Text
-              variant="heading"
+            {/* ref+tabIndex=-1: 웹은 focus()로, 네이티브는 findNodeHandle+setAccessibilityFocus로
+                열릴 때 스크린리더 포커스를 여기로 이동시킨다(useModalA11yFocus). */}
+            <View
+              ref={titleRef}
+              tabIndex={-1}
+              accessible
               accessibilityRole="header"
               style={styles.titleText}
             >
-              {title}
-            </Text>
+              <Text variant="heading">{title}</Text>
+            </View>
             {/* 타이틀 오른쪽 보조 슬롯(휴지통 등) — 없으면 자리 차지 안 함. */}
             {titleAccessory ? (
               <View style={styles.titleAccessory}>{titleAccessory}</View>

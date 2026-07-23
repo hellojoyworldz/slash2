@@ -23,7 +23,12 @@ import { api, Tag } from '../api';
 import { useAuth } from '../auth';
 import { useCollapsedSections } from '../collapsed-sections';
 import { HashTile } from '../components/HashTile';
-import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import {
+  buildSwipeActionsA11y,
+  SwipeAction,
+  SwipeableRow,
+  SwipeableRowMethods,
+} from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { useSelectedRoom } from '../selected-room';
@@ -240,6 +245,32 @@ export function TagsScreen({
   ) => {
     const { refKey, drag, index, isDragging } = opts;
     const active = isDesktop && selectedTag?.id === item.id;
+    // 왼→오 스와이프 액션([즐겨찾기][삭제][수정]) — 아래 SwipeableRow와 스크린리더 대안(a11y 액션
+    // 병합) 양쪽이 이 배열을 공유한다.
+    const swipeActions: SwipeAction[] = [
+      {
+        key: 'favorite',
+        icon: item.favorite ? StarOff : Star,
+        label: item.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+        onPress: () => toggleFavorite(item),
+      },
+      {
+        key: 'delete',
+        icon: Trash2,
+        label: t('common.delete'),
+        onPress: () => removeTag(item),
+      },
+      {
+        key: 'edit',
+        icon: Pencil,
+        label: t('tags.editTitle'),
+        onPress: () => onEdit(item),
+      },
+    ];
+    // 스크린리더 대안: 스와이프 액션을 행의 기존 커스텀 접근성 액션(activate/edit/increment/decrement)과
+    // 병합한다. edit은 양쪽에 있으므로(swipeActions의 edit도 onEdit(item)과 동일 동작) 중복 제거하고
+    // 기존 edit 하나만 남긴다.
+    const swipeA11y = buildSwipeActionsA11y(swipeActions);
     return (
       <VarReorderRow
         index={index}
@@ -251,26 +282,7 @@ export function TagsScreen({
           ref={(ref) => {
             swipeRefs.current.set(refKey, ref);
           }}
-          actions={[
-            {
-              key: 'favorite',
-              icon: item.favorite ? StarOff : Star,
-              label: item.favorite ? t('a11y.unfavorite') : t('a11y.favorite'),
-              onPress: () => toggleFavorite(item),
-            },
-            {
-              key: 'delete',
-              icon: Trash2,
-              label: t('common.delete'),
-              onPress: () => removeTag(item),
-            },
-            {
-              key: 'edit',
-              icon: Pencil,
-              label: t('tags.editTitle'),
-              onPress: () => onEdit(item),
-            },
-          ]}
+          actions={swipeActions}
           onDragStateChange={(dragging) => {
             swipeDragging.current = dragging;
           }}
@@ -299,8 +311,10 @@ export function TagsScreen({
               accessibilityActions={[
                 { name: 'activate' },
                 { name: 'edit', label: t('tags.editTitle') },
-                { name: 'increment' },
-                { name: 'decrement' },
+                { name: 'increment', label: t('a11y.moveUp') },
+                { name: 'decrement', label: t('a11y.moveDown') },
+                // 스와이프 전용 액션(즐겨찾기·삭제) — edit은 위에서 이미 있으므로 제외.
+                ...swipeA11y.accessibilityActions.filter((a) => a.name !== 'edit'),
               ]}
               onAccessibilityAction={(e) => {
                 switch (e.nativeEvent.actionName) {
@@ -313,8 +327,12 @@ export function TagsScreen({
                   case 'decrement':
                     drag.moveByOne(item.id, 1);
                     break;
-                  default:
+                  case 'activate':
                     openRow(refKey, item);
+                    break;
+                  default:
+                    // favorite·delete 등 스와이프 전용 액션은 swipeActions의 onPress로 위임.
+                    swipeA11y.onAccessibilityAction(e);
                 }
               }}
               onAccessibilityTap={() => openRow(refKey, item)}

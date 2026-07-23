@@ -15,12 +15,15 @@ import {
   GestureType,
 } from 'react-native-gesture-handler';
 import Animated, {
+  ReduceMotion,
   SharedValue,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+
+import { hapticImpactLight, hapticImpactMedium, hapticSelection } from './haptics';
 
 // 균일 높이 행 목록의 그립 드래그 재정렬 — 분류 탭(FriendsScreen)과 같은 아키텍처를
 // 행 높이가 일정한 목록(자동구분 탭·태그 탭)용으로 압축한 공용 훅.
@@ -58,7 +61,8 @@ export function endGlobalGrabbingCursor() {
 // 들린 셀(형제 셀 위로): 셀 레벨 zIndex/elevation. elevation은 Android 그림자를 유발하므로
 // shadowColor 투명화로 최소화(DESIGN 그림자 금지에 대한 최선의 근사치).
 const LIFT_CELL = { zIndex: 20, elevation: 20, shadowColor: 'transparent' } as const;
-const SHIFT_TIMING = { duration: 130 } as const;
+// reduceMotion: 접근성 "동작 줄이기"가 켜지면 비켜남 애니메이션을 즉시 착지로 대체한다.
+const SHIFT_TIMING = { duration: 130, reduceMotion: ReduceMotion.System } as const;
 
 // 행 아무데나 꾹 눌렀다 끌면 재정렬되는 롱프레스 시간(ms). 이 시간 전에 손가락이 움직이면
 // 드래그는 활성되지 않고 리스트 스크롤(세로)·스와이프(가로)에 양보한다.
@@ -216,6 +220,8 @@ export function useReorder(opts: {
   const boundsRef = useRef({ min: 0, max: 0 });
   // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize에서 "꾹 눌렀다 그냥 뗌"(탭 승격) 판별.
   const movedRef = useRef(false);
+  // 마지막으로 selection 틱을 울린 hop 목표 — 슬롯이 바뀔 때만 1회씩 울린다.
+  const lastHopRef = useRef(-1);
 
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
@@ -260,11 +266,13 @@ export function useReorder(opts: {
             max: (n - 1 - idx) * rowH.value,
           };
           movedRef.current = false;
+          lastHopRef.current = idx;
           activeIndex.value = idx;
           activeIndexRef.current = idx; // 셀 렌더러가 리렌더 시점에 읽어 잡힌 셀을 든다
           targetIndex.value = idx;
           dragY.value = 0;
           beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
+          hapticImpactMedium(); // 리프트(잡힘) — 들어올림 피드백
           setDraggingId(id); // 세션당 1회 리렌더(들린 스타일 + scrollEnabled false)
         })
         .onUpdate((event) => {
@@ -275,6 +283,11 @@ export function useReorder(opts: {
           dragY.value = clamp(event.translationY, min, max);
           const hop = Math.round(dragY.value / rowH.value);
           targetIndex.value = clamp(startIndexRef.current + hop, 0, n - 1);
+          // 슬롯 hop마다 selection 틱 1회(runOnJS(true) 제스처라 JS 스레드에서 직접 호출).
+          if (targetIndex.value !== lastHopRef.current) {
+            lastHopRef.current = targetIndex.value;
+            hapticSelection();
+          }
         })
         .onFinalize(() => {
           const start = startIndexRef.current;
@@ -287,6 +300,7 @@ export function useReorder(opts: {
             next.splice(target, 0, moved);
             orderRef.current = next;
             commitRef.current(next);
+            hapticImpactLight(); // 드롭(새 위치에 안착) — 가벼운 커밋 피드백
           } else if (activated && target === start && !movedRef.current) {
             // 꾹 눌렀다 이동 없이 뗌 → 팬이 Tap 제스처를 눌러 죽였으므로 여기서 행 열기를 승격 발화.
             // (빠른 탭은 팬이 활성되지 않아 여긴 안 옴 → Tap 제스처가 처리, 이중 발화 없음.)
@@ -420,6 +434,8 @@ export function useVarReorder<T>(opts: {
   const gesturesRef = useRef(new Map<string, RowGesture>());
   // 이 드래그 세션에서 활성 임계 이상 움직였는지 — onFinalize의 탭 승격 판별.
   const movedRef = useRef(false);
+  // 마지막으로 selection 틱을 울린 hop 목표 — 슬롯이 바뀔 때만 1회씩 울린다.
+  const lastHopRef = useRef(-1);
   // 드래그 세션 가드(픽커 자식 DOM click 무시용) — onStart에서 set, onFinalize 후 매크로태스크에 해제.
   const didDragRef = useRef(false);
 
@@ -460,12 +476,14 @@ export function useVarReorder<T>(opts: {
           dragBoundsRef.current = { min: -topOffset, max: total - h - topOffset };
           othersHeightsRef.current = heights.filter((_, i) => i !== idx);
           movedRef.current = false;
+          lastHopRef.current = idx;
           didDragRef.current = true; // 이 세션은 드래그 — 뒤따르는 자식 DOM click을 눌러 무시(픽커)
           activeIndex.value = idx;
           activeIndexRef.current = idx;
           targetIndex.value = idx;
           dragY.value = 0;
           beginGlobalGrabbingCursor(); // web: 드래그 내내 grabbing 커서 강제
+          hapticImpactMedium(); // 리프트(잡힘) — 들어올림 피드백
           setDraggingId(id);
         })
         .onUpdate((event) => {
@@ -495,6 +513,11 @@ export function useVarReorder<T>(opts: {
             }
           }
           targetIndex.value = clamp(target, 0, n - 1);
+          // 슬롯 hop마다 selection 틱 1회(runOnJS(true) 제스처라 JS 스레드에서 직접 호출).
+          if (targetIndex.value !== lastHopRef.current) {
+            lastHopRef.current = targetIndex.value;
+            hapticSelection();
+          }
         })
         .onFinalize(() => {
           const start = startIndexRef.current;
@@ -507,6 +530,7 @@ export function useVarReorder<T>(opts: {
             const [moved] = next.splice(start, 1);
             next.splice(target, 0, moved);
             onCommitRef.current(next);
+            hapticImpactLight(); // 드롭(새 위치에 안착) — 가벼운 커밋 피드백
           } else if (activated && target === start && !movedRef.current) {
             // 꾹 눌렀다 이동 없이 뗌 → 행 탭으로 승격. 픽커는 onPromote(자식 DOM Pressable을 우회한
             // 직접 발화)로, 목록 행은 onActivate로. 자식 click은 didDragRef 가드에 막혀 이중 발화 없음.

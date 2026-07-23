@@ -28,6 +28,8 @@ import { formatDateStamp, isSameDay } from '../time';
 import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { useDesktopClassInput } from '../use-desktop-input';
+import { useReducedMotion } from 'react-native-reanimated';
+import { hapticImpactLight, hapticImpactMedium } from '../haptics';
 
 interface Props {
   token: string | null;
@@ -74,6 +76,8 @@ export function ChatScreen({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // 접근성 "동작 줄이기"가 켜지면 목록 자동 스크롤을 애니메이션 없이(즉시 점프) 처리한다.
+  const reducedMotion = useReducedMotion();
   // 전송·삭제·분류 성공 시 채팅 목록 갱신 + 900px 교차용 draft 저장/복원.
   // roomsVersion은 분류 프로필(색) 편집 신호 — 열린 대화의 말풍선 색을 갱신하는 데 쓴다.
   const {
@@ -438,13 +442,15 @@ export function ChatScreen({
       );
       setMessages((prev) => [message, ...prev]);
       bumpRooms();
+      hapticImpactLight(); // 전송 성공 — 가벼운 커밋 피드백
       // 링크 메시지는 언퍼얼 전(og 빈 카드)으로 즉시 떴으니, 백그라운드 채움을 폴링해 카드를 교체한다.
       // 폴링은 루트(selected-room)에 있어 900px 스왑으로 이 화면이 언마운트돼도 계속된다.
       pollPreview(message);
       // 새 메시지가 반영된 다음 프레임에 최하단(방금 보낸 메시지)으로 스크롤.
       // inverted라 offset 0이 화면 아래. 검색 중이라 새 메시지가 결과에 없어도 안전(맨 아래로).
+      // 동작 줄이기 시엔 애니메이션 없이 즉시 점프(전정계 자극 회피).
       requestAnimationFrame(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: !reducedMotion });
       });
     } catch {
       setInput(content);
@@ -589,6 +595,7 @@ export function ChatScreen({
             value={searchText}
             onChangeText={setSearchText}
             autoFocus
+            accessibilityLabel={t('a11y.searchNotes')}
           />
         ) : (
           <View style={styles.headerTitleBlock}>
@@ -708,7 +715,10 @@ export function ChatScreen({
                           .map((id) => tagNameById.get(id))
                           .filter((n): n is string => !!n)}
                         onLongPress={(message) => {
-                          if (token) openMenu(message);
+                          if (token) {
+                            hapticImpactMedium(); // 컨텍스트 메뉴 열림 — 들어올림 피드백
+                            openMenu(message);
+                          }
                         }}
                         onPressMenu={token ? openMenu : undefined}
                         onDetail={() => openMessageDetail(buildDetailPayload(item))}
@@ -748,6 +758,7 @@ export function ChatScreen({
               setInputHeight(Math.min(120, Math.max(40, h)));
             }}
             multiline
+            accessibilityLabel={t('a11y.noteInput')}
           />
           <TouchableOpacity
             style={[styles.sendButton, !canSend && styles.sendDisabled]}

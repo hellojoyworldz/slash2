@@ -5,14 +5,20 @@ import {
   useImperativeHandle,
   useMemo,
 } from 'react';
+import type {
+  AccessibilityActionEvent,
+  AccessibilityActionInfo,
+} from 'react-native';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  ReduceMotion,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import { hapticSelection } from '../haptics';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 
@@ -36,6 +42,29 @@ export interface SwipeAction {
   fg?: string;
 }
 
+// 스크린리더 대안: 스와이프는 포인터 제스처라 스크린리더 사용자에겐 액션이 보이지 않는다.
+// 각 스와이프 액션을 접근성 커스텀 액션으로 노출해, 소비처가 행 터처블에 스프레드하면
+// 스크린리더 로터/액션 메뉴에서 [고정][삭제][수정] 등을 그대로 실행할 수 있다.
+export interface SwipeActionsA11y {
+  accessibilityActions: AccessibilityActionInfo[];
+  onAccessibilityAction: (e: AccessibilityActionEvent) => void;
+}
+
+// 훅이 아닌 순수 함수 — 훅을 쓸 수 없는 곳(FlatList renderItem 등)에서 인라인으로 만든다.
+export function buildSwipeActionsA11y(actions: SwipeAction[]): SwipeActionsA11y {
+  return {
+    accessibilityActions: actions.map((a) => ({ name: a.key, label: a.label })),
+    onAccessibilityAction: (e) => {
+      actions.find((a) => a.key === e.nativeEvent.actionName)?.onPress();
+    },
+  };
+}
+
+// 컴포넌트 안에서 쓰는 메모이즈 버전(권장). 반환값을 행 터처블에 스프레드한다.
+export function useSwipeActionsA11y(actions: SwipeAction[]): SwipeActionsA11y {
+  return useMemo(() => buildSwipeActionsA11y(actions), [actions]);
+}
+
 interface Props {
   /** 왼쪽에서 드러나는 액션들. 왼→오 순서로 배치된다. */
   actions: SwipeAction[];
@@ -49,7 +78,38 @@ interface Props {
 }
 
 const DEFAULT_ACTION_WIDTH = 68;
-const SPRING = { damping: 22, stiffness: 280, mass: 0.6 };
+// 임계감쇠에 가까운 스프링(바운스 없음 — DESIGN의 브루탈 미감). reduceMotion은 시스템 설정을 따른다:
+// 접근성 "동작 줄이기"가 켜지면 Reanimated가 즉시 착지로 대체한다(이음새 애니메이션 생략).
+const SPRING = {
+  damping: 22,
+  stiffness: 280,
+  mass: 0.6,
+  reduceMotion: ReduceMotion.System,
+} as const;
+// Apple 감속 투영: 손을 뗀 속도로 관성 착지점을 예측한다(scroll deceleration과 같은 지수감쇠).
+// 0.998/(1-0.998) = 499 → projected = translateX + velocityX*0.499.
+const DECELERATION = 0.998;
+// 속도가 이보다 크면(px/s) 위치가 아니라 속도 "부호"로 열림/닫힘을 정한다(플릭 존중).
+const FLICK_VELOCITY = 300;
+// 러버밴드 저항 계수(경계 밖으로 끌수록 덜 따라온다 — Apple rubberband).
+const RUBBER = 0.55;
+
+// 경계 밖으로 넘어간 만큼(overshoot)을 점진 저항으로 감쇠한다. 안쪽(0..dimension)은 그대로.
+function rubberband(overshoot: number, dimension: number, c: number): number {
+  'worklet';
+  return (overshoot * dimension * c) / (dimension + c * Math.abs(overshoot));
+}
+// 하드 클램프 대신 러버밴드: 0 미만·total 초과 구간만 저항으로 감쇠, 안쪽은 1:1 추종.
+function withRubberband(v: number, total: number): number {
+  'worklet';
+  if (v < 0) return rubberband(v, total, RUBBER); // 음수 → 감쇠된 음수(위/왼쪽 저항)
+  if (v > total) return total + rubberband(v - total, total, RUBBER);
+  return v;
+}
+function projectMomentum(velocityX: number): number {
+  'worklet';
+  return (velocityX / 1000) * (DECELERATION / (1 - DECELERATION));
+}
 
 export const SwipeableRow = forwardRef<SwipeableRowMethods, Props>(
   function SwipeableRow(
@@ -67,6 +127,9 @@ export const SwipeableRow = forwardRef<SwipeableRowMethods, Props>(
     const totalWidth = actionWidth * actions.length;
     const translateX = useSharedValue(0);
     const startX = useSharedValue(0);
+    // 드래그 중 열림 임계(totalWidth/2)를 기준으로 지금 어느 쪽인지(1=열림쪽/0=닫힘쪽).
+    // 교차하는 순간에만 hapticSelection 1회 — 방향 재교차 시 다시 1회(연타 방지 래치).
+    const crossedOpen = useSharedValue(0);
 
     const closeSelf = () => {
       translateX.value = withSpring(0, SPRING);
@@ -94,15 +157,34 @@ export const SwipeableRow = forwardRef<SwipeableRowMethods, Props>(
       .failOffsetY([-12, 12])
       .onStart(() => {
         startX.value = translateX.value;
+        // 시작 시점이 이미 어느 쪽인지로 래치를 초기화 — 닫힌 상태에서 시작하면 첫 열림 교차가 1회 발화.
+        crossedOpen.value = translateX.value > totalWidth / 2 ? 1 : 0;
         runOnJS(notifyDrag)(true);
       })
       .onUpdate((event) => {
         const next = startX.value + event.translationX;
-        translateX.value = Math.min(totalWidth, Math.max(0, next));
+        // 하드 클램프 대신 러버밴드: 경계(0..totalWidth) 밖은 저항으로 감쇠, 놓으면 스프링 복귀.
+        translateX.value = withRubberband(next, totalWidth);
+        // 열림 임계 교차 순간 hapticSelection 1회. 방향이 바뀌어 다시 넘으면 또 1회(래치로 연타 방지).
+        const side = translateX.value > totalWidth / 2 ? 1 : 0;
+        if (side !== crossedOpen.value) {
+          crossedOpen.value = side;
+          runOnJS(hapticSelection)();
+        }
       })
-      .onEnd(() => {
-        const open = translateX.value > totalWidth / 2;
-        translateX.value = withSpring(open ? totalWidth : 0, SPRING);
+      .onEnd((event) => {
+        // 관성 투영으로 착지점을 예측한다 — 위치가 아니라 "속도가 데려갈 곳"으로 열림/닫힘 결정.
+        // 속도가 명확하면(플릭) 속도 부호가 우선: 오른쪽(+)=열림, 왼쪽(-)=닫힘.
+        const projected = translateX.value + projectMomentum(event.velocityX);
+        const open =
+          Math.abs(event.velocityX) > FLICK_VELOCITY
+            ? event.velocityX > 0
+            : projected > totalWidth / 2;
+        // 릴리즈 속도를 스프링에 넘겨(velocity handoff) 드래그→애니메이션 이음새를 없앤다.
+        translateX.value = withSpring(open ? totalWidth : 0, {
+          ...SPRING,
+          velocity: event.velocityX,
+        });
         runOnJS(notifyOpen)(open);
         runOnJS(notifyDrag)(false);
       });

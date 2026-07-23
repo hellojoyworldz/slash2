@@ -723,7 +723,10 @@ export function ListBoardScreen({
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel={t('a11y.reorder')}
-              accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+              accessibilityActions={[
+                { name: 'increment', label: t('a11y.moveUp') },
+                { name: 'decrement', label: t('a11y.moveDown') },
+              ]}
               onAccessibilityAction={(e) =>
                 moveSection(
                   item.sectionKey,

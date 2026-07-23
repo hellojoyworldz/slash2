@@ -27,6 +27,12 @@ export default {
     cardDetail: 'カードの詳細',
     editCategory: 'カテゴリを編集',
     editTags: 'タグを編集',
+    searchNotes: 'メモ検索',
+    noteInput: 'メモ入力',
+    nameInput: '名前入力',
+    descriptionInput: '説明入力',
+    moveUp: '上へ移動',
+    moveDown: '下へ移動',
   },
   tabs: {
     group: 'グループ',

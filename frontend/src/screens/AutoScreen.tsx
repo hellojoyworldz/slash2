@@ -33,7 +33,12 @@ import { api, ApiError, AutoCounts, AutoKind } from '../api';
 import { useAuth } from '../auth';
 import { useCollapsedSections } from '../collapsed-sections';
 import { resolveAutoFavorites, resolveAutoOrder } from '../auto-filter';
-import { SwipeableRow, SwipeableRowMethods } from '../components/SwipeableRow';
+import {
+  buildSwipeActionsA11y,
+  SwipeAction,
+  SwipeableRow,
+  SwipeableRowMethods,
+} from '../components/SwipeableRow';
 import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { useSelectedRoom } from '../selected-room';
@@ -247,6 +252,17 @@ export function AutoScreen({
     const Icon = AUTO_ICONS[item];
     const active = isDesktop && autoKind === item;
     const count = counts?.[item] ?? 0;
+    // 왼→오 스와이프 액션([즐겨찾기] 하나) — 아래 SwipeableRow와 스크린리더 대안(a11y 액션 병합)
+    // 양쪽이 이 배열을 공유한다.
+    const swipeActions: SwipeAction[] = [
+      {
+        key: 'favorite',
+        icon: isFavorite ? StarOff : Star,
+        label: isFavorite ? t('a11y.unfavorite') : t('a11y.favorite'),
+        onPress: () => toggleFavorite(item),
+      },
+    ];
+    const swipeA11y = buildSwipeActionsA11y(swipeActions);
     return (
       <ReorderRow index={index} isDragging={isDragging} controls={reorder}>
         {/* 왼→오 스와이프로 [즐겨찾기] 하나(종류는 정적이라 삭제·수정·고정 없음). */}
@@ -254,14 +270,7 @@ export function AutoScreen({
           ref={(ref) => {
             swipeRefs.current.set(refKey, ref);
           }}
-          actions={[
-            {
-              key: 'favorite',
-              icon: isFavorite ? StarOff : Star,
-              label: isFavorite ? t('a11y.unfavorite') : t('a11y.favorite'),
-              onPress: () => toggleFavorite(item),
-            },
-          ]}
+          actions={swipeActions}
           onDragStateChange={(dragging) => {
             swipeDragging.current = dragging;
           }}
@@ -289,8 +298,10 @@ export function AutoScreen({
               accessibilityState={{ selected: active }}
               accessibilityActions={[
                 { name: 'activate' },
-                { name: 'increment' },
-                { name: 'decrement' },
+                { name: 'increment', label: t('a11y.moveUp') },
+                { name: 'decrement', label: t('a11y.moveDown') },
+                // 스와이프 전용 액션(즐겨찾기).
+                ...swipeA11y.accessibilityActions,
               ]}
               onAccessibilityAction={(e) => {
                 switch (e.nativeEvent.actionName) {
@@ -300,8 +311,12 @@ export function AutoScreen({
                   case 'decrement':
                     reorder.moveByOne(item, 1);
                     break;
-                  default:
+                  case 'activate':
                     openRow(refKey, item);
+                    break;
+                  default:
+                    // favorite 등 스와이프 전용 액션은 swipeActions의 onPress로 위임.
+                    swipeA11y.onAccessibilityAction(e);
                 }
               }}
               onAccessibilityTap={() => openRow(refKey, item)}

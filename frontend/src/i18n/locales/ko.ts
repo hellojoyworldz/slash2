@@ -29,6 +29,12 @@ export default {
     cardDetail: '카드 상세',
     editCategory: '분류 편집',
     editTags: '태그 편집',
+    searchNotes: '메모 검색',
+    noteInput: '메모 입력',
+    nameInput: '이름 입력',
+    descriptionInput: '설명 입력',
+    moveUp: '위로 이동',
+    moveDown: '아래로 이동',
   },
   tabs: {
     group: '그룹',

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react-native';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { useModalA11yFocus } from '../use-a11y-focus';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -69,6 +70,8 @@ export function MessageActionMenu({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // 열릴 때 스크린리더 포커스를 타이틀로 이동(ModalCard와 같은 공용 훅).
+  const titleRef = useModalA11yFocus(visible);
 
   // Android 하드웨어 뒤로가기(ModalCard와 동일).
   useEffect(() => {
@@ -150,9 +153,16 @@ export function MessageActionMenu({
       />
       <View style={styles.center} pointerEvents="box-none">
         <View style={styles.card} accessibilityViewIsModal>
-          <Text variant="heading" accessibilityRole="header" style={styles.title}>
-            {t('chat.menu.title')}
-          </Text>
+          {/* ref+tabIndex=-1: 열릴 때 스크린리더 포커스를 여기로 이동(useModalA11yFocus). */}
+          <View
+            ref={titleRef}
+            tabIndex={-1}
+            accessible
+            accessibilityRole="header"
+            style={styles.title}
+          >
+            <Text variant="heading">{t('chat.menu.title')}</Text>
+          </View>
           <View style={styles.list}>
             {items.map((it, i) => (
               <View key={it.key}>

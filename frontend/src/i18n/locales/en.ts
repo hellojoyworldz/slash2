@@ -27,6 +27,12 @@ export default {
     cardDetail: 'Card details',
     editCategory: 'Edit category',
     editTags: 'Edit tags',
+    searchNotes: 'Search notes',
+    noteInput: 'Note input',
+    nameInput: 'Name input',
+    descriptionInput: 'Description input',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
   },
   tabs: {
     group: 'Groups',

@@ -115,6 +115,8 @@ export function LinkCard({ link, comment }: Props) {
             uri={thumbUri}
             style={styles.thumbnail}
             resizeMode="cover"
+            // 장식 이미지 — 바로 아래 제목(linkTitle)이 이미 대체 텍스트 역할을 한다.
+            accessible={false}
           />
           {/* 영상 길이 배지 — durationSec 있을 때만, 썸네일 우하단. */}
           {isVideo && m?.durationSec != null ? (

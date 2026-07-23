@@ -170,7 +170,8 @@ export function MessageBubble({
       {onDetail ? (
         <TouchableOpacity
           onPress={onDetail}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          // 실측 터치 영역이 아이콘(15px)+패딩(2px)뿐이라 44pt 미만 — hitSlop으로 44pt 이상 보강.
+          hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
           accessibilityRole="button"
           accessibilityLabel={t('chat.menu.detail')}
           style={styles.actionButton}
@@ -218,7 +219,8 @@ export function MessageBubble({
           <TouchableOpacity
             style={styles.menuButton}
             onPress={() => onPressMenu(message)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            // 실측 터치 영역이 아이콘(16px)뿐이라 44pt 미만 — hitSlop으로 44pt 이상 보강.
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             accessibilityRole="button"
             accessibilityLabel={t('a11y.messageMenu')}
           >
@@ -243,7 +245,9 @@ export function MessageBubble({
           // 클릭 대상이 아닌 프레임(텍스트·세그먼트 프레임)은 pointer 커서를 끈다.
           (!isLink || hasSegments) && styles.textCursor,
         ]}
-        // 단일 카드 폴백만 프레임 자체가 원본 URL을 여는 링크.
+        // 단일 카드 폴백만 프레임 자체가 원본 URL을 여는 링크. 그 외 프레임에 button 역할을 주면
+        // 웹(RNW)에서 <button> 안에 ⋮·상세 <button>이 중첩돼 invalid HTML(hydration 에러)이자
+        // 중첩 인터랙티브 접근성 위반 — 롱프레스 메뉴의 스크린리더 경로는 라벨 있는 ⋮ 버튼이 담당한다.
         accessibilityRole={isLink && !hasSegments ? 'link' : undefined}
       >
         {isLink ? (

@@ -47,6 +47,8 @@ export function CategoryAvatar({ color, size, style }: Props) {
         source={character}
         style={{ width: inner, height: inner }}
         resizeMode="contain"
+        // 장식 이미지 — 분류색 배경이 의미를 전달하고, 캐릭터는 시각적 장식일 뿐.
+        accessible={false}
       />
     </View>
   );

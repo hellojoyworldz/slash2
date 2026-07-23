@@ -363,8 +363,8 @@ export function MoreScreen({
                         accessibilityRole="adjustable"
                         accessibilityLabel={label}
                         accessibilityActions={[
-                          { name: 'increment' },
-                          { name: 'decrement' },
+                          { name: 'increment', label: t('a11y.moveUp') },
+                          { name: 'decrement', label: t('a11y.moveDown') },
                         ]}
                         onAccessibilityAction={(e) =>
                           reorder.moveByOne(

@@ -339,6 +339,7 @@ function CategoryEditModal({
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityRole="button"
             accessibilityLabel={t('common.delete')}
+            accessibilityState={{ disabled: submitting }}
           >
             <Trash2 size={18} strokeWidth={2} color={colors.textTertiary} />
           </TouchableOpacity>
@@ -365,6 +366,7 @@ function CategoryEditModal({
           maxLength={30}
           autoFocus
           onSubmitEditing={handleSubmit}
+          accessibilityLabel={t('a11y.nameInput')}
         />
       )}
       <TextInput
@@ -375,6 +377,7 @@ function CategoryEditModal({
         onChangeText={setDescriptionInput}
         maxLength={DESCRIPTION_MAX}
         onSubmitEditing={handleSubmit}
+        accessibilityLabel={t('a11y.descriptionInput')}
       />
 
       {/* 프로필(색) 선택 — 스와치는 그 색의 미니 아바타. 분류·태그 공용(태그는 # 타일 미리보기). */}

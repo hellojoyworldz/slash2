@@ -17,7 +17,7 @@ import {
   usePickerReorderGuard,
   usePickerSwipeTapGuard,
 } from './PickerModal';
-import { SwipeAction } from './SwipeableRow';
+import { SwipeAction, SwipeActionsA11y } from './SwipeableRow';
 import { Text } from './Text';
 
 // "전체(미분류)" 행의 스크롤 key 센티널(friendId=null 자리).
@@ -468,6 +468,8 @@ function CategoryManageRow({
   color,
   scrollKey,
   onEdit,
+  accessibilityActions,
+  onAccessibilityAction,
 }: {
   name: string;
   description: string | null;
@@ -475,6 +477,9 @@ function CategoryManageRow({
   scrollKey: string;
   /** 있으면 행 탭 = 수정 폼 열기(스와이프 [수정]과 같은 동작). */
   onEdit?: () => void;
+  /** 스크린리더 대안: 스와이프 액션(PickerReorderRow가 cloneElement로 주입). */
+  accessibilityActions?: SwipeActionsA11y['accessibilityActions'];
+  onAccessibilityAction?: SwipeActionsA11y['onAccessibilityAction'];
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -496,6 +501,8 @@ function CategoryManageRow({
         disabled={!onEdit}
         accessibilityRole="button"
         accessibilityLabel={name}
+        accessibilityActions={accessibilityActions}
+        onAccessibilityAction={onAccessibilityAction}
       >
         <CategoryAvatar color={color} size={PICKER_TILE_SIZE} />
         <View style={styles.manageLabelCol}>

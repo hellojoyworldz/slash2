@@ -11,10 +11,13 @@ export function RemoteImage({
   style,
   resizeMode = 'cover',
   accessibilityLabel,
+  accessible = true,
 }: RemoteImageProps) {
   return unstable_createElement('img', {
     src: uri,
-    alt: accessibilityLabel ?? '',
+    // 장식 이미지(accessible=false)는 alt=""(이미 스크린리더 관례) + aria-hidden으로 완전히 숨긴다.
+    alt: accessible ? accessibilityLabel ?? '' : '',
+    'aria-hidden': accessible ? undefined : true,
     draggable: false,
     referrerPolicy: 'no-referrer',
     // RN Image의 cover/contain을 object-fit으로 재현. display:block으로 <img> 기본 inline

@@ -6,6 +6,8 @@ export interface RemoteImageProps {
   style?: StyleProp<ImageStyle>;
   resizeMode?: 'cover' | 'contain';
   accessibilityLabel?: string;
+  /** 장식 이미지(인접에 제목 등 대체 텍스트가 이미 있는 경우) false로 스크린리더에서 숨긴다. 기본 true. */
+  accessible?: boolean;
 }
 
 // og 썸네일 등 원격 이미지 렌더. 네이티브는 RN Image 그대로.
@@ -17,6 +19,7 @@ export function RemoteImage({
   style,
   resizeMode = 'cover',
   accessibilityLabel,
+  accessible = true,
 }: RemoteImageProps) {
   return (
     <Image
@@ -24,6 +27,7 @@ export function RemoteImage({
       style={style}
       resizeMode={resizeMode}
       accessibilityLabel={accessibilityLabel}
+      accessible={accessible}
     />
   );
 }

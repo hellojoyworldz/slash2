@@ -1,5 +1,8 @@
 import {
+  cloneElement,
   createContext,
+  isValidElement,
+  ReactElement,
   ReactNode,
   useCallback,
   useContext,
@@ -20,13 +23,21 @@ import {
   View,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
+import { useReducedMotion } from 'react-native-reanimated';
 import { ChevronDown, ChevronRight } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
+import { useModalA11yFocus } from '../use-a11y-focus';
 import { useVarReorder, VarReorderControls, VarReorderRow } from '../use-reorder';
 import { Button } from './Button';
-import { SwipeableRow, SwipeableRowMethods, SwipeAction } from './SwipeableRow';
+import {
+  SwipeableRow,
+  SwipeableRowMethods,
+  SwipeAction,
+  SwipeActionsA11y,
+  useSwipeActionsA11y,
+} from './SwipeableRow';
 import { Text } from './Text';
 
 // 픽커 안에서 "특정 항목으로 스크롤"을 위한 배선. 각 행이 스크롤 콘텐츠 기준 자기 y offset을
@@ -130,6 +141,14 @@ export function PickerReorderRow({
     },
     [ctx, scroll, rowKey],
   );
+  // 스크린리더 대안: 스와이프 액션을 행 터처블(자식)의 접근성 커스텀 액션으로 주입한다.
+  // 자식(PickerRow·관리 행)이 accessibilityActions/onAccessibilityAction을 받아 자기 터처블에 얹는다.
+  const a11y = useSwipeActionsA11y(swipeActions ?? []);
+  const withA11y = (node: ReactNode): ReactNode =>
+    swipeActions && swipeActions.length > 0 && isValidElement(node)
+      ? cloneElement(node as ReactElement<Partial<SwipeActionsA11y>>, { ...a11y })
+      : node;
+  const accessibleChild = withA11y(children);
   // 본 목록과 같은 배치: (Var)ReorderRow > SwipeableRow > GestureDetector(세로 드래그) > 행.
   // 스와이프 컨텍스트·액션이 있을 때만 SwipeableRow로 감싼다(없으면 그대로 — 스와이프 없는 행).
   const withSwipe = (inner: ReactNode): ReactNode =>
@@ -146,9 +165,9 @@ export function PickerReorderRow({
       inner
     );
   // 재정렬 비대상(ctx 없음 / order 밖 rowKey)이어도 스크롤 offset은 등록해야 하므로 바깥 View로 감싼다.
-  if (!ctx) return <View onLayout={onLayout}>{withSwipe(children)}</View>;
+  if (!ctx) return <View onLayout={onLayout}>{withSwipe(accessibleChild)}</View>;
   const index = ctx.order.indexOf(rowKey);
-  if (index < 0) return <View onLayout={onLayout}>{withSwipe(children)}</View>;
+  if (index < 0) return <View onLayout={onLayout}>{withSwipe(accessibleChild)}</View>;
   const isDragging = ctx.controls.draggingId === rowKey;
   return (
     // 잡은 행은 이 래퍼(형제 래퍼들과 같은 레벨)를 z-lift해 이웃 위로 올린다 — 내부 LIFT zIndex는
@@ -159,7 +178,7 @@ export function PickerReorderRow({
           // GestureDetector의 직계 자식은 host ref를 줘야 한다(웹에서 DOM 노드 부착) —
           // PickerRow류는 일반 함수 컴포넌트라 ref가 없으므로 View로 감싼다.
           <GestureDetector gesture={ctx.controls.getGesture(rowKey)}>
-            <View collapsable={false}>{children}</View>
+            <View collapsable={false}>{accessibleChild}</View>
           </GestureDetector>,
         )}
       </VarReorderRow>
@@ -271,6 +290,9 @@ export function PickerModal({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const reducedMotion = useReducedMotion();
+  // 열릴 때 스크린리더 포커스를 타이틀로 이동(ModalCard와 같은 공용 훅).
+  const titleRef = useModalA11yFocus(visible);
 
   // ── 목록 드래그 순서 변경 배선 ──────────────────────────────────────────
   // 본 목록(분류·태그)의 가변 높이 재정렬 엔진(useVarReorder)을 픽커 ScrollView 안에서 재사용한다.
@@ -340,8 +362,8 @@ export function PickerModal({
 
   const scrollToY = useCallback((y: number) => {
     // 항목 상단이 살짝 여백을 두고 보이도록 6px 위로.
-    scrollRef.current?.scrollTo({ y: Math.max(0, y - 6), animated: true });
-  }, []);
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 6), animated: !reducedMotion });
+  }, [reducedMotion]);
 
   // 행이 레이아웃되면 offset 등록. 마침 그 key를 기다리고 있었으면 즉시 스크롤(추가 직후 케이스).
   const register = useCallback(
@@ -421,13 +443,16 @@ export function PickerModal({
       >
         <View style={styles.card}>
           <View style={styles.titleRow}>
-            <Text
-              variant="heading"
+            {/* ref+tabIndex=-1: 열릴 때 스크린리더 포커스를 여기로 이동(useModalA11yFocus). */}
+            <View
+              ref={titleRef}
+              tabIndex={-1}
+              accessible
               accessibilityRole="header"
               style={styles.titleText}
             >
-              {title}
-            </Text>
+              <Text variant="heading">{title}</Text>
+            </View>
             {/* 타이틀 오른쪽 보조 슬롯(전체 삭제 휴지통 등) — 없으면 자리 차지 안 함. */}
             {titleAccessory ? (
               <View style={styles.titleAccessory}>{titleAccessory}</View>
@@ -454,6 +479,7 @@ export function PickerModal({
                 onSubmitEditing={onAdd}
                 returnKeyType="done"
                 editable={!adding}
+                accessibilityLabel={t('a11y.nameInput')}
               />
               {onChangeNewDescription ? (
                 <TextInput
@@ -465,6 +491,7 @@ export function PickerModal({
                   onSubmitEditing={onAdd}
                   returnKeyType="done"
                   editable={!adding}
+                  accessibilityLabel={t('a11y.descriptionInput')}
                 />
               ) : null}
               {/* 추가 폼 전용 슬롯(태그 키워드 스테퍼 등). 안 넘긴 픽커(분류)는 표시 안 됨. */}
@@ -556,6 +583,9 @@ interface PickerRowProps {
   multi: boolean;
   /** 스크롤 타깃 등록용 key(추가 직후·선택 항목으로 스크롤). 보통 항목 id. 스와이프 열림/닫힘 판별에도 쓴다. */
   scrollKey?: string;
+  /** 스크린리더 대안: 스와이프 액션의 접근성 커스텀 액션(PickerReorderRow가 cloneElement로 주입). */
+  accessibilityActions?: SwipeActionsA11y['accessibilityActions'];
+  onAccessibilityAction?: SwipeActionsA11y['onAccessibilityAction'];
 }
 
 // 두 픽커 공용 행: [타일][이름]. 선택 표시는 surface 채움뿐(체크 아이콘·ink 칩 없음).
@@ -569,6 +599,8 @@ export function PickerRow({
   onPress,
   multi,
   scrollKey,
+  accessibilityActions,
+  onAccessibilityAction,
 }: PickerRowProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -597,6 +629,8 @@ export function PickerRow({
           : { selected, disabled }
       }
       accessibilityLabel={label}
+      accessibilityActions={accessibilityActions}
+      onAccessibilityAction={onAccessibilityAction}
     >
       {tile}
       {/* 이름(+설명 한 줄) — 목록 화면(분류/태그 행)과 같은 문법으로 설명을 보여준다. */}

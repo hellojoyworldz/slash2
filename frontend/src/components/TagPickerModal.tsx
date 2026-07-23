@@ -20,7 +20,7 @@ import {
   usePickerReorderGuard,
   usePickerSwipeTapGuard,
 } from './PickerModal';
-import { SwipeAction } from './SwipeableRow';
+import { SwipeAction, SwipeActionsA11y } from './SwipeableRow';
 import { Text } from './Text';
 
 interface Props {
@@ -435,6 +435,8 @@ function TagManageRow({
   description,
   scrollKey,
   onEdit,
+  accessibilityActions,
+  onAccessibilityAction,
 }: {
   name: string;
   color: string | null;
@@ -442,6 +444,9 @@ function TagManageRow({
   scrollKey: string;
   /** 있으면 행 탭 = 수정 폼 열기(스와이프 [수정]과 같은 동작). */
   onEdit?: () => void;
+  /** 스크린리더 대안: 스와이프 액션(PickerReorderRow가 cloneElement로 주입). */
+  accessibilityActions?: SwipeActionsA11y['accessibilityActions'];
+  onAccessibilityAction?: SwipeActionsA11y['onAccessibilityAction'];
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -463,6 +468,8 @@ function TagManageRow({
         disabled={!onEdit}
         accessibilityRole="button"
         accessibilityLabel={name}
+        accessibilityActions={accessibilityActions}
+        onAccessibilityAction={onAccessibilityAction}
       >
         <HashTile color={color} />
         <View style={styles.manageLabelCol}>
