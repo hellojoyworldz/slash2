@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import i18n from './i18n';
+import type { CapsuleTab, HideableCapsule } from './tab-menu';
 
 export interface User {
   id: string;
@@ -27,6 +28,12 @@ export interface User {
   tabOrder?: TabKey[] | null;
   // 숨긴 탭 목록(HIDEABLE_TABS의 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
   hiddenTabs?: HideableTab[] | null;
+  // 그룹 탭 캡슐 세그먼트(분류|태그|자동구분) 순서(3키 순열). null이면 기본 순서.
+  // tabOrder(메뉴/레일)와 완전히 별개 — 캡슐만의 순서다.
+  capsuleOrder?: CapsuleTab[] | null;
+  // 숨긴 캡슐 목록(HIDEABLE_CAPSULES의 부분집합). null/빈=전부 노출.
+  // hiddenTabs(메뉴/레일)와 완전히 별개 — 캡슐만의 노출 설정이다.
+  hiddenCapsules?: HideableCapsule[] | null;
   // 접힌 섹션 키 목록(프론트가 키 체계 소유). null/빈=전부 펼침.
   // 본탭 즐겨찾기/목록 섹션·픽커 목록·목록형 보드 섹션의 접기 상태를 서버에 저장한다.
   // 키 예: friends.favorites, picker.tags, board.auto.place, board.category.<friendId>.
@@ -277,6 +284,10 @@ export const api = {
       // 탭 순서(5키 순열)·숨김 탭(HIDEABLE_TABS 부분집합). 잘못되면 400 code 'invalid_order'.
       tabOrder?: TabKey[];
       hiddenTabs?: HideableTab[];
+      // 캡슐 순서(3키 순열)·숨김 캡슐(HIDEABLE_CAPSULES 부분집합). 잘못되면 400 code 'invalid_order'.
+      // tabOrder/hiddenTabs와 별개 — 캡슐 전용.
+      capsuleOrder?: CapsuleTab[];
+      hiddenCapsules?: HideableCapsule[];
       // 접힌 섹션 키 목록(각 ≤64자, 최대 100개). 서버가 중복 제거·빈 배열→null.
       // 잘못되면 400 code 'invalid_collapsed_sections'.
       collapsedSections?: string[] | null;

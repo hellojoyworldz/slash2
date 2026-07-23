@@ -39,3 +39,40 @@ export function resolveHiddenTabs(hidden?: HideableTab[] | null): HideableTab[] 
 export function isHideableTab(key: TabKey): key is HideableTab {
   return (HIDEABLE_TABS as TabKey[]).includes(key);
 }
+
+// 그룹 탭 상단 캡슐 세그먼트(분류|태그|자동구분) 커스터마이즈 — 메뉴(tabOrder/hiddenTabs)와
+// 완전히 별개인 캡슐 전용 상태. 캡슐 키는 TabKey의 부분집합이라 아래 별칭으로 재사용한다.
+
+// 캡슐 순서/노출을 다루는 키(분류=categories). 순서엔 셋 다 참여.
+export type CapsuleTab = Extract<TabKey, 'categories' | 'tags' | 'auto'>;
+
+// 노출/숨김 토글 가능한 캡슐. 분류(categories)는 항상 노출이라 제외.
+export type HideableCapsule = Extract<HideableTab, 'tags' | 'auto'>;
+
+// 캡슐 3키의 기본(초기) 순서. capsuleOrder가 null·오염이면 이걸로 폴백.
+export const CAPSULE_ORDER_DEFAULT: CapsuleTab[] = ['categories', 'tags', 'auto'];
+
+// 노출/숨김 토글 가능한 캡슐(분류는 항상 노출이라 제외).
+export const HIDEABLE_CAPSULES: HideableCapsule[] = ['tags', 'auto'];
+
+// 저장된 capsuleOrder를 "유효한 3키 순열"로 정규화. null·길이 불일치·누락·중복이면 기본 순서.
+export function resolveCapsuleOrder(order?: CapsuleTab[] | null): CapsuleTab[] {
+  if (!order || order.length !== CAPSULE_ORDER_DEFAULT.length)
+    return CAPSULE_ORDER_DEFAULT;
+  const seen = new Set(order);
+  if (seen.size !== CAPSULE_ORDER_DEFAULT.length) return CAPSULE_ORDER_DEFAULT;
+  if (CAPSULE_ORDER_DEFAULT.some((k) => !seen.has(k))) return CAPSULE_ORDER_DEFAULT;
+  return order;
+}
+
+// 저장된 hiddenCapsules를 "허용 2키의 부분집합"으로 정규화(허용 외·중복 제거). null/빈이면 빈 배열.
+export function resolveHiddenCapsules(
+  hidden?: HideableCapsule[] | null,
+): HideableCapsule[] {
+  if (!hidden || hidden.length === 0) return [];
+  const out: HideableCapsule[] = [];
+  for (const h of hidden) {
+    if (HIDEABLE_CAPSULES.includes(h) && !out.includes(h)) out.push(h);
+  }
+  return out;
+}

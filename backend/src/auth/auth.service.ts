@@ -20,7 +20,12 @@ import {
   isValidCollapsedSections,
   normalizeCollapsedSections,
 } from '../users/collapsed-sections';
-import { isValidHiddenTabs, isValidTabOrder } from '../users/tab-order';
+import {
+  isValidCapsuleOrder,
+  isValidHiddenCapsules,
+  isValidHiddenTabs,
+  isValidTabOrder,
+} from '../users/tab-order';
 import { SocialAccount } from '../users/social-account.entity';
 import { User } from '../users/user.entity';
 import { AuthToken, AuthTokenPurpose } from './auth-token.entity';
@@ -142,6 +147,8 @@ export class AuthService {
       autoFavorites: normalizeStoredAutoFavorites(user.autoFavorites),
       tabOrder: user.tabOrder ?? null,
       hiddenTabs: user.hiddenTabs ?? null,
+      capsuleOrder: user.capsuleOrder ?? null,
+      hiddenCapsules: user.hiddenCapsules ?? null,
       collapsedSections: user.collapsedSections ?? null,
       providers: (user.socialAccounts ?? []).map((a) => a.provider),
     };
@@ -161,6 +168,8 @@ export class AuthService {
       autoFavorites?: string[];
       tabOrder?: string[];
       hiddenTabs?: string[];
+      capsuleOrder?: string[];
+      hiddenCapsules?: string[];
       collapsedSections?: string[] | null;
     },
   ) {
@@ -231,6 +240,27 @@ export class AuthService {
       // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
       user.hiddenTabs = changes.hiddenTabs.length ? changes.hiddenTabs : null;
     }
+    if (changes.capsuleOrder !== undefined) {
+      if (!isValidCapsuleOrder(changes.capsuleOrder)) {
+        throw new BadRequestException({
+          code: 'invalid_order',
+          message: '캡슐 순서가 올바르지 않습니다.',
+        });
+      }
+      user.capsuleOrder = changes.capsuleOrder;
+    }
+    if (changes.hiddenCapsules !== undefined) {
+      if (!isValidHiddenCapsules(changes.hiddenCapsules)) {
+        throw new BadRequestException({
+          code: 'invalid_order',
+          message: '캡슐 노출 설정이 올바르지 않습니다.',
+        });
+      }
+      // 빈 배열은 null로 저장 — simple-array가 빈 문자열을 ['']로 되읽는 문제 회피.
+      user.hiddenCapsules = changes.hiddenCapsules.length
+        ? changes.hiddenCapsules
+        : null;
+    }
     if (changes.collapsedSections !== undefined) {
       if (changes.collapsedSections === null) {
         // 명시적 null = 초기화(전부 펼침).
@@ -262,6 +292,8 @@ export class AuthService {
       autoFavorites: normalizeStoredAutoFavorites(user.autoFavorites),
       tabOrder: user.tabOrder ?? null,
       hiddenTabs: user.hiddenTabs ?? null,
+      capsuleOrder: user.capsuleOrder ?? null,
+      hiddenCapsules: user.hiddenCapsules ?? null,
       collapsedSections: user.collapsedSections ?? null,
     };
   }
@@ -563,6 +595,8 @@ export class AuthService {
         autoFavorites: user.autoFavorites ?? null,
         tabOrder: user.tabOrder ?? null,
         hiddenTabs: user.hiddenTabs ?? null,
+        capsuleOrder: user.capsuleOrder ?? null,
+        hiddenCapsules: user.hiddenCapsules ?? null,
         collapsedSections: user.collapsedSections ?? null,
         providers: accounts.map((a) => a.provider),
       },

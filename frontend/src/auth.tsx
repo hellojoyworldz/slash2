@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 import { api, AutoKind, HideableTab, TabKey, User } from './api';
+import type { CapsuleTab, HideableCapsule } from './tab-menu';
 
 const TOKEN_KEY = 'slash.token';
 const EMAIL_KEY = 'slash.email';
@@ -31,6 +32,11 @@ interface AuthState {
   tabOrder: TabKey[] | null;
   // 숨긴 탭 목록(HIDEABLE_TABS 부분집합). null/빈=전부 노출. 숨겨도 라우트는 유효.
   hiddenTabs: HideableTab[] | null;
+  // 그룹 탭 캡슐 세그먼트(분류|태그|자동구분) 순서(3키 순열). null이면 기본 순서.
+  // tabOrder(메뉴/레일)와 완전히 별개 — 캡슐만의 순서다.
+  capsuleOrder: CapsuleTab[] | null;
+  // 숨긴 캡슐 목록(HIDEABLE_CAPSULES 부분집합). null/빈=전부 노출. hiddenTabs와 완전히 별개.
+  hiddenCapsules: HideableCapsule[] | null;
   // 접힌 섹션 키 목록. 항상 배열로 정규화(null→[]) — isCollapsed 조회가 단순해진다.
   // 본탭 즐겨찾기/목록 섹션·픽커 목록·목록형 보드 섹션의 접기 상태를 서버에 저장(useCollapsedSections).
   collapsedSections: string[];
@@ -60,6 +66,10 @@ interface AuthState {
   setTabOrder: (order: TabKey[] | null) => void;
   // 탭 노출/숨김 변경 후 컨텍스트 갱신용(낙관적).
   setHiddenTabs: (tabs: HideableTab[] | null) => void;
+  // 캡슐 순서 변경 후 컨텍스트 갱신용(낙관적).
+  setCapsuleOrder: (order: CapsuleTab[] | null) => void;
+  // 캡슐 노출/숨김 변경 후 컨텍스트 갱신용(낙관적).
+  setHiddenCapsules: (capsules: HideableCapsule[] | null) => void;
   // 섹션 접기 상태 변경 후 컨텍스트 갱신용(낙관적, useCollapsedSections가 저장·복원을 감싼다).
   setCollapsedSections: (keys: string[]) => void;
 }
@@ -81,6 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [autoFavorites, setAutoFavorites] = useState<AutoKind[] | null>(null);
   const [tabOrder, setTabOrder] = useState<TabKey[] | null>(null);
   const [hiddenTabs, setHiddenTabs] = useState<HideableTab[] | null>(null);
+  const [capsuleOrder, setCapsuleOrder] = useState<CapsuleTab[] | null>(null);
+  const [hiddenCapsules, setHiddenCapsules] = useState<HideableCapsule[] | null>(
+    null,
+  );
   const [collapsedSections, setCollapsedSections] = useState<string[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
 
@@ -105,6 +119,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setAutoFavorites(user.autoFavorites ?? null);
           setTabOrder(user.tabOrder ?? null);
           setHiddenTabs(user.hiddenTabs ?? null);
+          setCapsuleOrder(user.capsuleOrder ?? null);
+          setHiddenCapsules(user.hiddenCapsules ?? null);
           setCollapsedSections(user.collapsedSections ?? []);
           setProviders(user.providers ?? []);
         } else if (savedEmail) {
@@ -132,6 +148,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAutoFavorites(user.autoFavorites ?? null);
     setTabOrder(user.tabOrder ?? null);
     setHiddenTabs(user.hiddenTabs ?? null);
+    setCapsuleOrder(user.capsuleOrder ?? null);
+    setHiddenCapsules(user.hiddenCapsules ?? null);
     setCollapsedSections(user.collapsedSections ?? []);
     setProviders(user.providers ?? []);
     await AsyncStorage.multiSet([
@@ -153,6 +171,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAutoFavorites(null);
     setTabOrder(null);
     setHiddenTabs(null);
+    setCapsuleOrder(null);
+    setHiddenCapsules(null);
     setCollapsedSections([]);
     setProviders([]);
     await AsyncStorage.removeItem(TOKEN_KEY);
@@ -173,6 +193,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAutoFavorites(user.autoFavorites ?? null);
       setTabOrder(user.tabOrder ?? null);
       setHiddenTabs(user.hiddenTabs ?? null);
+      setCapsuleOrder(user.capsuleOrder ?? null);
+      setHiddenCapsules(user.hiddenCapsules ?? null);
       setCollapsedSections(user.collapsedSections ?? []);
       setProviders(user.providers ?? []);
       return !!user.emailVerified;
@@ -198,6 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         autoFavorites,
         tabOrder,
         hiddenTabs,
+        capsuleOrder,
+        hiddenCapsules,
         collapsedSections,
         providers,
         loggedIn,
@@ -213,6 +237,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAutoFavorites,
         setTabOrder,
         setHiddenTabs,
+        setCapsuleOrder,
+        setHiddenCapsules,
         setCollapsedSections,
       }}
     >

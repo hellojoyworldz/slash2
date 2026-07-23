@@ -69,6 +69,18 @@ export class User {
   @Column({ type: 'simple-array', nullable: true })
   hiddenTabs: string[] | null;
 
+  // 그룹 탭 상단 캡슐 세그먼트(분류|태그|자동구분)의 표시 순서. CAPSULE_ORDER_KEYS의 순열.
+  // tabOrder(메뉴/레일)와 완전히 별개 — 캡슐만의 순서다. null이면 프론트가 기본 순서로 표시.
+  // (nullable union이라 타입 명시 — 백엔드 규칙. 콤마 join되는 simple-array — 키엔 콤마 없음)
+  @Column({ type: 'simple-array', nullable: true })
+  capsuleOrder: string[] | null;
+
+  // 숨긴 캡슐 목록(그룹 탭 캡슐 편집 배지). HIDEABLE_CAPSULES('tags'|'auto')의 부분집합.
+  // hiddenTabs(메뉴/레일)와 완전히 별개 — 캡슐만의 노출 설정이다. 분류 캡슐은 숨김 불가·항상 노출.
+  // null/빈 = 전부 노출. (nullable union이라 타입 명시 — 백엔드 규칙)
+  @Column({ type: 'simple-array', nullable: true })
+  hiddenCapsules: string[] | null;
+
   // 접힌 섹션 키 목록(설정·보드 등 UI의 접기/펼치기 상태). 키 체계는 프론트가 소유
   // (동적 보드 섹션 키 포함이라 백엔드는 화이트리스트 검증하지 않는다). null/빈 = 전부 펼침.
   // (nullable union이라 타입 명시 — 백엔드 규칙)

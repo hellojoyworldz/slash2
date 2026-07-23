@@ -37,7 +37,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { api, ApiError, AutoKind, Friend, HideableTab, Tag, TabKey } from '../api';
+import { api, ApiError, AutoKind, Friend, Tag } from '../api';
 import { useAuth } from '../auth';
 import { useCollapsedSections } from '../collapsed-sections';
 import { useCategoryEdit } from '../category-edit';
@@ -47,7 +47,13 @@ import { TabHeader } from '../components/TabHeader';
 import { Text } from '../components/Text';
 import { confirmDialog } from '../notify';
 import { ClassifyTab, useSelectedRoom } from '../selected-room';
-import { resolveHiddenTabs, resolveTabOrder } from '../tab-menu';
+import {
+  CapsuleTab,
+  CAPSULE_ORDER_DEFAULT,
+  HideableCapsule,
+  resolveCapsuleOrder,
+  resolveHiddenCapsules,
+} from '../tab-menu';
 import {
   useTabItemAnimatedStyle,
   useTabReorder,
@@ -952,20 +958,19 @@ const CLASSIFY_LABEL_KEYS: Record<ClassifyTab, string> = {
   auto: 'tabs.auto',
 };
 
-// 캡슐(ClassifyTab) ↔ 메뉴/노출 키(TabKey). 분류 캡슐은 메뉴의 'categories'와 한 몸 —
-// 순서는 tabOrder 안의 categories·tags·auto 상대 순서로, 노출은 hiddenTabs로 공유된다.
-const CLASSIFY_TO_TABKEY: Record<ClassifyTab, TabKey> = {
+// 캡슐(ClassifyTab) ↔ 캡슐 저장 키(CapsuleTab). 분류 캡슐의 저장 키는 'categories'.
+// 캡슐 순서/노출은 users.capsuleOrder/hiddenCapsules에 캡슐만의 상태로 저장된다
+// (메뉴 tabOrder/hiddenTabs와 완전히 별개 — 서로 영향 주지 않는다).
+const CLASSIFY_TO_CAPSULE: Record<ClassifyTab, CapsuleTab> = {
   friends: 'categories',
   tags: 'tags',
   auto: 'auto',
 };
-const TABKEY_TO_CLASSIFY: Partial<Record<TabKey, ClassifyTab>> = {
+const CAPSULE_TO_CLASSIFY: Record<CapsuleTab, ClassifyTab> = {
   categories: 'friends',
   tags: 'tags',
   auto: 'auto',
 };
-// 캡슐이 차지하는 세 메뉴 키 — 커밋 시 이 슬롯들의 자리만 새 상대 순서로 치환한다.
-const CLASSIFY_TABKEYS: TabKey[] = ['categories', 'tags', 'auto'];
 
 // 캡슐 하나 — 재정렬 애니메이션(가로) + 슬롯 실측(onLayout) + 롱프레스 드래그 제스처를 얹는다.
 // 평소엔 본체 탭 = 화면 전환. 꾹 누르면(reorder onDragStart) 편집 모드로 들어가고, 그때만 숨김
@@ -1066,8 +1071,9 @@ function ClassifyCapsule({
 
 // 분류 탭 최상단의 캡슐 세그먼트(분류 | 태그 | 자동구분). 앱 크롬 흑백 규칙:
 // 활성 = ink 채움 + inverse 글자, 비활성 = 1px 보더 아웃라인. 캡슐만 borderRadius 999 허용.
-// 캡슐을 꾹(250ms) 눌러 가로 드래그하면 순서가 바뀌고(tabOrder의 세 키 상대 순서로 저장 → 레일·탭바·
-// 더보기와 동기화), 롱프레스 활성 순간 편집 모드로 들어간다. 평소엔 숨긴 캡슐을 아예 렌더하지 않고,
+// 캡슐을 꾹(250ms) 눌러 가로 드래그하면 순서가 바뀌고(users.capsuleOrder에 캡슐 전용 순서로 저장),
+// 롱프레스 활성 순간 편집 모드로 들어간다. 순서·노출은 캡슐만의 것 — 메뉴(더보기·레일·탭바)와
+// 완전히 별개라 서로 영향을 주지 않는다. 평소엔 숨긴 캡슐을 아예 렌더하지 않고,
 // 편집 모드에서만 숨긴 캡슐이 흐리게 나타나 ＋로 되켜기·노출 캡슐엔 X로 숨김(iOS 앱 삭제 배지 문법).
 // 분류 캡슐은 배지 없이 항상 노출·숨김 불가. 캡슐 라인 오른쪽 끝의 ⋮ 버튼도 편집 모드 진입 트리거이고,
 // 편집 모드 중엔 같은 자리에서 체크(완료)로 바뀐다 — 편집 모드 종료는 이 체크가 유일한 경로.
@@ -1087,28 +1093,29 @@ function ClassifyCapsuleTabs({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeCapsuleStyles(colors), [colors]);
-  const { token, tabOrder, hiddenTabs, setTabOrder, setHiddenTabs } = useAuth();
+  const { token, capsuleOrder, hiddenCapsules, setCapsuleOrder, setHiddenCapsules } =
+    useAuth();
 
-  const hiddenSet = useMemo(() => resolveHiddenTabs(hiddenTabs), [hiddenTabs]);
+  const hiddenSet = useMemo(
+    () => resolveHiddenCapsules(hiddenCapsules),
+    [hiddenCapsules],
+  );
   const isCapsuleHidden = useCallback(
     (capKey: ClassifyTab) =>
       capKey !== 'friends' &&
-      hiddenSet.includes(CLASSIFY_TO_TABKEY[capKey] as HideableTab),
+      hiddenSet.includes(CLASSIFY_TO_CAPSULE[capKey] as HideableCapsule),
     [hiddenSet],
   );
-  // 캡슐 전체 순서 = tabOrder에서 categories·tags·auto만 그 상대 순서로 뽑아 캡슐 키로 매핑.
-  const capsuleOrder = useMemo<ClassifyTab[]>(
-    () =>
-      resolveTabOrder(tabOrder)
-        .map((k) => TABKEY_TO_CLASSIFY[k])
-        .filter((c): c is ClassifyTab => c != null),
-    [tabOrder],
+  // 캡슐 순서 = 저장된 capsuleOrder(정규화)를 캡슐(ClassifyTab) 키로 매핑. 메뉴와 무관한 캡슐 전용 순서.
+  const classifyOrder = useMemo<ClassifyTab[]>(
+    () => resolveCapsuleOrder(capsuleOrder).map((k) => CAPSULE_TO_CLASSIFY[k]),
+    [capsuleOrder],
   );
   // 실제로 렌더하는 캡슐 — 평소엔 숨긴 캡슐 제외, 편집 모드에선 전부(숨긴 것도 흐리게 노출).
   // 드래그 재정렬 도메인(visibleOrderRef·onItemLayout index)과 정확히 일치시켜야 한다.
   const renderedOrder = useMemo<ClassifyTab[]>(
-    () => (editMode ? capsuleOrder : capsuleOrder.filter((c) => !isCapsuleHidden(c))),
-    [editMode, capsuleOrder, isCapsuleHidden],
+    () => (editMode ? classifyOrder : classifyOrder.filter((c) => !isCapsuleHidden(c))),
+    [editMode, classifyOrder, isCapsuleHidden],
   );
   // 드래그 제스처가 놓을 때 읽는 현재 순서(문자열) — 매 렌더 최신으로 동기화.
   const visibleOrderRef = useRef<string[]>(renderedOrder);
@@ -1116,26 +1123,24 @@ function ClassifyCapsuleTabs({
 
   const tokenRef = useRef(token);
   tokenRef.current = token;
-  const tabOrderRef = useRef(tabOrder);
-  tabOrderRef.current = tabOrder;
+  const capsuleOrderRef = useRef(capsuleOrder);
+  capsuleOrderRef.current = capsuleOrder;
 
-  // 커밋: 새 캡슐 순서를 tabOrder 안 세 키 슬롯에 치환(친구·채팅 등 다른 키 위치 불변) → 낙관 반영 + 서버 저장.
+  // 커밋: 새 캡슐 순서를 그대로 capsuleOrder로 저장(메뉴 tabOrder는 건드리지 않는다) → 낙관 반영 + 서버 저장.
   // 실제 재정렬은 편집 모드(세 캡슐 모두 렌더)에서만 일어나므로 세 키가 다 있을 때만 커밋한다(방어).
   const commitCapsuleOrder = useCallback(
     (newVisible: string[]) => {
-      if (newVisible.length !== CLASSIFY_TABKEYS.length) return;
-      const newKeys = (newVisible as ClassifyTab[]).map((c) => CLASSIFY_TO_TABKEY[c]);
-      const resolved = resolveTabOrder(tabOrderRef.current);
-      let i = 0;
-      const next = resolved.map((k) =>
-        CLASSIFY_TABKEYS.includes(k) ? newKeys[i++] : k,
-      );
-      const prev = tabOrderRef.current;
-      setTabOrder(next);
+      if (newVisible.length !== CAPSULE_ORDER_DEFAULT.length) return;
+      const next = (newVisible as ClassifyTab[]).map((c) => CLASSIFY_TO_CAPSULE[c]);
+      const prev = capsuleOrderRef.current;
+      setCapsuleOrder(next);
       const tk = tokenRef.current;
-      if (tk) api.updateProfile(tk, { tabOrder: next }).catch(() => setTabOrder(prev));
+      if (tk)
+        api
+          .updateProfile(tk, { capsuleOrder: next })
+          .catch(() => setCapsuleOrder(prev));
     },
-    [setTabOrder],
+    [setCapsuleOrder],
   );
 
   const reorder = useTabReorder({
@@ -1150,27 +1155,29 @@ function ClassifyCapsuleTabs({
     onDragStart: onEnterEditMode,
   });
 
-  // 노출 토글 — 태그·자동구분만(분류는 항상 노출). 더보기 토글과 같은 hiddenTabs 상태. 낙관 + 실패 복원.
+  // 노출 토글 — 태그·자동구분만(분류는 항상 노출). 캡슐 전용 hiddenCapsules 상태. 낙관 + 실패 복원.
   const toggleHidden = useCallback(
     (capKey: ClassifyTab) => {
-      const key = CLASSIFY_TO_TABKEY[capKey] as HideableTab;
+      const key = CLASSIFY_TO_CAPSULE[capKey] as HideableCapsule;
       const currently = hiddenSet.includes(key);
       const next = currently
         ? hiddenSet.filter((k) => k !== key)
         : [...hiddenSet, key];
-      const prev = hiddenTabs ?? null;
-      setHiddenTabs(next);
+      const prev = hiddenCapsules ?? null;
+      setHiddenCapsules(next);
       if (token) {
-        api.updateProfile(token, { hiddenTabs: next }).catch(() => setHiddenTabs(prev));
+        api
+          .updateProfile(token, { hiddenCapsules: next })
+          .catch(() => setHiddenCapsules(prev));
       }
     },
-    [hiddenSet, hiddenTabs, setHiddenTabs, token],
+    [hiddenSet, hiddenCapsules, setHiddenCapsules, token],
   );
 
-  // 현재 선택 캡슐이 숨겨지면(X 배지든 더보기 토글이든) 선택을 분류로 이동.
+  // 현재 선택 캡슐이 숨겨지면(X 배지로) 선택을 분류로 이동.
   useEffect(() => {
     if (value === 'friends') return;
-    const key = CLASSIFY_TO_TABKEY[value] as HideableTab;
+    const key = CLASSIFY_TO_CAPSULE[value] as HideableCapsule;
     if (hiddenSet.includes(key)) onChange('friends');
   }, [value, hiddenSet, onChange]);
 
