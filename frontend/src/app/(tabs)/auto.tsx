@@ -3,6 +3,7 @@ import { useWindowDimensions } from 'react-native';
 import { AutoKind } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { AutoScreen } from '../../screens/AutoScreen';
 import { BoardKind, ListBoardScreen } from '../../screens/ListBoardScreen';
 import { useSelectedRoom } from '../../selected-room';
@@ -22,7 +23,7 @@ export default function AutoRoute() {
 
   const onLogout = async () => {
     await logout();
-    router.replace('/login');
+    router.replace(unauthHref());
   };
 
   if (appStyle === 'list') {

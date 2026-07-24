@@ -4,6 +4,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { MoreScreen } from '../../screens/MoreScreen';
 import { useTheme } from '../../theme-context';
 
@@ -40,7 +41,7 @@ export default function MoreRoute() {
       leading={leading}
       onLogout={async () => {
         await logout();
-        router.replace('/login');
+        router.replace(unauthHref());
       }}
     />
   );

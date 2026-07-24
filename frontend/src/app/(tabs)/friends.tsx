@@ -3,6 +3,7 @@ import { useWindowDimensions } from 'react-native';
 import { AutoKind, Tag } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { FriendsScreen } from '../../screens/FriendsScreen';
 import { BoardKind, ListBoardScreen } from '../../screens/ListBoardScreen';
 import { useSelectedRoom } from '../../selected-room';
@@ -24,7 +25,7 @@ export default function FriendsRoute() {
 
   const onLogout = async () => {
     await logout();
-    router.replace('/login');
+    router.replace(unauthHref());
   };
 
   if (appStyle === 'list') {

@@ -4,6 +4,7 @@ import { useWindowDimensions } from 'react-native';
 import { AutoKind } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { ChatScreen } from '../../screens/ChatScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout } from '../../theme';
@@ -57,7 +58,7 @@ export default function AutoRoomRoute() {
         }}
         onLogout={async () => {
           await logout();
-          router.replace('/login');
+          router.replace(unauthHref());
         }}
       />
     );
@@ -81,7 +82,7 @@ export default function AutoRoomRoute() {
       }}
       onLogout={async () => {
         await logout();
-        router.replace('/login');
+        router.replace(unauthHref());
       }}
     />
   );

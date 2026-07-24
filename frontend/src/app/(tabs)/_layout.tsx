@@ -20,6 +20,7 @@ import { Asterisk, Ellipsis, Hash, LayoutGrid, MessageSquare, Slash } from 'luci
 import { api, HideableTab, TabKey } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { Logo } from '../../components/Logo';
 import { Text } from '../../components/Text';
 import { resolveHiddenTabs, resolveTabOrder } from '../../tab-menu';
@@ -331,7 +332,7 @@ export default function TabsLayout() {
   });
 
   // 앱 내부는 로그인 + 이메일 인증을 마친 유저만 접근 가능.
-  if (!token) return <Redirect href="/login" />;
+  if (!token) return <Redirect href={unauthHref()} />;
   if (!emailVerified) return <Redirect href="/verify" />;
 
   // 순서대로 5탭 트리거를 깔고, 더보기는 항상 맨끝. 숨긴 탭도 트리거는 유지(라우팅용)하되
@@ -470,7 +471,7 @@ export default function TabsLayout() {
               onBack={() => setTagAll(false)}
               onLogout={async () => {
                 await logout();
-                router.replace('/login');
+                router.replace(unauthHref());
               }}
             />
           ) : autoAll ? (
@@ -484,7 +485,7 @@ export default function TabsLayout() {
               onBack={() => setAutoAll(false)}
               onLogout={async () => {
                 await logout();
-                router.replace('/login');
+                router.replace(unauthHref());
               }}
             />
           ) : tag ? (
@@ -498,7 +499,7 @@ export default function TabsLayout() {
               onBack={() => setTag(null)}
               onLogout={async () => {
                 await logout();
-                router.replace('/login');
+                router.replace(unauthHref());
               }}
             />
           ) : autoKind ? (
@@ -512,7 +513,7 @@ export default function TabsLayout() {
               onBack={() => setAutoKind(null)}
               onLogout={async () => {
                 await logout();
-                router.replace('/login');
+                router.replace(unauthHref());
               }}
             />
           ) : (
@@ -525,7 +526,7 @@ export default function TabsLayout() {
               onBack={() => setRoom(null)}
               onLogout={async () => {
                 await logout();
-                router.replace('/login');
+                router.replace(unauthHref());
               }}
             />
           )}

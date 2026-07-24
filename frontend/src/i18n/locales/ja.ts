@@ -290,6 +290,103 @@ export default {
   sites: {
     googleMaps: 'Googleマップ',
   },
+  // マーケティングランディングページ(/home) — ウェブ専用ブランドサーフェス
+  home: {
+    brand: 'slash',
+    nav: {
+      login: 'ログイン',
+    },
+    hero: {
+      title: '自分に送ったリンク、\nもう二度と見失わない',
+      sub: '「自分へのトーク」に溜まっていくだけだったリンクとメモ。slashに貼り付けるだけでプレビューが作られ、場所・動画・商品ごとに自動で整理されます。',
+      cta: '始める',
+    },
+    demo: {
+      room: 'マイ slash',
+      time: '00:24',
+      pasteKey: '⌘V',
+      paste: 'リンクを貼り付けると…',
+      pasting: '貼り付け中…',
+      bubbleVideo: 'https://youtu.be/vlog-cafe',
+      cardTitle: '聖水カフェ Vlog — 12:34',
+      cardSource: 'youtube.com',
+      chipVideo: '# 動画',
+      chipWeekend: '# 週末',
+      bubbleGift: '母の誕生日プレゼントのアイデア 🎁',
+      bubbleRestaurant: '次の出張で行くお店リスト',
+      summary: '場所 1 · 動画 1 · メモ 2',
+    },
+    features: {
+      paste: {
+        title: '貼り付けるだけ',
+        desc: 'リンクを放り込めば、タイトルとサムネイルのプレビューが自動で作られます。',
+      },
+      classify: {
+        title: '分類はひとつ、タグは自由に',
+        desc: 'メモは分類ひとつにまとまり、タグは好きなだけ。キーワードを登録すればタグが自動で付きます。',
+      },
+      auto: {
+        title: '種類ごとに自動整理',
+        desc: '場所・動画・商品・メモ・リンク。種類ごとに自動で分けて見せます。',
+      },
+    },
+    // 対比ストリップ — トークアプリで自分に送る vs スラッシュ（問題/解決の3行）
+    contrast: {
+      heading: '自分にリンクを送るあの作業、心当たりありませんか?',
+      colProblem: 'トークアプリ',
+      colSlash: 'slash',
+      save: {
+        label: '保存',
+        problem: 'チャットに埋もれてスクロール地獄',
+        slash: '貼った瞬間にプレビューカード',
+      },
+      organize: {
+        label: '整理',
+        problem: 'すべて一列にごちゃ混ぜ',
+        slash: '分類・タグ・種類ごとに自動整理',
+      },
+      find: {
+        label: '探し直す',
+        problem: 'いつ送ったか思い出せない',
+        slash: '検索・お気に入り・固定ですぐに',
+      },
+    },
+    // キーワード自動タグのスポットライト
+    keyword: {
+      title: 'キーワードを登録するだけで、タグは自動で',
+      desc: 'タグにキーワードを登録すると、その語を含むメモに自動で付きます。すでに保存したメモまでさかのぼって。',
+      chipLabel: '# グルメ',
+      keywordsCaption: 'キーワード',
+      chipKeywords: 'レストラン · グルメ',
+      row1: '弘大グルメリスト',
+      row2: '週末に見る映画',
+      row3: '会社近くのレストラン',
+    },
+    leader: {
+      preview: { label: 'リンクプレビュー', value: 'AUTO' },
+      tag: { label: '分類 · タグ', value: '1+N' },
+      types: { label: '自動整理', value: '5 TYPES' },
+    },
+    views: {
+      title: 'チャットのように、リストのように',
+      desc: '同じメモをチャット型とリスト型、お好みで選んで見られます。',
+      chat: 'チャット型',
+      list: 'リスト型',
+    },
+    everywhere: {
+      title: 'どこでも slash',
+      desc: 'iOS · Android · ウェブ、どこでも続きます。한국어 · English · 日本語.',
+    },
+    finalCta: {
+      title: '今すぐ、自分に最初のメモを送ってみて',
+      cta: '始める',
+    },
+    footer: {
+      privacy: 'プライバシーポリシー',
+      terms: '利用規約',
+      copyright: '© 2026 slash',
+    },
+  },
   errors: {
     email_taken: 'すでに登録済みのメールアドレスです。',
     email_taken_social:

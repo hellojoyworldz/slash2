@@ -299,6 +299,103 @@ export default {
   sites: {
     googleMaps: '구글지도',
   },
+  // 마케팅 랜딩페이지(/home) — 웹 전용 브랜드 서피스
+  home: {
+    brand: 'slash',
+    nav: {
+      login: '로그인',
+    },
+    hero: {
+      title: '나한테 보낸 링크,\n다시는 안 잃어버리게',
+      sub: '카톡 나에게 보내기에 쌓여만 가던 링크와 메모. slash에 붙여넣기만 하면 미리보기가 만들어지고, 장소·영상·상품별로 알아서 정리됩니다.',
+      cta: '시작하기',
+    },
+    demo: {
+      room: '나의 slash',
+      time: '00:24',
+      pasteKey: '⌘V',
+      paste: '링크를 붙여넣으면…',
+      pasting: '붙여넣는 중…',
+      bubbleVideo: 'https://youtu.be/vlog-cafe',
+      cardTitle: '성수동 카페 브이로그 — 12:34',
+      cardSource: 'youtube.com',
+      chipVideo: '# 영상',
+      chipWeekend: '# 주말',
+      bubbleGift: '엄마 생신 선물 아이디어 🎁',
+      bubbleRestaurant: '다음 출장 때 갈 식당 리스트',
+      summary: '장소 1 · 영상 1 · 메모 2',
+    },
+    features: {
+      paste: {
+        title: '붙여넣기만 하세요',
+        desc: '링크를 던져두면 제목·썸네일 미리보기가 자동으로 만들어져요.',
+      },
+      classify: {
+        title: '분류 하나, 태그는 여러 개',
+        desc: '메모는 분류 한 곳에 담기고, 태그는 마음껏. 키워드를 등록하면 태그가 알아서 붙어요.',
+      },
+      auto: {
+        title: '종류별 자동구분',
+        desc: '장소·영상·상품·메모·링크. 종류별로 자동으로 나눠서 보여줘요.',
+      },
+    },
+    // 대비 스트립 — 카톡 나에게 보내기 vs 슬래시 (문제/해결 3행)
+    contrast: {
+      heading: '카톡 나에게 보내기, 이런 적 있죠?',
+      colProblem: '카톡 나에게 보내기',
+      colSlash: 'slash',
+      save: {
+        label: '저장',
+        problem: '채팅에 묻혀 스크롤 지옥',
+        slash: '붙여넣는 순간 미리보기 카드',
+      },
+      organize: {
+        label: '정리',
+        problem: '전부 한 줄로 뒤섞임',
+        slash: '분류·태그·종류별 자동 정리',
+      },
+      find: {
+        label: '다시 찾기',
+        problem: '언제 보냈는지 기억 안 남',
+        slash: '검색·즐겨찾기·고정으로 바로',
+      },
+    },
+    // 키워드 자동 태그 스포트라이트
+    keyword: {
+      title: '키워드만 등록하면, 태그는 알아서',
+      desc: '태그에 키워드를 달아두면 그 단어가 든 메모에 자동으로 붙어요. 이미 저장해둔 메모까지 거슬러 올라가서.',
+      chipLabel: '# 맛집',
+      keywordsCaption: '키워드',
+      chipKeywords: '식당 · 맛집',
+      row1: '홍대 맛집 리스트',
+      row2: '주말에 볼 영화',
+      row3: '회사 근처 점심 식당',
+    },
+    leader: {
+      preview: { label: '링크 미리보기', value: 'AUTO' },
+      tag: { label: '분류 · 태그', value: '1+N' },
+      types: { label: '자동구분', value: '5 TYPES' },
+    },
+    views: {
+      title: '채팅처럼, 혹은 목록처럼',
+      desc: '같은 메모를 채팅형과 목록형, 취향대로 골라 볼 수 있어요.',
+      chat: '채팅형',
+      list: '목록형',
+    },
+    everywhere: {
+      title: '어디서나 slash',
+      desc: 'iOS · Android · 웹, 어디서든 이어집니다. 한국어 · English · 日本語.',
+    },
+    finalCta: {
+      title: '지금, 나에게 첫 메모를 보내보세요',
+      cta: '시작하기',
+    },
+    footer: {
+      privacy: '개인정보처리방침',
+      terms: '이용약관',
+      copyright: '© 2026 slash',
+    },
+  },
   errors: {
     email_taken: '이미 가입된 이메일입니다.',
     email_taken_social:

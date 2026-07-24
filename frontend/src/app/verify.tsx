@@ -1,13 +1,14 @@
 import { Redirect } from 'expo-router';
 import { useAuth } from '../auth';
+import { unauthHref } from '../auth-routes';
 import { api } from '../api';
 import { VerifyEmailScreen } from '../screens/VerifyEmailScreen';
 
 export default function VerifyRoute() {
   const { token, email, emailVerified, logout, refresh } = useAuth();
 
-  // 로그인 안 됐으면 로그인으로, 이미 인증됐으면 앱으로.
-  if (!token) return <Redirect href="/login" />;
+  // 로그인 안 됐으면 미인증 착지(웹=랜딩/네이티브=로그인)로, 이미 인증됐으면 앱으로.
+  if (!token) return <Redirect href={unauthHref()} />;
   if (emailVerified) return <Redirect href="/friends" />;
 
   return (

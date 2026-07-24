@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useWindowDimensions } from 'react-native';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { ChatScreen } from '../../screens/ChatScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout } from '../../theme';
@@ -48,7 +49,7 @@ export default function ChatRoute() {
       }}
       onLogout={async () => {
         await logout();
-        router.replace('/login');
+        router.replace(unauthHref());
       }}
     />
   );

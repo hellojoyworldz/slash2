@@ -290,6 +290,103 @@ export default {
   sites: {
     googleMaps: 'Google Maps',
   },
+  // Marketing landing page (/home) — web-only brand surface
+  home: {
+    brand: 'slash',
+    nav: {
+      login: 'Log in',
+    },
+    hero: {
+      title: 'The links you sent yourself,\nnever lost again',
+      sub: 'Links and notes that just kept piling up in your own chat. Paste them into slash and a preview is built for you, sorted automatically by place, video, and product.',
+      cta: 'Get started',
+    },
+    demo: {
+      room: 'My slash',
+      time: '00:24',
+      pasteKey: '⌘V',
+      paste: 'Paste a link and…',
+      pasting: 'Pasting…',
+      bubbleVideo: 'https://youtu.be/vlog-cafe',
+      cardTitle: 'Seongsu Cafe Vlog — 12:34',
+      cardSource: 'youtube.com',
+      chipVideo: '# Video',
+      chipWeekend: '# Weekend',
+      bubbleGift: "Mom's birthday gift ideas 🎁",
+      bubbleRestaurant: 'Restaurants for the next work trip',
+      summary: 'Places 1 · Videos 1 · Notes 2',
+    },
+    features: {
+      paste: {
+        title: 'Just paste it',
+        desc: 'Drop in a link and its title and thumbnail preview are built for you automatically.',
+      },
+      classify: {
+        title: 'One category, many tags',
+        desc: 'Each note lives in a single category, but tag it however you like. Register keywords and tags attach themselves.',
+      },
+      auto: {
+        title: 'Sorted by kind',
+        desc: 'Places, videos, products, notes, links — split up by kind automatically.',
+      },
+    },
+    // Contrast strip — messaging yourself in chat vs Slash (problem/solution, 3 rows)
+    contrast: {
+      heading: 'Sending links to yourself in chat — sound familiar?',
+      colProblem: 'In your chat app',
+      colSlash: 'slash',
+      save: {
+        label: 'Save',
+        problem: 'Buried in the chat, endless scrolling',
+        slash: 'A preview card the moment you paste',
+      },
+      organize: {
+        label: 'Organize',
+        problem: 'All jumbled into one stream',
+        slash: 'Auto-sorted by category, tag, and kind',
+      },
+      find: {
+        label: 'Find again',
+        problem: "Can't recall when you sent it",
+        slash: 'Search, favorites, and pins get you there',
+      },
+    },
+    // Keyword auto-tag spotlight
+    keyword: {
+      title: 'Register a keyword, and tags take care of themselves',
+      desc: 'Add keywords to a tag and it attaches itself to any note with that word — reaching back through notes you saved before.',
+      chipLabel: '# eats',
+      keywordsCaption: 'Keywords',
+      chipKeywords: 'restaurant · eats',
+      row1: 'Best eats in Hongdae',
+      row2: 'Movies for the weekend',
+      row3: 'Restaurant near the office',
+    },
+    leader: {
+      preview: { label: 'Link preview', value: 'AUTO' },
+      tag: { label: 'Category · Tags', value: '1+N' },
+      types: { label: 'Auto-sort', value: '5 TYPES' },
+    },
+    views: {
+      title: 'Like a chat, or a list',
+      desc: 'See the same notes as a chat or as a list — whichever suits you.',
+      chat: 'Chat',
+      list: 'List',
+    },
+    everywhere: {
+      title: 'slash, everywhere',
+      desc: 'iOS · Android · Web — it follows you wherever you go. 한국어 · English · 日本語.',
+    },
+    finalCta: {
+      title: 'Send yourself your first note, right now',
+      cta: 'Get started',
+    },
+    footer: {
+      privacy: 'Privacy Policy',
+      terms: 'Terms of Service',
+      copyright: '© 2026 slash',
+    },
+  },
   errors: {
     email_taken: 'This email is already registered.',
     email_taken_social:

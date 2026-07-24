@@ -3,6 +3,7 @@ import { useWindowDimensions } from 'react-native';
 import { Tag } from '../../api';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { BoardKind, ListBoardScreen } from '../../screens/ListBoardScreen';
 import { TagsScreen } from '../../screens/TagsScreen';
 import { useSelectedRoom } from '../../selected-room';
@@ -22,7 +23,7 @@ export default function TagsRoute() {
 
   const onLogout = async () => {
     await logout();
-    router.replace('/login');
+    router.replace(unauthHref());
   };
 
   const switchBoard = (b: BoardKind) =>

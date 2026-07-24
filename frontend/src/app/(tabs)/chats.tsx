@@ -2,6 +2,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { useWindowDimensions } from 'react-native';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { ChatsScreen } from '../../screens/ChatsScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout } from '../../theme';
@@ -35,7 +36,7 @@ export default function ChatsRoute() {
       }}
       onLogout={async () => {
         await logout();
-        router.replace('/login');
+        router.replace(unauthHref());
       }}
     />
   );

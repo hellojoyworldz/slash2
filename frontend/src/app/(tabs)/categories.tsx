@@ -2,6 +2,7 @@ import { Redirect, useRouter } from 'expo-router';
 import { useWindowDimensions } from 'react-native';
 import { useAppStyle } from '../../app-style';
 import { useAuth } from '../../auth';
+import { unauthHref } from '../../auth-routes';
 import { FriendsList } from '../../screens/FriendsScreen';
 import { useSelectedRoom } from '../../selected-room';
 import { layout } from '../../theme';
@@ -21,7 +22,7 @@ export default function CategoriesRoute() {
 
   const onLogout = async () => {
     await logout();
-    router.replace('/login');
+    router.replace(unauthHref());
   };
 
   // 목록형(ListBoardScreen)엔 순수 분류 "리스트" 개념이 없다 — 분류는 이미 보드의 그룹 섹션으로
