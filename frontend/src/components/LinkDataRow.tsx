@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import { rowFill } from '../row-hover';
 import { hexAlpha, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { Text } from './Text';
@@ -54,6 +55,7 @@ export function LinkDataRow({
         onPress={onPress}
         accessibilityRole="link"
         accessibilityLabel={accessibilityLabel}
+        style={({ hovered, pressed }) => rowFill(colors, { hovered, pressed })}
       >
         {body}
       </Pressable>

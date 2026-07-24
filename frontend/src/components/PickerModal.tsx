@@ -612,9 +612,9 @@ export function PickerRow({
   const swipeGuarded = usePickerSwipeTapGuard(scrollKey);
   return (
     <Pressable
-      style={({ pressed }) => [
+      style={({ pressed, hovered }) => [
         styles.row,
-        (selected || pressed) && styles.rowActive,
+        (selected || pressed || hovered) && styles.rowActive,
       ]}
       onPress={() => {
         if (dragGuarded()) return;

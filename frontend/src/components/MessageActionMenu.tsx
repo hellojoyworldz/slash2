@@ -131,7 +131,7 @@ export function MessageActionMenu({
   ) => (
     <Pressable
       key={key}
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      style={({ pressed, hovered }) => [styles.row, (pressed || hovered) && styles.rowPressed]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}

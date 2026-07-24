@@ -108,9 +108,19 @@ export function buildTapGesture(
 export function composeRowGesture(
   dragPan: GestureType,
   handlers: { activate?: () => void; edit?: () => void },
+  // 웹 전용 hover 표시(마우스). 네이티브는 hover 이벤트가 없어 no-op. 드래그·탭과 동시(Simultaneous)라
+  // 제스처 인식을 방해하지 않는다. onBegin=포인터 진입, onFinalize=이탈.
+  onHoverChange?: (hovered: boolean) => void,
 ): RowGesture {
   const taps = buildTapGesture(handlers.activate, handlers.edit);
-  return taps ? Gesture.Race(dragPan, taps) : dragPan;
+  const base = taps ? Gesture.Race(dragPan, taps) : dragPan;
+  if (!onHoverChange) return base;
+  // runOnJS(true): 이 파일의 재정렬 제스처와 같은 관례로 콜백을 JS 스레드에서 돌린다(setState 안전).
+  const hover = Gesture.Hover()
+    .runOnJS(true)
+    .onBegin(() => onHoverChange(true))
+    .onFinalize(() => onHoverChange(false));
+  return Gesture.Simultaneous(base, hover);
 }
 
 // 롱프레스 드래그로 활성되는 세로 Pan 제스처의 공통 방향 설정(재정렬 물리는 caller가 붙인다).
@@ -201,6 +211,8 @@ export function useReorder(opts: {
   onActivate?: (id: string) => void;
   /** 더블탭(수정) — 넘기면 행 더블탭에 수정이 붙는다. 없으면 수정 없음(자동구분). */
   onEditRequest?: (id: string) => void;
+  /** 웹 hover 표시(마우스 진입/이탈). id별로 호출 — caller가 hover 행을 surface로 강조한다. */
+  onHover?: (id: string, hovered: boolean) => void;
 }): ReorderControls {
   const { rowHeight, orderRef, onCommit } = opts;
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -228,8 +240,10 @@ export function useReorder(opts: {
   // 탭 콜백은 캐시된 제스처가 최신을 읽도록 ref로 보관(제스처는 id별 1회만 생성).
   const onActivateRef = useRef(opts.onActivate);
   const onEditRef = useRef(opts.onEditRequest);
+  const onHoverRef = useRef(opts.onHover);
   onActivateRef.current = opts.onActivate;
   onEditRef.current = opts.onEditRequest;
+  onHoverRef.current = opts.onHover;
 
   const moveByOne = useCallback(
     (id: string, delta: number) => {
@@ -315,10 +329,14 @@ export function useReorder(opts: {
           endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
           setDraggingId(null);
         });
-      const composite = composeRowGesture(dragPan, {
-        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
-        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
-      });
+      const composite = composeRowGesture(
+        dragPan,
+        {
+          activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+          edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+        },
+        onHoverRef.current ? (h) => onHoverRef.current?.(id, h) : undefined,
+      );
       cache.set(id, composite);
       return composite;
     },
@@ -420,6 +438,8 @@ export function useVarReorder<T>(opts: {
    *  (자식 DOM Pressable이 탭을 처리하는 픽커) onFinalize 승격 경로만 필요할 때 쓴다.
    *  없으면 승격은 onActivate로 폴백한다(목록 행). */
   onPromote?: (id: string) => void;
+  /** 웹 hover 표시(마우스 진입/이탈). id별로 호출 — caller가 hover 행을 surface로 강조한다. */
+  onHover?: (id: string, hovered: boolean) => void;
 }): VarReorderControls {
   const activeIndex = useSharedValue(-1);
   const activeIndexRef = useRef(-1);
@@ -447,6 +467,7 @@ export function useVarReorder<T>(opts: {
   const onActivateRef = useRef(opts.onActivate);
   const onEditRef = useRef(opts.onEditRequest);
   const onPromoteRef = useRef(opts.onPromote);
+  const onHoverRef = useRef(opts.onHover);
   getOrderRef.current = opts.getOrder;
   getIdRef.current = opts.getId;
   getHeightRef.current = opts.getHeight;
@@ -454,6 +475,7 @@ export function useVarReorder<T>(opts: {
   onActivateRef.current = opts.onActivate;
   onEditRef.current = opts.onEditRequest;
   onPromoteRef.current = opts.onPromote;
+  onHoverRef.current = opts.onHover;
 
   const getGesture = useCallback(
     (id: string) => {
@@ -547,10 +569,14 @@ export function useVarReorder<T>(opts: {
             didDragRef.current = false;
           }, 0);
         });
-      const composite = composeRowGesture(dragPan, {
-        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
-        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
-      });
+      const composite = composeRowGesture(
+        dragPan,
+        {
+          activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+          edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+        },
+        onHoverRef.current ? (h) => onHoverRef.current?.(id, h) : undefined,
+      );
       cache.set(id, composite);
       return composite;
     },

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import {
   FlatList,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -197,9 +197,11 @@ export function ChatsScreen({
   // a11y: 스와이프 액션은 포인터 제스처라 스크린리더에 안 보인다. 스와이프 행은 액션을 접근성
   // 커스텀 액션으로 행 터처블에 얹어(a11y 인자) 로터/액션 메뉴로 [고정][삭제][수정]을 실행하게 한다.
   const renderRow = (item: RoomRow, selected: boolean, a11y?: SwipeActionsA11y) => (
-    <TouchableOpacity
-      style={[styles.roomRow, selected && styles.roomRowActive]}
-      activeOpacity={0.6}
+    <Pressable
+      style={({ pressed, hovered }) => [
+        styles.roomRow,
+        (selected || pressed || hovered) && styles.roomRowActive,
+      ]}
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityActions={a11y?.accessibilityActions}
@@ -247,7 +249,7 @@ export function ChatsScreen({
           {formatListTime(item.lastMessage.createdAt)}
         </Text>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 
   return (

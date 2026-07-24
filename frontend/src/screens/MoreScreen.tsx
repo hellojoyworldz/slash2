@@ -23,6 +23,7 @@ import {
   Slash,
 } from 'lucide-react-native';
 import {
+  Pressable,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -45,6 +46,7 @@ import {
   resolveTabOrder,
 } from '../tab-menu';
 import { useSelectedRoom } from '../selected-room';
+import { rowFill } from '../row-hover';
 import { ReorderRow, useReorder } from '../use-reorder';
 import {
   LANGUAGE_NAMES,
@@ -179,10 +181,13 @@ export function MoreScreen({
     [setTabOrder],
   );
 
+  // 웹 마우스 hover된 탭편집 행(key) — surface로 강조.
+  const [hoveredMenuKey, setHoveredMenuKey] = useState<string | null>(null);
   const reorder = useReorder({
     rowHeight: MENU_ROW_HEIGHT,
     orderRef: menuOrderRef,
     onCommit: commitMenuOrder,
+    onHover: (key, h) => setHoveredMenuKey(h ? key : null),
   });
 
   // 노출/숨김 토글(분류·태그·자동구분만). 낙관 반영 + 실패 시 직전 값으로 복원.
@@ -371,7 +376,13 @@ export function MoreScreen({
                 >
                   {/* 행 전체를 꾹 눌러 세로로 끌면 재정렬(그립 없음). 눈 토글은 빠른 탭으로 그대로 동작. */}
                   <GestureDetector gesture={reorder.getGesture(key)}>
-                    <View style={[styles.menuRow, isDragging && styles.menuRowLifted]}>
+                    <View
+                      style={[
+                        styles.menuRow,
+                        rowFill(colors, { hovered: hoveredMenuKey === key }),
+                        isDragging && styles.menuRowLifted,
+                      ]}
+                    >
                       {/* 라벨 영역 = 재정렬 접근성 요소(위/아래 이동) — 예전 그립이 갖던 a11y를 행에 통합. */}
                       <View
                         style={styles.menuLabelArea}
@@ -447,13 +458,15 @@ export function MoreScreen({
 
           {/* 오픈소스 라이선스 — 데스크톱 3패널은 오른쪽 상세 패널에(더보기는 왼쪽 유지),
               모바일·목록형은 전폭 라우트로. 방 목록 행(ChatsScreen)의 desktop/mobile 문법과 동일. */}
-          <TouchableOpacity
-            style={styles.infoRow}
+          <Pressable
+            style={({ hovered, pressed }) => [
+              styles.infoRow,
+              rowFill(colors, { hovered, pressed }),
+            ]}
             onPress={() => {
               if (desktopSplit) setInfoScreen('licenses');
               else router.push('/licenses');
             }}
-            activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel={t('more.openSourceLicenses')}
           >
@@ -461,13 +474,15 @@ export function MoreScreen({
               {t('more.openSourceLicenses')}
             </Text>
             <ChevronRight size={18} strokeWidth={2} color={colors.textTertiary} />
-          </TouchableOpacity>
+          </Pressable>
 
           {/* 개인정보처리방침 — 내부 화면으로 이동 */}
-          <TouchableOpacity
-            style={styles.infoRow}
+          <Pressable
+            style={({ hovered, pressed }) => [
+              styles.infoRow,
+              rowFill(colors, { hovered, pressed }),
+            ]}
             onPress={() => router.push(PRIVACY_ROUTE)}
-            activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel={t('more.privacyPolicy')}
           >
@@ -475,13 +490,15 @@ export function MoreScreen({
               {t('more.privacyPolicy')}
             </Text>
             <ExternalLink size={18} strokeWidth={2} color={colors.textTertiary} />
-          </TouchableOpacity>
+          </Pressable>
 
           {/* 이용약관 — 내부 화면으로 이동 */}
-          <TouchableOpacity
-            style={styles.infoRow}
+          <Pressable
+            style={({ hovered, pressed }) => [
+              styles.infoRow,
+              rowFill(colors, { hovered, pressed }),
+            ]}
             onPress={() => router.push(TERMS_ROUTE)}
-            activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityLabel={t('more.terms')}
           >
@@ -489,7 +506,7 @@ export function MoreScreen({
               {t('more.terms')}
             </Text>
             <ExternalLink size={18} strokeWidth={2} color={colors.textTertiary} />
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
         {/* 보조 액션이라 outline */}

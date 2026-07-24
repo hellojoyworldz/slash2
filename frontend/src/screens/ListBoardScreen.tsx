@@ -11,6 +11,7 @@ import {
   FlatList,
   LayoutChangeEvent,
   Platform,
+  Pressable,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -57,6 +58,7 @@ import { useMessageActions } from '../message-actions';
 import { useMessageDetail } from '../message-detail';
 import { useTagCreate } from '../tag-create';
 import { copyToClipboard, messagePayload, shareContent } from '../share';
+import { rowFill } from '../row-hover';
 import { useSelectedRoom } from '../selected-room';
 import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
@@ -684,10 +686,12 @@ export function ListBoardScreen({
         // 그립을 collapse 토글의 자식으로 두면 웹(onClick 버블)에서 두 핸들러가 같이 터진다 —
         // 바깥은 View, collapse 영역과 그립을 형제 Touchable로 분리한다.
         <View style={styles.sectionHeader}>
-          <TouchableOpacity
-            style={styles.sectionHeaderMain}
+          <Pressable
+            style={({ hovered, pressed }) => [
+              styles.sectionHeaderMain,
+              rowFill(colors, { hovered, pressed }),
+            ]}
             onPress={() => toggleSection(item.sectionKey)}
-            activeOpacity={0.6}
             accessibilityRole="button"
             accessibilityState={{ expanded: !item.collapsed }}
             accessibilityLabel={item.title}
@@ -710,7 +714,7 @@ export function ListBoardScreen({
             <Text variant="micro" color={colors.textSecondary}>
               {item.count}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
           {/* 그립 = 섹션 재정렬(위로/아래로 이동 시트). 보드 구조(FlatList·가변 높이 섹션)상
               RNGH 드래그는 웹에서 불안정해, 그립 탭으로 이동 메뉴를 여는 방식으로 폴백한다. */}
           {canReorder ? (
@@ -755,11 +759,14 @@ export function ListBoardScreen({
             />
           ) : (
             // 섹션 하단 "+추가" ghost 카드(점선 보더·라운드 0) — 노션 그룹 하단 문법.
-            <TouchableOpacity
+            <Pressable
               key={`add:${cell.friendId ?? SELF_KEY}`}
-              style={[styles.addCard, { width: cardWidth }]}
+              style={({ hovered, pressed }) => [
+                styles.addCard,
+                { width: cardWidth },
+                rowFill(colors, { hovered, pressed }),
+              ]}
               onPress={() => openCreateFor(cell.friendId)}
-              activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityLabel={t('list.newTitle')}
             >
@@ -767,7 +774,7 @@ export function ListBoardScreen({
               <Text variant="micro" color={colors.textTertiary} style={styles.addLabel}>
                 {t('friends.add')}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           ),
         )}
       </View>

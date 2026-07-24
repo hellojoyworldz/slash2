@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { Megaphone } from 'lucide-react-native';
 import { LinkType, Message } from '../api';
 import { formatDateStamp } from '../time';
@@ -57,9 +57,14 @@ export function GalleryCard({
     : message.ogTitle ?? message.url ?? message.content;
 
   return (
-    <TouchableOpacity
-      style={[styles.card, { width }]}
-      activeOpacity={0.7}
+    <Pressable
+      // 카드는 이미 surface라 hover/press를 1px ink 보더로 표시(들림·선택과 같은 문법).
+      // base 투명 보더라 레이아웃 점프 없음. 네이티브는 hovered가 항상 false.
+      style={({ hovered, pressed }) => [
+        styles.card,
+        { width },
+        (hovered || pressed) && styles.cardActive,
+      ]}
       onPress={() => onPress(message)}
       onLongPress={() => onLongPress(message)}
       accessibilityRole={isLink ? (isPlace ? 'button' : 'link') : undefined}
@@ -120,17 +125,24 @@ export function GalleryCard({
           </View>
         ) : null}
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-    // surface 채움 카드(보더 없음·라운드 0). 그림자 금지.
+    // surface 채움 카드(라운드 0). 그림자 금지. base는 투명 1px 보더(hover 시 ink로 켜져도
+    // 레이아웃이 밀리지 않게).
     card: {
       backgroundColor: colors.surface,
       borderRadius: 0,
+      borderWidth: 1,
+      borderColor: 'transparent',
       overflow: 'hidden',
+    },
+    // hover/press — 이미 surface라 채움 대신 1px ink 보더(들림·선택 문법).
+    cardActive: {
+      borderColor: colors.ink,
     },
     thumb: {
       width: '100%',

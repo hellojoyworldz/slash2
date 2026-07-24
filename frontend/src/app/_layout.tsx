@@ -38,6 +38,15 @@ function useFocusRingStyle() {
       :focus { outline: none; }
       html.kbd-nav :focus { outline: 2px solid currentColor; outline-offset: 2px; }
       html.kbd-nav input:focus, html.kbd-nav textarea:focus { outline: none; }
+      /* 데스크톱(Electron)·웹 스크롤바 — 카톡처럼 스크롤 중에만 나타나는 오버레이 썸.
+         평소엔 완전 투명(자리만 8px), 스크롤하면 html.is-scrolling으로 알약 썸 표시.
+         중간 회색 반투명이라 라이트·다크 어느 배경에서도 자연스럽다. */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-corner { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+      html.is-scrolling ::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.45); }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(128, 128, 128, 0.6); }
     `;
     document.head.appendChild(style);
     const root = document.documentElement;
@@ -45,14 +54,25 @@ function useFocusRingStyle() {
       if (e.key === 'Tab') root.classList.add('kbd-nav');
     };
     const onPointer = () => root.classList.remove('kbd-nav');
+    // 스크롤 중에만 스크롤바 썸 표시 (카톡식 오버레이). 내부 컨테이너 스크롤은
+    // 버블되지 않으므로 capture로 잡는다. 멈추고 0.8s 뒤 사라짐.
+    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      root.classList.add('is-scrolling');
+      if (scrollTimer) clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => root.classList.remove('is-scrolling'), 800);
+    };
     window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('mousedown', onPointer, true);
     window.addEventListener('touchstart', onPointer, true);
+    window.addEventListener('scroll', onScroll, true);
     return () => {
       style.remove();
+      if (scrollTimer) clearTimeout(scrollTimer);
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('mousedown', onPointer, true);
       window.removeEventListener('touchstart', onPointer, true);
+      window.removeEventListener('scroll', onScroll, true);
     };
   }, []);
 }

@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   FlatList,
@@ -149,6 +149,9 @@ export function TagsScreen({
 
   // ── 본 목록(태그) 드래그 ────────────────────────────────────────────
   // 커밋: 새 순서를 낙관적으로 반영 + position 저장(reorderTags). 실패 시 서버 순서로 복원.
+  // 웹 마우스 hover된 행(refKey) — surface로 강조. 태그가 두 섹션에 겹쳐 나오므로 refKey로 구분.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
   // 행 탭=열기(onActivate), 행 더블탭=수정(onEditRequest). refKey는 섹션(tag:/favtag:)으로 구분.
   const mainDrag = useVarReorder<Tag>({
     getOrder: () => tagsRef.current,
@@ -170,6 +173,7 @@ export function TagsScreen({
       const tag = tagsRef.current.find((x) => x.id === id);
       if (tag) onEdit(tag);
     },
+    onHover: (id, h) => setHoveredKey(h ? `tag:${id}` : null),
   });
 
   // ── 즐겨찾기 섹션 드래그(본 목록과 독립) ──────────────────────────────
@@ -203,6 +207,7 @@ export function TagsScreen({
       const tag = tagsRef.current.find((x) => x.id === id);
       if (tag) onEdit(tag);
     },
+    onHover: (id, h) => setHoveredKey(h ? `favtag:${id}` : null),
   });
 
   // 즐겨찾기(★) 토글 — 고정(pinned)과는 무관한 별개 표시. 본 목록(태그) 정렬엔 영향 없음.
@@ -302,7 +307,7 @@ export function TagsScreen({
             <View
               style={[
                 styles.row,
-                active && styles.rowActive,
+                (active || hoveredKey === refKey) && styles.rowActive,
                 isDragging && styles.rowLifted,
               ]}
               accessibilityRole="button"
@@ -403,7 +408,7 @@ export function TagsScreen({
         contentContainerStyle={styles.listContent}
         // 드래그 중(어느 섹션이든)에는 목록 스크롤을 멈춰 손가락 이동이 재정렬에만 쓰이게 한다.
         scrollEnabled={mainDrag.draggingId === null && favDrag.draggingId === null}
-        extraData={[mainDrag.draggingId, tagsExpanded]}
+        extraData={[mainDrag.draggingId, tagsExpanded, hoveredKey]}
         // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android).
         CellRendererComponent={mainDrag.CellRendererComponent}
         removeClippedSubviews={false}

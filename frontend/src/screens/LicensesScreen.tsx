@@ -4,6 +4,7 @@ import { ChevronLeft, ExternalLink } from 'lucide-react-native';
 import {
   FlatList,
   Linking,
+  Pressable,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
@@ -12,6 +13,7 @@ import {
 import { Link } from 'expo-router';
 import { Text } from '../components/Text';
 import licenses from '../generated/licenses.json';
+import { rowFill } from '../row-hover';
 import { layout, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 
@@ -52,11 +54,13 @@ export function LicensesScreen({ onBack, showBack = true }: Props) {
       if (item.repository) Linking.openURL(item.repository);
     };
     return (
-      <TouchableOpacity
-        style={styles.row}
+      <Pressable
+        style={({ hovered, pressed }) => [
+          styles.row,
+          hasRepo && rowFill(colors, { hovered, pressed }),
+        ]}
         onPress={open}
         disabled={!hasRepo}
-        activeOpacity={0.6}
         accessibilityRole={hasRepo ? 'link' : undefined}
         accessibilityLabel={`${item.name}, ${item.license}`}
       >
@@ -83,7 +87,7 @@ export function LicensesScreen({ onBack, showBack = true }: Props) {
             <ExternalLink size={15} strokeWidth={2} color={colors.textTertiary} />
           ) : null}
         </View>
-      </TouchableOpacity>
+      </Pressable>
     );
   };
 

@@ -183,18 +183,23 @@ export function AutoScreen({
     [onOpenAuto],
   );
 
+  // 웹 마우스 hover된 행(refKey) — surface로 강조. 종류가 두 섹션에 겹쳐 나오므로 refKey로 구분.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
   // 자동구분 종류는 수정 폼이 없다 → onActivate(열기)만, onEditRequest 없음(더블탭 수정 제외).
   const mainReorder = useReorder({
     rowHeight: ROW_HEIGHT,
     orderRef,
     onCommit: commitOrder,
     onActivate: (id) => openRow(`auto:${id}`, id as AutoKind),
+    onHover: (id, h) => setHoveredKey(h ? `auto:${id}` : null),
   });
   const favReorder = useReorder({
     rowHeight: ROW_HEIGHT,
     orderRef: favOrderRef,
     onCommit: commitFavOrder,
     onActivate: (id) => openRow(`fav:${id}`, id as AutoKind),
+    onHover: (id, h) => setHoveredKey(h ? `fav:${id}` : null),
   });
 
   // 즐겨찾기(★) 토글 — 없으면 맨 밑에 추가, 있으면 제거. 본 목록(자동구분) 순서엔 영향 없음.
@@ -290,7 +295,7 @@ export function AutoScreen({
             <View
               style={[
                 styles.row,
-                active && styles.rowActive,
+                (active || hoveredKey === refKey) && styles.rowActive,
                 isDragging && styles.rowLifted,
               ]}
               accessibilityRole="button"
@@ -362,7 +367,7 @@ export function AutoScreen({
         keyExtractor={(item) => item}
         contentContainerStyle={styles.listContent}
         scrollEnabled={mainReorder.draggingId === null && favReorder.draggingId === null}
-        extraData={[mainReorder.draggingId, autoExpanded, favSet]}
+        extraData={[mainReorder.draggingId, autoExpanded, favSet, hoveredKey]}
         // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android).
         CellRendererComponent={mainReorder.CellRendererComponent}
         removeClippedSubviews={false}

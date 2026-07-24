@@ -149,8 +149,12 @@ function AnimatedRow({
 function useDragReorder(
   getList: () => Friend[],
   onCommit: (next: Friend[]) => void,
-  // 행 탭=열기(onActivate)·더블탭=수정(onEditRequest). 섹션별 refKey는 caller가 콜백에서 붙인다.
-  taps?: { onActivate?: (id: string) => void; onEditRequest?: (id: string) => void },
+  // 행 탭=열기(onActivate)·더블탭=수정(onEditRequest)·hover(웹 마우스). 섹션별 refKey는 caller가 콜백에서 붙인다.
+  taps?: {
+    onActivate?: (id: string) => void;
+    onEditRequest?: (id: string) => void;
+    onHover?: (id: string, hovered: boolean) => void;
+  },
 ) {
   // 재정렬 공유값: activeIndex(잡은 행 index, -1=유휴), targetIndex(현재 목표 슬롯),
   // dragY(잡은 행 translateY), draggedHeight(잡은 행 자신의 실제 높이 — 설명 유무로 가변).
@@ -182,10 +186,12 @@ function useDragReorder(
   const onCommitRef = useRef(onCommit);
   const onActivateRef = useRef(taps?.onActivate);
   const onEditRef = useRef(taps?.onEditRequest);
+  const onHoverRef = useRef(taps?.onHover);
   getListRef.current = getList;
   onCommitRef.current = onCommit;
   onActivateRef.current = taps?.onActivate;
   onEditRef.current = taps?.onEditRequest;
+  onHoverRef.current = taps?.onHover;
 
   const getDragGesture = useCallback(
     (id: string) => {
@@ -288,10 +294,14 @@ function useDragReorder(
           endGlobalGrabbingCursor(); // web: 전역 grabbing 커서 해제
           setDraggingId(null);
         });
-      const composite = composeRowGesture(dragPan, {
-        activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
-        edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
-      });
+      const composite = composeRowGesture(
+        dragPan,
+        {
+          activate: onActivateRef.current ? () => onActivateRef.current?.(id) : undefined,
+          edit: onEditRef.current ? () => onEditRef.current?.(id) : undefined,
+        },
+        onHoverRef.current ? (h) => onHoverRef.current?.(id, h) : undefined,
+      );
       cache.set(id, composite);
       return composite;
     },
@@ -475,6 +485,9 @@ export function FriendsList({
     [onOpenChat, openCategoryEditor],
   );
 
+  // 웹 마우스 hover된 행(refKey) — surface로 강조. 분류가 두 섹션에 겹쳐 나오므로 refKey로 구분.
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+
   // ── 본 목록(분류) 드래그 ────────────────────────────────────────────
   // 커밋: splice된 새 순서를 낙관적으로 반영하고 서버에 저장. 실패하면 서버 순서로 복원.
   // 행 탭=열기(onActivate)·더블탭=수정(onEditRequest). refKey는 섹션(cat:/fav:)으로 구분.
@@ -500,6 +513,7 @@ export function FriendsList({
         const f = orderRef.current.find((x) => x.id === id);
         if (f) editRow(f);
       },
+      onHover: (id, h) => setHoveredKey(h ? `cat:${id}` : null),
     },
   );
 
@@ -535,6 +549,7 @@ export function FriendsList({
         const f = orderRef.current.find((x) => x.id === id);
         if (f) editRow(f);
       },
+      onHover: (id, h) => setHoveredKey(h ? `fav:${id}` : null),
     },
   );
 
@@ -688,7 +703,7 @@ export function FriendsList({
           <View
             style={[
               styles.friendRow,
-              active && styles.friendRowFilled,
+              (active || hoveredKey === refKey) && styles.friendRowFilled,
               isDragging && styles.friendRowLifted,
             ]}
             accessibilityRole="button"
@@ -796,7 +811,7 @@ export function FriendsList({
         keyExtractor={(item) => item.id}
         // 드래그 중(어느 섹션이든)에는 목록 스크롤을 멈춰 손가락 이동이 재정렬에만 쓰이게 한다.
         scrollEnabled={mainDrag.draggingId === null && favDrag.draggingId === null}
-        extraData={[mainDrag.draggingId, categoriesExpanded]}
+        extraData={[mainDrag.draggingId, categoriesExpanded, hoveredKey]}
         // 잡은 행의 셀이 이웃 셀에 가려지지 않게(특히 Android — 셀 형제 레벨에서 zIndex/elevation 필요).
         CellRendererComponent={mainDrag.CellRendererComponent}
         removeClippedSubviews={false}
