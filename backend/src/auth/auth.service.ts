@@ -444,9 +444,12 @@ export class AuthService {
 
   // ── 소셜 로그인 (B: 검증된 이메일 기준 통합) ────────────────────
 
-  async socialLogin(providerName: string, token: string) {
+  async socialLogin(providerName: string, token: string, name?: string) {
     const provider = this.providers.get(providerName);
     const profile = await provider.verify(token);
+    // 애플은 identity token에 이름이 없어 최초 인증 응답의 이름을 폴백으로 받는다.
+    // provider가 이미 이름을 준 경우(구글 등)는 그대로 우선한다.
+    const displayName = profile.displayName ?? name;
 
     const existing = await this.socialAccounts.findOne({
       where: { provider: provider.name, providerId: profile.providerId },
@@ -477,7 +480,7 @@ export class AuthService {
         } else {
           // 미검증이면 남의 이메일을 가로챌 수 없으므로 이메일 없이 새 계정.
           user = this.users.create({
-            displayName: profile.displayName,
+            displayName,
             emailVerified: false,
           });
           await this.users.save(user);
@@ -488,7 +491,7 @@ export class AuthService {
     if (!user) {
       user = this.users.create({
         email: profile.email?.trim().toLowerCase(),
-        displayName: profile.displayName,
+        displayName,
         emailVerified: profile.emailVerified ?? false,
       });
       await this.users.save(user);

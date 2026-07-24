@@ -14,6 +14,12 @@ export class SocialLoginDto {
   // 앱이 provider(구글 등)에서 받은 idToken/access token.
   @IsString()
   token: string;
+
+  // 애플은 최초 인증 1회만 이름을 주고(identity token엔 없음) — 그 값을 폴백으로 전달.
+  // provider 프로필에 displayName이 없을 때만 사용된다.
+  @IsOptional()
+  @IsString()
+  name?: string;
 }
 
 export class LookupDto {

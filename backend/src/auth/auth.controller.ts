@@ -58,7 +58,7 @@ export class AuthController {
     @Param('provider') provider: string,
     @Body() dto: SocialLoginDto,
   ) {
-    return this.auth.socialLogin(provider, dto.token);
+    return this.auth.socialLogin(provider, dto.token, dto.name);
   }
 
   // 인증 메일 다시 보내기 (로그인 필요).

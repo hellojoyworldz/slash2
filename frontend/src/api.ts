@@ -260,11 +260,12 @@ export const api = {
       body: { email, code, password },
     }),
 
-  // SNS 로그인/회원가입. token = provider(구글 등)에서 받은 idToken
-  socialLogin: (provider: 'google', token: string) =>
+  // SNS 로그인/회원가입. token = provider(구글·애플 등)에서 받은 idToken.
+  // name은 애플이 최초 1회만 주는 실명(fullName) — 있을 때만 body에 포함.
+  socialLogin: (provider: 'google' | 'apple', token: string, name?: string) =>
     request<{ token: string; user: User }>(`/auth/social/${provider}`, {
       method: 'POST',
-      body: { token },
+      body: name ? { token, name } : { token },
     }),
 
   me: (token: string) => request<User>('/auth/me', { token }),

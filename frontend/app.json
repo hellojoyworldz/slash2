@@ -11,6 +11,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.app.slash",
       "buildNumber": "1",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleAllowMixedLocalizations": true,
@@ -38,6 +39,7 @@
       "expo-localization",
       "expo-font",
       "expo-status-bar",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {

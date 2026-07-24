@@ -1,3 +1,4 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useMemo, useState } from 'react';
@@ -15,6 +16,7 @@ import {
 } from 'react-native';
 import { api, ApiError, User } from '../api';
 import { isElectron } from '../auth-routes';
+import { AppleLogo } from '../components/AppleLogo';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
 import { Logo } from '../components/Logo';
@@ -50,6 +52,7 @@ export function LoginScreen({ onLoggedIn }: Props) {
   const [resetCode, setResetCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [focused, setFocused] = useState<'email' | 'password' | 'code' | null>(
     null,
   );
@@ -134,6 +137,56 @@ export function LoginScreen({ onLoggedIn }: Props) {
       return;
     }
     void promptGoogle();
+  };
+
+  // 애플 버튼 노출 조건: iOS 네이티브에서만(웹 애플 로그인은 HTTPS 등록 도메인이
+  // 필요해 배포 후 추가 예정 — 안드로이드/데스크톱 웹/Electron은 항상 숨김).
+  // 시뮬레이터·미지원 기기 대비로 isAvailableAsync도 함께 확인한다.
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    let alive = true;
+    AppleAuthentication.isAvailableAsync()
+      .then((ok) => alive && setAppleAvailable(ok))
+      .catch(() => alive && setAppleAvailable(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const onApplePress = async () => {
+    setAppleLoading(true);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      const idToken = credential.identityToken;
+      if (!idToken) {
+        notify(t('common.notice'), t('login.appleNoToken'));
+        return;
+      }
+      // 애플은 실명을 최초 1회만 준다(이후 로그인엔 null) — 있을 때만 전달.
+      const name = [credential.fullName?.givenName, credential.fullName?.familyName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const result = await api.socialLogin('apple', idToken, name || undefined);
+      onLoggedIn(result.token, result.user);
+    } catch (error) {
+      // 사용자가 취소한 경우는 조용히 무시.
+      if (error instanceof Error && (error as { code?: string }).code === 'ERR_REQUEST_CANCELED') {
+        return;
+      }
+      notify(
+        t('common.notice'),
+        error instanceof ApiError ? errorText(error) : t('login.appleFailed'),
+      );
+    } finally {
+      setAppleLoading(false);
+    }
   };
 
   const submit = async () => {
@@ -333,26 +386,38 @@ export function LoginScreen({ onLoggedIn }: Props) {
 
         {mode !== 'reset' && (
           <>
-            {googleConfigured && (
-              <>
-                <View style={styles.dividerRow}>
-                  <View style={styles.dividerLine} />
-                  <Text variant="caption" color={colors.textTertiary}>
-                    {t('common.or')}
-                  </Text>
-                  <View style={styles.dividerLine} />
-                </View>
+            {(googleConfigured || (Platform.OS === 'ios' && appleAvailable)) && (
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text variant="caption" color={colors.textTertiary}>
+                  {t('common.or')}
+                </Text>
+                <View style={styles.dividerLine} />
+              </View>
+            )}
 
-                <Button
-                  label={t('login.continueWithGoogle')}
-                  variant="outline"
-                  leading={<GoogleLogo size={18} />}
-                  onPress={onGooglePress}
-                  loading={googleLoading}
-                  disabled={googleLoading || (!desktopBridge && !googleRequest)}
-                  style={styles.googleBtn}
-                />
-              </>
+            {googleConfigured && (
+              <Button
+                label={t('login.continueWithGoogle')}
+                variant="outline"
+                leading={<GoogleLogo size={18} />}
+                onPress={onGooglePress}
+                loading={googleLoading}
+                disabled={googleLoading || (!desktopBridge && !googleRequest)}
+                style={styles.googleBtn}
+              />
+            )}
+
+            {Platform.OS === 'ios' && appleAvailable && (
+              <Button
+                label={t('login.continueWithApple')}
+                variant="outline"
+                leading={<AppleLogo size={18} color={colors.ink} />}
+                onPress={onApplePress}
+                loading={appleLoading}
+                disabled={appleLoading}
+                style={styles.googleBtn}
+              />
             )}
 
             <TouchableOpacity

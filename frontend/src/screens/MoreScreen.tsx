@@ -35,6 +35,7 @@ import { PRIVACY_ROUTE, TERMS_ROUTE } from '../legal';
 import { api, HideableTab, TabKey } from '../api';
 import { AppStyle, useAppStyle } from '../app-style';
 import { useAuth } from '../auth';
+import { AppleLogo } from '../components/AppleLogo';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
 import { Logo } from '../components/Logo';
@@ -249,6 +250,15 @@ export function MoreScreen({
                   accessibilityLabel={t('more.linkedGoogle')}
                 >
                   <GoogleLogo size={15} />
+                </View>
+              )}
+              {providers.includes('apple') && (
+                <View
+                  style={styles.providerBadge}
+                  accessibilityRole="image"
+                  accessibilityLabel={t('more.linkedApple')}
+                >
+                  <AppleLogo size={15} color={colors.textPrimary} />
                 </View>
               )}
             </View>

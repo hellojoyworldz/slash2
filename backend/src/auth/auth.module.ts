@@ -9,6 +9,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MailService } from './mail.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { AppleProvider } from './providers/apple.provider';
 import { GoogleProvider } from './providers/google.provider';
 import { SocialProviderRegistry } from './providers/social-provider.registry';
 
@@ -30,6 +31,7 @@ import { SocialProviderRegistry } from './providers/social-provider.registry';
     MailService,
     JwtAuthGuard,
     GoogleProvider,
+    AppleProvider,
     SocialProviderRegistry,
   ],
   exports: [JwtModule, JwtAuthGuard],
