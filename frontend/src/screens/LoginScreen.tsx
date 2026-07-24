@@ -6,14 +6,17 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { api, User } from '../api';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
+import { Logo } from '../components/Logo';
 import { Text } from '../components/Text';
 import { errorText } from '../i18n/errors';
 import { notify } from '../notify';
@@ -33,6 +36,11 @@ export function LoginScreen({ onLoggedIn }: Props) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // 구조 분기는 기기/OS 판정이 아니라 사이즈 클래스(폭/높이)로만 한다.
+  // 넓고 충분히 높은 창에서만 세로 중앙 정렬 — 그 외(모바일·낮은 창)는 상단 앵커.
+  // 상단 앵커면 소프트 키보드가 올라와도 입력칸이 애초에 키보드 위 영역에 있어 점프/가림이 없다.
+  const { width, height } = useWindowDimensions();
+  const centered = width >= 900 && height >= 640;
   // reset = 비번 재설정 모드 (메일로 받은 코드 + 새 비번을 앱 안에서 입력)
   const [mode, setMode] = useState<'login' | 'register' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -159,19 +167,59 @@ export function LoginScreen({ onLoggedIn }: Props) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.inner}>
-        <Image
-          source={require('../../assets/symbol.png')}
-          style={styles.symbol}
-          resizeMode="contain"
-          accessibilityRole="image"
-        />
-        <Text variant="display" color={colors.ink} style={styles.logo}>
-          slash
-        </Text>
-        <Text variant="body" color={colors.textSecondary} style={styles.tagline}>
-          {t('login.tagline')}
-        </Text>
+      {/* 폼이 길어(회원가입) 키보드에 닿거나 창이 낮으면 스크롤로 자연 접근.
+          keyboardShouldPersistTaps='handled'로 키보드가 떠 있어도 버튼 탭이 씹히지 않는다. */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          centered ? styles.scrollCentered : styles.scrollTop,
+        ]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.inner}>
+          {centered ? (
+            // 데스크톱/큰 창: 기존 세로 스택(마스코트 → 워드마크 → 태그라인, 중앙 정렬).
+            <>
+              <Image
+                source={require('../../assets/symbol.png')}
+                style={styles.symbol}
+                resizeMode="contain"
+                accessibilityRole="image"
+              />
+              <Text variant="display" color={colors.ink} style={styles.logo}>
+                slash
+              </Text>
+              <Text
+                variant="body"
+                color={colors.textSecondary}
+                style={styles.tagline}
+              >
+                {t('login.tagline')}
+              </Text>
+            </>
+          ) : (
+            // 모바일/낮은 창: 가로 브랜드 락업 한 줄 + 작은 태그라인.
+            // 데스크톱과 같은 중앙 계층을 유지하되 세로 스택(~170px)을 ~100px로 압축해
+            // 이메일 input을 위로 끌어올린다.
+            <>
+              <View style={styles.lockup}>
+                {/* 아이콘은 장식(워드마크 텍스트가 의미를 담음) — Logo가 다크모드 심볼 스왑 처리 */}
+                <Logo size={44} />
+                <Text variant="title" color={colors.ink} style={styles.wordmark}>
+                  slash
+                </Text>
+              </View>
+              <Text
+                variant="caption"
+                color={colors.textSecondary}
+                style={styles.taglineCompact}
+              >
+                {t('login.tagline')}
+              </Text>
+            </>
+          )}
 
         <TextInput
           style={[styles.input, focused === 'email' && styles.inputFocused]}
@@ -324,7 +372,8 @@ export function LoginScreen({ onLoggedIn }: Props) {
             </Text>
           </TouchableOpacity>
         )}
-      </View>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -334,9 +383,24 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  inner: {
+  scroll: {
     flex: 1,
+  },
+  // flexGrow:1 이라 내용이 짧으면 정렬 규칙(중앙/상단)을 따르고,
+  // 길면(회원가입·낮은 창) 그대로 스크롤된다 — 폼이 잘리지 않는다.
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
+  },
+  scrollCentered: {
     justifyContent: 'center',
+  },
+  scrollTop: {
+    justifyContent: 'flex-start',
+    // 상단 안전영역(상태바·노치) + 여백. 이메일 입력칸이 뷰포트 상단부에 오도록.
+    paddingTop: 48,
+  },
+  inner: {
     paddingHorizontal: 28,
     // 데스크톱 전폭에서도 폼이 퍼지지 않게
     width: '100%',
@@ -357,12 +421,31 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: 10,
     marginBottom: 56,
   },
+  // 모바일/낮은 창: 가로 브랜드 락업(아이콘 + 워드마크 한 줄, 중앙 정렬 — 데스크톱과 같은 계층).
+  lockup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'center',
+  },
+  wordmark: {
+    // title 변형 기반 + 30px — 44px 아이콘과 시각적으로 균형.
+    fontSize: 30,
+    includeFontPadding: false,
+  },
+  taglineCompact: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 28,
+  },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 0,
     paddingHorizontal: 12,
     paddingVertical: 16,
+    // 웹 모바일 자동 줌 방지: iOS Safari는 16px 미만 input에서 포커스 시 줌인해 점프가 커진다.
     fontSize: 16,
     color: colors.textPrimary,
     backgroundColor: colors.background,
