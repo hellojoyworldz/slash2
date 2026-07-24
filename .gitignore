@@ -6,11 +6,16 @@ frontend/.next/
 frontend/out/
 frontend/dist/
 backend/dist/
+desktop/dist/
+desktop/build/
 
 # env
 .env
 .env.local
 .env*.local
+
+# 데스크톱 구글 OAuth 크리덴셜(빌드 시 .env에서 생성, 시크릿 커밋 금지)
+desktop/google-oauth.json
 
 # logs
 *.log

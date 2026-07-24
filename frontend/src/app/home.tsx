@@ -54,6 +54,7 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth';
+import { isElectron } from '../auth-routes';
 import {
   LANGUAGE_NAMES,
   Language,
@@ -123,8 +124,8 @@ function T({ style, ...rest }: TextProps) {
 export default function HomeRoute() {
   const { token, emailVerified } = useAuth();
 
-  // 랜딩은 웹 전용 간판. 네이티브 접근은 로그인으로.
-  if (Platform.OS !== 'web') return <Redirect href="/login" />;
+  // 랜딩은 브라우저 웹 전용 간판. 네이티브·데스크톱(Electron) 접근은 로그인으로.
+  if (Platform.OS !== 'web' || isElectron) return <Redirect href="/login" />;
   // 웹에서 이미 로그인했으면 랜딩을 못 보게 앱으로 (미인증이면 인증 안내로).
   if (token) return <Redirect href={emailVerified ? '/friends' : '/verify'} />;
 

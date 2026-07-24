@@ -4,15 +4,87 @@
   "description": "slash 데스크탑 앱 (Electron)",
   "main": "main.js",
   "scripts": {
-    "build:web": "cd ../frontend && npx expo export --platform web",
+    "build:web": "node build-web.mjs",
+    "gen-icon:icns": "node gen-app-icon.mjs",
+    "gen-oauth": "node gen-oauth-config.mjs",
     "start": "electron .",
-    "dev": "ELECTRON_DEV=1 electron ."
+    "dev": "ELECTRON_DEV=1 electron .",
+    "predist": "npm run build:web && npm run gen-icon:icns && npm run gen-oauth",
+    "dist": "electron-builder",
+    "predist:win": "npm run build:web && npm run gen-icon:icns && npm run gen-oauth",
+    "dist:win": "electron-builder --win"
   },
   "type": "module",
   "devDependencies": {
-    "electron": "^43.1.0"
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "electron-serve": "^3.0.1"
+  },
+  "build": {
+    "appId": "com.app.slash.desktop",
+    "productName": "Slash",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "google-auth.mjs",
+      "iconTemplate.png",
+      "iconTemplate@2x.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "dist"
+      },
+      {
+        "from": "google-oauth.json",
+        "to": "google-oauth.json"
+      }
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

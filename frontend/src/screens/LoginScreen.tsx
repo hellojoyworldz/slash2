@@ -13,11 +13,13 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { api, User } from '../api';
+import { api, ApiError, User } from '../api';
+import { isElectron } from '../auth-routes';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
 import { Logo } from '../components/Logo';
 import { Text } from '../components/Text';
+import { getDesktopBridge } from '../desktop-bridge';
 import { errorText } from '../i18n/errors';
 import { notify } from '../notify';
 import { ThemeColors } from '../theme';
@@ -52,9 +54,39 @@ export function LoginScreen({ onLoggedIn }: Props) {
     null,
   );
 
+  // Electron 데스크톱 셸이면 웹 구글 플로우(팝업/리다이렉트) 대신 메인 프로세스의
+  // 데스크톱형 OAuth(시스템 브라우저 + 루프백 + PKCE)를 쓴다. 브리지가 있을 때만.
+  const desktopBridge = useMemo(() => getDesktopBridge(), []);
+  const [desktopGoogleReady, setDesktopGoogleReady] = useState(false);
+  useEffect(() => {
+    if (!desktopBridge) return;
+    let alive = true;
+    desktopBridge
+      .isGoogleConfigured()
+      .then((ok) => alive && setDesktopGoogleReady(ok))
+      .catch(() => alive && setDesktopGoogleReady(false));
+    return () => {
+      alive = false;
+    };
+  }, [desktopBridge]);
+
+  // 구글 버튼 노출 조건:
+  // - 데스크톱 셸: 브리지가 있고 메인이 크리덴셜을 로드할 수 있을 때만.
+  // - 데스크톱인데 브리지가 없으면(구버전 셸) 숨김 — 웹 구글 플로우는 Electron에서 안 맞다.
+  // - 웹: EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID가 있을 때만(비면 훅이 크래시해 흰 화면 나므로 숨김).
+  // - 네이티브: 항상 노출.
+  const googleConfigured = desktopBridge
+    ? desktopGoogleReady
+    : isElectron
+      ? false
+      : Platform.OS !== 'web' || !!process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  // 웹에서 webClientId가 비면 useIdTokenAuthRequest가 마운트 즉시 throw해
+  // 화면 전체가 죽는다(흰 화면). 더미 값으로 훅 크래시를 막고 버튼은 위 조건으로 숨긴다.
   const [googleRequest, googleResponse, promptGoogle] =
     Google.useIdTokenAuthRequest({
-      webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      webClientId:
+        process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+        'missing.apps.googleusercontent.com',
       iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
       androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     });
@@ -81,6 +113,28 @@ export function LoginScreen({ onLoggedIn }: Props) {
       })
       .finally(() => setGoogleLoading(false));
   }, [googleResponse]);
+
+  // 구글 버튼 탭: 데스크톱 셸이면 브리지 플로우, 그 외는 기존 웹/네이티브 promptGoogle.
+  const onGooglePress = () => {
+    if (desktopBridge) {
+      setGoogleLoading(true);
+      desktopBridge
+        .googleLogin()
+        .then((idToken) => api.socialLogin('google', idToken))
+        .then((result) => onLoggedIn(result.token, result.user))
+        .catch((error) => {
+          // 사용자가 브라우저에서 취소한 경우는 조용히 무시.
+          if (error instanceof Error && error.message === 'cancelled') return;
+          notify(
+            t('common.notice'),
+            error instanceof ApiError ? errorText(error) : t('login.googleFailed'),
+          );
+        })
+        .finally(() => setGoogleLoading(false));
+      return;
+    }
+    void promptGoogle();
+  };
 
   const submit = async () => {
     const trimmed = email.trim();
@@ -279,23 +333,27 @@ export function LoginScreen({ onLoggedIn }: Props) {
 
         {mode !== 'reset' && (
           <>
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text variant="caption" color={colors.textTertiary}>
-                {t('common.or')}
-              </Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {googleConfigured && (
+              <>
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text variant="caption" color={colors.textTertiary}>
+                    {t('common.or')}
+                  </Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            <Button
-              label={t('login.continueWithGoogle')}
-              variant="outline"
-              leading={<GoogleLogo size={18} />}
-              onPress={() => promptGoogle()}
-              loading={googleLoading}
-              disabled={!googleRequest || googleLoading}
-              style={styles.googleBtn}
-            />
+                <Button
+                  label={t('login.continueWithGoogle')}
+                  variant="outline"
+                  leading={<GoogleLogo size={18} />}
+                  onPress={onGooglePress}
+                  loading={googleLoading}
+                  disabled={googleLoading || (!desktopBridge && !googleRequest)}
+                  style={styles.googleBtn}
+                />
+              </>
+            )}
 
             <TouchableOpacity
               onPress={() => setMode(mode === 'login' ? 'register' : 'login')}

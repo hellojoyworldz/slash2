@@ -167,10 +167,13 @@ export interface RoomsSummary {
   }[];
 }
 
-// 개발 중에는 Expo 개발 서버를 띄운 컴퓨터의 IP를 자동으로 사용한다.
+// 배포 빌드는 EXPO_PUBLIC_API_URL(루트 .env)로 서버 주소를 박아 넣는다
+// (예: https://api.slash.example — 웹 정적 export·데스크톱 패키징·스토어 빌드 공통).
+// 미설정 시 개발 폴백: Expo 개발 서버를 띄운 컴퓨터의 IP를 자동으로 사용한다.
 // (폰과 컴퓨터가 같은 와이파이에 있으면 그대로 동작)
-// 서버를 실제 배포하면 이 값을 배포 주소로 바꾸면 된다.
 function resolveBaseUrl(): string {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) return `${envUrl.replace(/\/+$/, '')}/api`;
   const hostUri = Constants.expoConfig?.hostUri;
   const host = hostUri?.split(':')[0];
   if (host) return `http://${host}:4000/api`;

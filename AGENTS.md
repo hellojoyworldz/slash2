@@ -15,6 +15,8 @@ You are the orchestrator.
 
 - `frontend/` — Expo(React Native), expo-router. 웹/iOS/안드로이드 공용.
 - `backend/` — NestJS + TypeORM(PostgreSQL).
+- `desktop/` — frontend 웹 빌드(`frontend/dist`)를 감싸는 Electron 셸(메뉴바 상주형).
+  UI 코드 없음 — 화면은 전부 frontend가 진실. 개발: `ELECTRON_DEV=1`이면 8081 개발 서버 로드.
 - `docker-compose.yml` — db · backend · frontend · mailpit.
 - 도메인별 규칙은 `backend/AGENTS.md`, `frontend/AGENTS.md` 참고.
 
