@@ -12,6 +12,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { AppleProvider } from './providers/apple.provider';
 import { GoogleProvider } from './providers/google.provider';
 import { KakaoProvider } from './providers/kakao.provider';
+import { NaverProvider } from './providers/naver.provider';
 import { SocialProviderRegistry } from './providers/social-provider.registry';
 
 @Global()
@@ -34,6 +35,7 @@ import { SocialProviderRegistry } from './providers/social-provider.registry';
     GoogleProvider,
     AppleProvider,
     KakaoProvider,
+    NaverProvider,
     SocialProviderRegistry,
   ],
   exports: [JwtModule, JwtAuthGuard],

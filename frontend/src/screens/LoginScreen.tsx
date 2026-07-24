@@ -21,6 +21,7 @@ import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
 import { KakaoLogo } from '../components/KakaoLogo';
 import { Logo } from '../components/Logo';
+import { NaverLogo } from '../components/NaverLogo';
 import { Text } from '../components/Text';
 import { getDesktopBridge } from '../desktop-bridge';
 import { errorText } from '../i18n/errors';
@@ -54,7 +55,10 @@ export function LoginScreen({ onLoggedIn }: Props) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
-  const [kakaoLoading, setKakaoLoading] = useState(false);
+  // 카카오·네이버(코드 플로우)는 한 번에 하나만 진행되므로 provider 하나로 로딩을 공유한다.
+  const [codeFlowLoading, setCodeFlowLoading] = useState<
+    'kakao' | 'naver' | null
+  >(null);
   const [focused, setFocused] = useState<'email' | 'password' | 'code' | null>(
     null,
   );
@@ -191,37 +195,51 @@ export function LoginScreen({ onLoggedIn }: Props) {
     }
   };
 
-  // ── 카카오 (백엔드 코드 플로우) ──
-  // 카카오는 프론트가 토큰을 직접 못 받아 백엔드 콜백 플로우를 쓴다.
-  // 버튼 노출: EXPO_PUBLIC_SOCIAL_KAKAO 플래그 + 웹/네이티브(데스크톱 Electron은 딥링크 미구현이라 숨김).
+  // ── 카카오·네이버 (백엔드 코드 플로우) ──
+  // 둘 다 프론트가 토큰을 직접 못 받아 백엔드 콜백 플로우를 쓴다. 로직은 provider-무관이라
+  // 하나의 헬퍼(startCodeFlow)로 공유하고, 노출 여부만 각자의 EXPO_PUBLIC_SOCIAL_* 플래그로 갈린다.
+  type CodeFlowProviderName = 'kakao' | 'naver';
+  const codeFlowFailedKey: Record<CodeFlowProviderName, string> = {
+    kakao: 'login.kakaoFailed',
+    naver: 'login.naverFailed',
+  };
+  // 버튼 노출: 각 EXPO_PUBLIC_SOCIAL_* 플래그 + 웹/네이티브(데스크톱 Electron은 딥링크 미구현이라 숨김).
   const kakaoConfigured = !isElectron && !!process.env.EXPO_PUBLIC_SOCIAL_KAKAO;
+  const naverConfigured = !isElectron && !!process.env.EXPO_PUBLIC_SOCIAL_NAVER;
 
   // 백엔드가 발급한 앱 토큰으로 프로필을 받아 로그인 완료 처리.
-  const finishSocialLogin = async (token: string) => {
-    setKakaoLoading(true);
+  const finishSocialLogin = async (
+    token: string,
+    provider: CodeFlowProviderName,
+  ) => {
+    setCodeFlowLoading(provider);
     try {
       const user = await api.me(token);
       onLoggedIn(token, user);
     } catch {
-      notify(t('common.notice'), t('login.kakaoFailed'));
+      notify(t('common.notice'), t(codeFlowFailedKey[provider]));
     } finally {
-      setKakaoLoading(false);
+      setCodeFlowLoading(null);
     }
   };
 
   // 복귀 URL(웹 프래그먼트/네이티브 쿼리)에서 결과를 읽어 처리. 취소는 조용히 무시.
-  const handleSocialParams = (params: URLSearchParams) => {
+  const handleSocialParams = (
+    params: URLSearchParams,
+    provider: CodeFlowProviderName,
+  ) => {
     const token = params.get('social_token');
     const err = params.get('social_error');
     if (token) {
-      void finishSocialLogin(token);
+      void finishSocialLogin(token, provider);
     } else if (err && err !== 'social_cancelled') {
-      notify(t('common.notice'), t('login.kakaoFailed'));
+      notify(t('common.notice'), t(codeFlowFailedKey[provider]));
     }
   };
 
-  // 웹: 카카오에서 프래그먼트(#social_token/#social_error)로 되돌아온 걸 마운트 시 처리.
+  // 웹: provider에서 프래그먼트(#social_token/#social_error)로 되돌아온 걸 마운트 시 처리.
   // 토큰이 히스토리에 남지 않도록 즉시 해시를 제거한다.
+  // 풀 페이지 이동으로 복귀하므로(JS 상태가 소실) 어떤 provider였는지는 세션스토리지로 복원.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const hash = window.location.hash ?? '';
@@ -232,31 +250,38 @@ export function LoginScreen({ onLoggedIn }: Props) {
       '',
       window.location.pathname + window.location.search,
     );
-    handleSocialParams(params);
+    const provider =
+      (window.sessionStorage.getItem(
+        'slash.socialCodeFlowProvider',
+      ) as CodeFlowProviderName | null) ?? 'kakao';
+    window.sessionStorage.removeItem('slash.socialCodeFlowProvider');
+    handleSocialParams(params, provider);
   }, []);
 
-  const onKakaoPress = () => {
+  // 카카오/네이버 버튼 공용 탭 핸들러.
+  const startCodeFlow = (provider: CodeFlowProviderName) => {
     if (Platform.OS === 'web') {
       // 현재 로그인 페이지로 복귀(기존 해시는 떼고). 백엔드가 여기 origin을 화이트리스트 검증한다.
       const returnUrl = window.location.href.split('#')[0];
-      window.location.href = `${BASE_URL}/auth/social/kakao/start?platform=web&return=${encodeURIComponent(
+      window.sessionStorage.setItem('slash.socialCodeFlowProvider', provider);
+      window.location.href = `${BASE_URL}/auth/social/${provider}/start?platform=web&return=${encodeURIComponent(
         returnUrl,
       )}`;
       return;
     }
     // 네이티브: 시스템 인증 세션 → slash://auth?social_token|social_error 로 복귀.
-    setKakaoLoading(true);
+    setCodeFlowLoading(provider);
     WebBrowser.openAuthSessionAsync(
-      `${BASE_URL}/auth/social/kakao/start?platform=native`,
+      `${BASE_URL}/auth/social/${provider}/start?platform=native`,
       'slash://auth',
     )
       .then((result) => {
         if (result.type !== 'success') return; // cancel, dismiss 등은 조용히 무시
         const query = result.url.split('?')[1] ?? '';
-        handleSocialParams(new URLSearchParams(query));
+        handleSocialParams(new URLSearchParams(query), provider);
       })
-      .catch(() => notify(t('common.notice'), t('login.kakaoFailed')))
-      .finally(() => setKakaoLoading(false));
+      .catch(() => notify(t('common.notice'), t(codeFlowFailedKey[provider])))
+      .finally(() => setCodeFlowLoading(null));
   };
 
   const submit = async () => {
@@ -458,7 +483,8 @@ export function LoginScreen({ onLoggedIn }: Props) {
           <>
             {(googleConfigured ||
               (Platform.OS === 'ios' && appleAvailable) ||
-              kakaoConfigured) && (
+              kakaoConfigured ||
+              naverConfigured) && (
               <View style={styles.dividerRow}>
                 <View style={styles.dividerLine} />
                 <Text variant="caption" color={colors.textTertiary}>
@@ -497,9 +523,21 @@ export function LoginScreen({ onLoggedIn }: Props) {
                 label={t('login.continueWithKakao')}
                 variant="outline"
                 leading={<KakaoLogo size={18} color={colors.ink} />}
-                onPress={onKakaoPress}
-                loading={kakaoLoading}
-                disabled={kakaoLoading}
+                onPress={() => startCodeFlow('kakao')}
+                loading={codeFlowLoading === 'kakao'}
+                disabled={codeFlowLoading === 'kakao'}
+                style={styles.googleBtn}
+              />
+            )}
+
+            {naverConfigured && (
+              <Button
+                label={t('login.continueWithNaver')}
+                variant="outline"
+                leading={<NaverLogo size={18} color={colors.ink} />}
+                onPress={() => startCodeFlow('naver')}
+                loading={codeFlowLoading === 'naver'}
+                disabled={codeFlowLoading === 'naver'}
                 style={styles.googleBtn}
               />
             )}

@@ -54,6 +54,7 @@ export default {
     continueWithGoogle: 'Google로 계속하기',
     continueWithApple: 'Apple로 계속하기',
     continueWithKakao: '카카오로 계속하기',
+    continueWithNaver: '네이버로 계속하기',
     forgotPassword: '비밀번호를 잊으셨나요?',
     firstTimePrefix: '처음이신가요? ',
     signupLink: '회원가입',
@@ -67,6 +68,7 @@ export default {
     appleFailed: 'Apple 로그인에 실패했습니다.',
     appleNoToken: 'Apple에서 토큰을 받지 못했습니다.',
     kakaoFailed: '카카오 로그인에 실패했습니다.',
+    naverFailed: '네이버 로그인에 실패했습니다.',
     enterEmailForReset: '비밀번호를 재설정할 이메일을 먼저 입력해주세요.',
     resetSentTitle: '메일 전송',
     resetSentBody:
@@ -291,6 +293,7 @@ export default {
     linkedGoogle: 'Google 연결됨',
     linkedApple: 'Apple 연결됨',
     linkedKakao: '카카오 연결됨',
+    linkedNaver: '네이버 연결됨',
     menu: '메뉴',
     appInfo: '앱 정보',
     version: '버전',

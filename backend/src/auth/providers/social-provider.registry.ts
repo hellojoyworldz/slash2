@@ -3,6 +3,7 @@ import { SocialProviderName } from '../../users/social-account.entity';
 import { AppleProvider } from './apple.provider';
 import { GoogleProvider } from './google.provider';
 import { KakaoProvider } from './kakao.provider';
+import { NaverProvider } from './naver.provider';
 import {
   CodeFlowProvider,
   SocialProvider,
@@ -21,10 +22,12 @@ export class SocialProviderRegistry {
     google: GoogleProvider,
     apple: AppleProvider,
     kakao: KakaoProvider,
+    naver: NaverProvider,
   ) {
     this.register(google);
     this.register(apple);
     this.registerCodeFlow(kakao);
+    this.registerCodeFlow(naver);
   }
 
   private register(provider: SocialProvider) {

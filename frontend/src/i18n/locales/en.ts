@@ -52,6 +52,7 @@ export default {
     continueWithGoogle: 'Continue with Google',
     continueWithApple: 'Continue with Apple',
     continueWithKakao: 'Continue with Kakao',
+    continueWithNaver: 'Continue with NAVER',
     forgotPassword: 'Forgot your password?',
     firstTimePrefix: 'First time here? ',
     signupLink: 'Sign up',
@@ -65,6 +66,7 @@ export default {
     appleFailed: 'Apple sign-in failed.',
     appleNoToken: 'Could not get a token from Apple.',
     kakaoFailed: 'Kakao sign-in failed.',
+    naverFailed: 'NAVER sign-in failed.',
     enterEmailForReset: 'Enter the email to reset the password for first.',
     resetSentTitle: 'Email sent',
     resetSentBody:
@@ -284,6 +286,7 @@ export default {
     linkedGoogle: 'Linked with Google',
     linkedApple: 'Linked with Apple',
     linkedKakao: 'Linked with Kakao',
+    linkedNaver: 'Linked with NAVER',
     menu: 'Menu',
     appInfo: 'App info',
     version: 'Version',
