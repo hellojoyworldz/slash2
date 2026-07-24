@@ -9,8 +9,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { resolveLocale } from '../i18n/messages';
 import { CurrentUser } from './current-user.decorator';
 import {
@@ -59,6 +61,39 @@ export class AuthController {
     @Body() dto: SocialLoginDto,
   ) {
     return this.auth.socialLogin(provider, dto.token, dto.name);
+  }
+
+  // ── 소셜 코드 플로우 (백엔드 콜백: 카카오·네이버 등) ──
+  // 앱이 여기로 진입하면 provider 로그인 화면으로 302 보낸다.
+  // platform=web이면 return(현재 웹 주소)으로, native면 slash://auth 로 복귀한다.
+  @Get('social/:provider/start')
+  socialCodeStart(
+    @Param('provider') provider: string,
+    @Res() res: Response,
+    @Query('platform') platform = 'web',
+    @Query('return') returnUri?: string,
+  ) {
+    const url = this.auth.buildSocialCodeStart(provider, platform, returnUri);
+    res.redirect(302, url);
+  }
+
+  // provider가 로그인 후 되돌아오는 콜백. 결과(토큰/에러)를 앱으로 302 리다이렉트한다.
+  // 토큰은 web=프래그먼트(#), native=쿼리(?)로 실어 보낸다.
+  @Get('social/:provider/callback')
+  async socialCodeCallback(
+    @Param('provider') provider: string,
+    @Res() res: Response,
+    @Query('code') code?: string,
+    @Query('state') state?: string,
+    @Query('error') error?: string,
+  ) {
+    const url = await this.auth.completeSocialCode(
+      provider,
+      code,
+      state,
+      error,
+    );
+    res.redirect(302, url);
   }
 
   // 인증 메일 다시 보내기 (로그인 필요).

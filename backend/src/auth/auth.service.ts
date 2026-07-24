@@ -26,10 +26,14 @@ import {
   isValidHiddenTabs,
   isValidTabOrder,
 } from '../users/tab-order';
-import { SocialAccount } from '../users/social-account.entity';
+import {
+  SocialAccount,
+  SocialProviderName,
+} from '../users/social-account.entity';
 import { User } from '../users/user.entity';
 import { AuthToken, AuthTokenPurpose } from './auth-token.entity';
 import { MailService } from './mail.service';
+import { SocialProfile } from './providers/social-provider.interface';
 import { SocialProviderRegistry } from './providers/social-provider.registry';
 
 export interface JwtPayload {
@@ -447,12 +451,22 @@ export class AuthService {
   async socialLogin(providerName: string, token: string, name?: string) {
     const provider = this.providers.get(providerName);
     const profile = await provider.verify(token);
+    return this.loginWithSocialProfile(provider.name, profile, name);
+  }
+
+  // 표준 프로필 → 유저 병합·토큰 발급. 토큰 방식(socialLogin)과 코드 방식(콜백)이 공유한다.
+  // "검증된 같은 이메일이면 같은 계정으로 통합"하는 핵심 규칙은 여기 한 곳에만 있다.
+  async loginWithSocialProfile(
+    providerName: SocialProviderName,
+    profile: SocialProfile,
+    name?: string,
+  ) {
     // 애플은 identity token에 이름이 없어 최초 인증 응답의 이름을 폴백으로 받는다.
-    // provider가 이미 이름을 준 경우(구글 등)는 그대로 우선한다.
+    // provider가 이미 이름을 준 경우(구글·카카오 등)는 그대로 우선한다.
     const displayName = profile.displayName ?? name;
 
     const existing = await this.socialAccounts.findOne({
-      where: { provider: provider.name, providerId: profile.providerId },
+      where: { provider: providerName, providerId: profile.providerId },
       relations: { user: true },
     });
     if (existing) {
@@ -498,13 +512,179 @@ export class AuthService {
     }
 
     const account = this.socialAccounts.create({
-      provider: provider.name,
+      provider: providerName,
       providerId: profile.providerId,
       user,
     });
     await this.socialAccounts.save(account);
 
     return this.issueToken(user);
+  }
+
+  // ── 소셜 코드 플로우 (백엔드 콜백: 카카오·네이버 등) ─────────────
+  //
+  // 프론트가 토큰을 직접 못 받는 provider용. 흐름:
+  //   1) 앱이 GET /auth/social/:provider/start?platform&return 으로 진입
+  //   2) 여기서 state(단기 서명 JWT)를 만들어 provider authorize URL로 302
+  //   3) provider가 GET /auth/social/:provider/callback?code&state 로 되돌림
+  //   4) state 검증 → 코드 교환 → 유저 병합 → 앱 JWT 발급 → 앱으로 복귀 리다이렉트
+  // state를 스테이트리스 JWT로 서명해 DB 없이 platform·return을 안전하게 왕복시킨다.
+
+  // 네이티브 복귀는 커스텀 스킴 고정(open redirect 방지) — return 파라미터를 신뢰하지 않는다.
+  private static readonly NATIVE_RETURN = 'slash://auth';
+
+  // start: authorize URL을 만들어 돌려준다(컨트롤러가 302). 설정 누락/잘못된 입력은 throw.
+  buildSocialCodeStart(
+    providerName: string,
+    platform: string,
+    returnUri?: string,
+  ): string {
+    const provider = this.providers.getCodeFlow(providerName);
+    if (platform !== 'web' && platform !== 'native') {
+      throw new BadRequestException({
+        code: 'invalid_platform',
+        message: 'platform은 web 또는 native여야 합니다.',
+      });
+    }
+    // web은 등록된 origin으로만 복귀 허용(open redirect 차단), native는 스킴 고정.
+    let ret: string;
+    if (platform === 'web') {
+      if (!returnUri || !this.isAllowedReturn(returnUri)) {
+        throw new BadRequestException({
+          code: 'invalid_return',
+          message: '허용되지 않은 복귀 주소입니다.',
+        });
+      }
+      ret = returnUri;
+    } else {
+      ret = AuthService.NATIVE_RETURN;
+    }
+    const state = this.jwt.sign(
+      { typ: 'social_state', provider: providerName, platform, ret },
+      { expiresIn: '10m' },
+    );
+    return provider.getAuthorizeUrl({
+      redirectUri: this.socialRedirectUri(providerName),
+      state,
+    });
+  }
+
+  // callback: 최종 복귀 URL(앱으로 302)을 돌려준다.
+  // state가 유효하지 않으면(복귀 주소를 신뢰할 수 없으므로) throw → 400. 그 외 실패는
+  // 앱으로 social_error를 실어 조용히 복귀시킨다(사용자 취소·교환 실패 등).
+  async completeSocialCode(
+    providerName: string,
+    code?: string,
+    state?: string,
+    error?: string,
+  ): Promise<string> {
+    const claims = this.verifySocialState(state);
+    // state는 진입한 provider에 묶여 있어야 한다(교차 사용 방지).
+    if (claims.provider !== providerName) {
+      throw new BadRequestException({
+        code: 'invalid_state',
+        message: '잘못된 요청입니다.',
+      });
+    }
+    const { platform, ret } = claims;
+    try {
+      // 사용자가 provider 동의 화면에서 취소하면 error 파라미터가 실려 온다.
+      if (error) {
+        const reason =
+          error === 'access_denied' ? 'social_cancelled' : 'social_failed';
+        return this.socialReturnUrl(platform, ret, { error: reason });
+      }
+      if (!code) {
+        return this.socialReturnUrl(platform, ret, { error: 'social_failed' });
+      }
+      const provider = this.providers.getCodeFlow(providerName);
+      const profile = await provider.exchangeCode({
+        code,
+        redirectUri: this.socialRedirectUri(providerName),
+      });
+      const { token } = await this.loginWithSocialProfile(provider.name, profile);
+      return this.socialReturnUrl(platform, ret, { token });
+    } catch {
+      // 코드 교환·프로필 조회·DB 저장 실패는 앱으로 실패 코드만 넘긴다.
+      return this.socialReturnUrl(platform, ret, { error: 'social_failed' });
+    }
+  }
+
+  // redirect_uri는 authorize·token 교환에서 동일해야 한다(provider 검증 규칙).
+  // 전역 prefix가 /api라 콜백 경로도 /api를 포함한다.
+  private socialRedirectUri(provider: string): string {
+    const base = this.config
+      .get<string>('API_PUBLIC_URL', 'http://localhost:4000')
+      .replace(/\/+$/, '');
+    return `${base}/api/auth/social/${provider}/callback`;
+  }
+
+  // web 복귀 주소는 CORS_ORIGIN에 등록된 origin만 허용한다(open redirect 방지).
+  private isAllowedReturn(returnUri: string): boolean {
+    let origin: string;
+    try {
+      origin = new URL(returnUri).origin;
+    } catch {
+      return false;
+    }
+    const raw = this.config.get<string>('CORS_ORIGIN', '*');
+    // CORS가 전체 허용(*)인 개발 환경에선 http(s) 주소만 통과시킨다.
+    if (raw === '*') return /^https?:\/\//.test(returnUri);
+    return raw
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean)
+      .includes(origin);
+  }
+
+  // 복귀 URL 구성:
+  //  - web: 프래그먼트(#)에 실어 서버 로그·리퍼러에 토큰이 남지 않게 한다.
+  //  - native: 커스텀 스킴 쿼리(?)로 실어 WebBrowser 결과 URL에서 파싱하게 한다.
+  private socialReturnUrl(
+    platform: 'web' | 'native',
+    ret: string,
+    result: { token?: string; error?: string },
+  ): string {
+    const param = result.token
+      ? `social_token=${encodeURIComponent(result.token)}`
+      : `social_error=${encodeURIComponent(result.error ?? 'social_failed')}`;
+    return platform === 'native' ? `${ret}?${param}` : `${ret}#${param}`;
+  }
+
+  // 단기 state JWT 검증. typ로 인증용 토큰과 구분해 오용을 막는다.
+  private verifySocialState(state?: string): {
+    provider: string;
+    platform: 'web' | 'native';
+    ret: string;
+  } {
+    if (state) {
+      try {
+        const payload = this.jwt.verify<{
+          typ?: string;
+          provider?: string;
+          platform?: string;
+          ret?: string;
+        }>(state);
+        if (
+          payload.typ === 'social_state' &&
+          payload.provider &&
+          (payload.platform === 'web' || payload.platform === 'native') &&
+          payload.ret
+        ) {
+          return {
+            provider: payload.provider,
+            platform: payload.platform,
+            ret: payload.ret,
+          };
+        }
+      } catch {
+        // 아래 공통 에러로 떨군다.
+      }
+    }
+    throw new BadRequestException({
+      code: 'invalid_state',
+      message: '잘못된 요청입니다.',
+    });
   }
 
   // ── 내부 헬퍼 ───────────────────────────────────────────────────

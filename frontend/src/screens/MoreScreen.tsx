@@ -38,6 +38,7 @@ import { useAuth } from '../auth';
 import { AppleLogo } from '../components/AppleLogo';
 import { Button } from '../components/Button';
 import { GoogleLogo } from '../components/GoogleLogo';
+import { KakaoLogo } from '../components/KakaoLogo';
 import { Logo } from '../components/Logo';
 import { Text } from '../components/Text';
 import { useNameEdit } from '../name-edit';
@@ -259,6 +260,15 @@ export function MoreScreen({
                   accessibilityLabel={t('more.linkedApple')}
                 >
                   <AppleLogo size={15} color={colors.textPrimary} />
+                </View>
+              )}
+              {providers.includes('kakao') && (
+                <View
+                  style={styles.providerBadge}
+                  accessibilityRole="image"
+                  accessibilityLabel={t('more.linkedKakao')}
+                >
+                  <KakaoLogo size={15} color={colors.textPrimary} />
                 </View>
               )}
             </View>
