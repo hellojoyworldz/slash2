@@ -69,6 +69,9 @@ export function useTabReorder(opts: {
   /** 드래그(롱프레스)가 활성된 순간(onStart)에 호출 — 캡슐 편집 모드 진입 등. 이동 없이 떼도
    *  onStart는 롱프레스 시점에 발화하므로 "꾹 눌러 편집 모드"와 "꾹 눌러 드래그"가 한 제스처로 이어진다. */
   onDragStart?: () => void;
+  /** 드래그 중 목표 슬롯(hop)이 바뀔 때마다 새 targetIndex로 호출 — 가로 스크롤 컨테이너 안에서
+   *  드래그 중인 캡슐이 뷰 밖으로 나가지 않도록 "대상 위치로 스크롤 따라가기"에 쓰인다. */
+  onHopChange?: (index: number) => void;
 }): TabReorderControls {
   const { visibleOrderRef } = opts;
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -89,6 +92,8 @@ export function useTabReorder(opts: {
   variableRef.current = opts.variableSize ?? false;
   const onDragStartRef = useRef(opts.onDragStart);
   onDragStartRef.current = opts.onDragStart;
+  const onHopChangeRef = useRef(opts.onHopChange);
+  onHopChangeRef.current = opts.onHopChange;
 
   const startIndexRef = useRef(0);
   const boundsRef = useRef({ min: 0, max: 0 });
@@ -221,6 +226,7 @@ export function useTabReorder(opts: {
           if (targetIndex.value !== lastHopRef.current) {
             lastHopRef.current = targetIndex.value;
             hapticSelection();
+            onHopChangeRef.current?.(targetIndex.value);
           }
         })
         .onFinalize(() => {

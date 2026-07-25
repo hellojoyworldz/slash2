@@ -21,13 +21,20 @@ import {
   Trash2,
   X,
 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   FlatList,
+  LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   useWindowDimensions,
   View,
+  ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -66,7 +73,7 @@ import {
   useTabReorder,
 } from '../tab-reorder';
 import { useTagCreate } from '../tag-create';
-import { layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
+import { hexAlpha, layout, SELF_DEFAULT_COLOR, ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import {
   beginGlobalGrabbingCursor,
@@ -85,6 +92,11 @@ import { TagsScreen } from './TagsScreen';
 const ROW_HEIGHT = 64;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+// 웹에서만 캡슐 바에 잡아끌기 가능함을 알리는 grab 커서(RN 타입에 없는 값이라 캐스팅).
+// 패닝 중엔 이 값을 imperative하게 'grabbing'으로 덮어썼다가 놓으면 다시 이 클래스값으로 복귀한다.
+const grabCursor =
+  Platform.OS === 'web' ? ({ cursor: 'grab' } as unknown as ViewStyle) : null;
 
 // 들린 행: opacity(그림자 금지 — DESIGN) + zIndex/elevation로 형제 위로.
 const LIFT = { opacity: 0.95, zIndex: 10, elevation: 10 } as const;
@@ -1034,6 +1046,7 @@ function ClassifyCapsule({
   showLabel,
   onPress,
   onToggleHidden,
+  onLayoutMeasured,
 }: {
   capKey: ClassifyTab;
   index: number;
@@ -1050,6 +1063,8 @@ function ClassifyCapsule({
   showLabel: string;
   onPress: () => void;
   onToggleHidden: () => void;
+  /** 실측 레이아웃(가로 스크롤 콘텐츠 기준 x·width) — 부모가 "선택 탭/드래그 대상 보이게 스크롤"에 쓴다. */
+  onLayoutMeasured?: (x: number, width: number) => void;
 }) {
   const { colors } = useTheme();
   const styles = useMemo(() => makeCapsuleStyles(colors), [colors]);
@@ -1066,7 +1081,10 @@ function ClassifyCapsule({
     // overflow는 기본 visible — 배지가 캡슐 밖으로(음수 오프셋) 삐져나오도록 클립하지 않는다.
     <Animated.View
       style={[animStyle, isDragging && styles.capsuleLifted]}
-      onLayout={(e) => reorder.onItemLayout(index, e)}
+      onLayout={(e) => {
+        reorder.onItemLayout(index, e);
+        onLayoutMeasured?.(e.nativeEvent.layout.x, e.nativeEvent.layout.width);
+      }}
     >
       <GestureDetector gesture={reorder.getGesture(capKey)}>
         <Pressable
@@ -1170,6 +1188,102 @@ function ClassifyCapsuleTabs({
   tokenRef.current = token;
   const capsuleOrderRef = useRef(capsuleOrder);
   capsuleOrderRef.current = capsuleOrder;
+  // 드래그 targetIndex → capKey 매핑에 쓸 최신 렌더 순서(콜백 캐시 안에서도 최신 값을 읽게).
+  const renderedOrderRef = useRef<ClassifyTab[]>(renderedOrder);
+  renderedOrderRef.current = renderedOrder;
+
+  // ── 캡슐 바 가로 스크롤(좁은 화면에서 줄바꿈 대신 한 줄 유지) ──────────────────────
+  const scrollRef = useRef<ScrollView>(null);
+  // 각 캡슐의 실측 위치(스크롤 콘텐츠 기준 x·width) — 선택/드래그 대상 스크롤에 쓴다.
+  const itemLayoutsRef = useRef<Record<string, { x: number; width: number }>>({});
+  const scrollXRef = useRef(0);
+  const containerWidthRef = useRef(0);
+  const contentWidthRef = useRef(0);
+  // 양끝 페이드 — 그 방향으로 스크롤할 내용이 더 있을 때만 보인다(스크롤 위치 따라 토글).
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateFades = useCallback(() => {
+    const EPS = 2;
+    const overflow = contentWidthRef.current - containerWidthRef.current;
+    setCanScrollLeft(scrollXRef.current > EPS);
+    setCanScrollRight(overflow - scrollXRef.current > EPS);
+  }, []);
+
+  const handleScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      scrollXRef.current = e.nativeEvent.contentOffset.x;
+      updateFades();
+    },
+    [updateFades],
+  );
+  const handleContainerLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      containerWidthRef.current = e.nativeEvent.layout.width;
+      updateFades();
+    },
+    [updateFades],
+  );
+  const handleContentSizeChange = useCallback(
+    (w: number) => {
+      contentWidthRef.current = w;
+      updateFades();
+    },
+    [updateFades],
+  );
+
+  // capKey가 보이는 영역 밖으로 걸치면 그쪽 끝이 보이도록만 스크롤한다(이미 보이면 무동작).
+  const scrollIntoView = useCallback((capKey: ClassifyTab, animated = true) => {
+    const item = itemLayoutsRef.current[capKey];
+    const cw = containerWidthRef.current;
+    if (!item || !cw) return;
+    const PAD = 8;
+    const x = scrollXRef.current;
+    if (item.x < x + PAD) {
+      scrollRef.current?.scrollTo({ x: Math.max(0, item.x - PAD), animated });
+    } else if (item.x + item.width > x + cw - PAD) {
+      scrollRef.current?.scrollTo({ x: item.x + item.width - cw + PAD, animated });
+    }
+  }, []);
+
+  // 마운트 시 현재 선택 캡슐이 보이도록 — onLayout 실측이 비동기라 다음 프레임에 시도한다.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => scrollIntoView(value, false));
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 웹: 세로 마우스 휠을 가로 스크롤로 변환(트랙패드의 실제 가로 스크롤 제스처는 그대로 둔다).
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = (
+      scrollRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null
+    )?.getScrollableNode?.();
+    if (!node) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      node.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // 드래그 중 목표 슬롯(hop)이 바뀔 때마다 그 캡슐이 보이도록 스크롤을 따라간다 — 잡은 캡슐이
+  // 뷰 밖으로 밀려나지 않게(좁은 화면에서 캡슐 수가 늘어나는 경우 대비).
+  const scrollToHop = useCallback(
+    (idx: number) => {
+      const capKey = renderedOrderRef.current[idx];
+      if (capKey) scrollIntoView(capKey, false);
+    },
+    [scrollIntoView],
+  );
+
+  // 페이드 그라데이션 색 — 캡슐 바 배경(colors.background)과 동일 계열에서 불투명→투명으로.
+  const fadeColors = useMemo(
+    () => [colors.background, hexAlpha(colors.background, 0)] as const,
+    [colors.background],
+  );
 
   // 커밋: 새 캡슐 순서를 그대로 capsuleOrder로 저장(메뉴 tabOrder는 건드리지 않는다) → 낙관 반영 + 서버 저장.
   // 실제 재정렬은 편집 모드(세 캡슐 모두 렌더)에서만 일어나므로 세 키가 다 있을 때만 커밋한다(방어).
@@ -1198,7 +1312,79 @@ function ClassifyCapsuleTabs({
     variableSize: true,
     // 롱프레스 활성 순간 편집 모드 진입 — 이동으로 이어지면 재정렬도 그대로.
     onDragStart: onEnterEditMode,
+    // 드래그 중 목표 슬롯이 바뀔 때마다 그 캡슐로 스크롤 따라가기(가로 스크롤 컨테이너 대응).
+    onHopChange: scrollToHop,
   });
+  // 재정렬 드래그(롱프레스 250ms 후 활성) 활성 여부를 패닝 리스너가 매번 최신으로 읽게(ref 미러).
+  const draggingKeyRef = useRef<string | null>(reorder.draggingKey);
+  draggingKeyRef.current = reorder.draggingKey;
+
+  // 웹: 마우스로 캡슐 바를 잡아끌어(click-drag) 패닝 — 휠만으로는 발견성이 낮다는 피드백 대응.
+  // 재정렬 롱프레스 드래그(activateAfterLongPress:250ms)와의 구분:
+  //  · 재정렬은 "누른 채 15px 이상 움직이면 즉시 실패"하고, 250ms 동안 거의 안 움직여야 활성화된다
+  //    (react-native-gesture-handler web PanGestureHandler의 shouldFail 로직 — activateAfterLongPress가
+  //    설정되면 activeOffsetX/Y와 무관하게 이동량이 크면 그냥 실패로 처리된다).
+  //  · 패닝은 5px만 넘으면 즉시 시작 — 재정렬을 의도한 "가만히 꾹 누르기"에서는 5px도 잘 안 넘으므로
+  //    보통 서로 겹치지 않는다. 혹시 겹치더라도 매 pointermove에서 draggingKeyRef를 확인해 재정렬이
+  //    실제로 활성화된 순간(draggingKey !== null)엔 패닝이 scrollLeft를 더 이상 건드리지 않는다.
+  //  · 패닝이 실제로 일어났으면(moved) 뒤따르는 click을 캡처 단계에서 1회 억제해 탭 오전환을 막는다.
+  //  · 마우스 포인터에만 반응(pointerType==='mouse') — 터치는 네이티브 스크롤에 맡긴다.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = (
+      scrollRef.current as unknown as { getScrollableNode?: () => HTMLElement } | null
+    )?.getScrollableNode?.();
+    if (!node) return;
+    const PAN_THRESHOLD = 5;
+    let start: { x: number; scrollLeft: number; moved: boolean } | null = null;
+
+    const suppressNextClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      window.removeEventListener('click', suppressNextClick, true);
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!start) return;
+      if (draggingKeyRef.current !== null) return; // 재정렬 드래그가 활성화되면 패닝은 개입 안 함.
+      const dx = e.clientX - start.x;
+      if (!start.moved) {
+        if (Math.abs(dx) < PAN_THRESHOLD) return;
+        start.moved = true;
+        node.style.cursor = 'grabbing';
+      }
+      node.scrollLeft = start.scrollLeft - dx;
+      e.preventDefault();
+    };
+    const endPan = () => {
+      window.removeEventListener('pointermove', onPointerMove, true);
+      window.removeEventListener('pointerup', endPan, true);
+      window.removeEventListener('pointercancel', endPan, true);
+      node.style.cursor = '';
+      if (start?.moved) {
+        window.addEventListener('click', suppressNextClick, true);
+        setTimeout(() => window.removeEventListener('click', suppressNextClick, true), 300);
+      }
+      start = null;
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      if (draggingKeyRef.current !== null) return; // 재정렬 드래그 중이면 패닝 시작 안 함.
+      start = { x: e.clientX, scrollLeft: node.scrollLeft, moved: false };
+      window.addEventListener('pointermove', onPointerMove, true);
+      window.addEventListener('pointerup', endPan, true);
+      window.addEventListener('pointercancel', endPan, true);
+    };
+
+    node.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      node.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointermove', onPointerMove, true);
+      window.removeEventListener('pointerup', endPan, true);
+      window.removeEventListener('pointercancel', endPan, true);
+      window.removeEventListener('click', suppressNextClick, true);
+    };
+  }, []);
 
   // 노출 토글 — 태그·자동구분만(분류는 항상 노출). 캡슐 전용 hiddenCapsules 상태. 낙관 + 실패 복원.
   const toggleHidden = useCallback(
@@ -1228,39 +1414,76 @@ function ClassifyCapsuleTabs({
 
   return (
     <View style={styles.bar} accessibilityRole="tablist">
-      <View style={styles.capsuleGroup}>
-        {renderedOrder.map((capKey, index) => {
-          const active = value === capKey;
-          const label = t(CLASSIFY_LABEL_KEYS[capKey]);
-          const canHide = capKey !== 'friends'; // 분류는 숨김 불가 — 배지 없음·항상 노출
-          const isHidden = isCapsuleHidden(capKey);
-          return (
-            <ClassifyCapsule
-              key={capKey}
-              capKey={capKey}
-              index={index}
-              reorder={reorder}
-              active={active}
-              isHidden={isHidden}
-              isDragging={reorder.draggingKey === capKey}
-              editMode={editMode}
-              canHide={canHide}
-              label={label}
-              hideLabel={t('friends.hideTab', { name: label })}
-              showLabel={t('friends.showTab', { name: label })}
-              onPress={() => {
-                if (reorder.didDragRef.current) return; // 드래그 직후 오탭 무시
-                // 편집 모드 중엔 화면 전환 금지 — 흐린(숨긴) 캡슐 탭만 되켜기로 동작.
-                if (editMode) {
-                  if (isHidden) toggleHidden(capKey);
-                  return;
-                }
-                onChange(capKey);
-              }}
-              onToggleHidden={() => toggleHidden(capKey)}
-            />
-          );
-        })}
+      <View style={styles.scrollWrap}>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.scroll, grabCursor]}
+          contentContainerStyle={styles.capsuleGroup}
+          // 드래그 중엔 스크롤을 꺼서 손가락 이동이 재정렬에만 쓰이게 한다(본 목록 드래그와 같은 규칙).
+          scrollEnabled={reorder.draggingKey === null}
+          onLayout={handleContainerLayout}
+          onContentSizeChange={handleContentSizeChange}
+          onScroll={handleScroll}
+          scrollEventThrottle={32}
+        >
+          {renderedOrder.map((capKey, index) => {
+            const active = value === capKey;
+            const label = t(CLASSIFY_LABEL_KEYS[capKey]);
+            const canHide = capKey !== 'friends'; // 분류는 숨김 불가 — 배지 없음·항상 노출
+            const isHidden = isCapsuleHidden(capKey);
+            return (
+              <ClassifyCapsule
+                key={capKey}
+                capKey={capKey}
+                index={index}
+                reorder={reorder}
+                active={active}
+                isHidden={isHidden}
+                isDragging={reorder.draggingKey === capKey}
+                editMode={editMode}
+                canHide={canHide}
+                label={label}
+                hideLabel={t('friends.hideTab', { name: label })}
+                showLabel={t('friends.showTab', { name: label })}
+                onLayoutMeasured={(x, width) => {
+                  itemLayoutsRef.current[capKey] = { x, width };
+                }}
+                onPress={() => {
+                  if (reorder.didDragRef.current) return; // 드래그 직후 오탭 무시
+                  // 편집 모드 중엔 화면 전환 금지 — 흐린(숨긴) 캡슐 탭만 되켜기로 동작.
+                  if (editMode) {
+                    if (isHidden) toggleHidden(capKey);
+                    return;
+                  }
+                  onChange(capKey);
+                  scrollIntoView(capKey);
+                }}
+                onToggleHidden={() => toggleHidden(capKey)}
+              />
+            );
+          })}
+        </ScrollView>
+        {/* 양끝 페이드 — 그 방향으로 스크롤할 캡슐이 더 있을 때만(스크롤 위치 따라 토글). */}
+        {canScrollLeft ? (
+          <LinearGradient
+            pointerEvents="none"
+            colors={fadeColors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.fadeLeft}
+          />
+        ) : null}
+        {canScrollRight ? (
+          <LinearGradient
+            pointerEvents="none"
+            colors={fadeColors}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 0 }}
+            style={styles.fadeRight}
+          />
+        ) : null}
       </View>
       {/* 캡슐 라인 오른쪽 끝 — 평소엔 ⋮(편집 모드 진입), 편집 모드 중엔 체크(편집 완료)로 바뀐다. */}
       <TouchableOpacity
@@ -1330,7 +1553,11 @@ export function FriendsScreen({
   return (
     <View style={styles.container}>
       {/* 그룹 탭 상단 타이틀은 '그룹' 하나. 임베드된 화면들은 자기 타이틀을 렌더하지 않는다(캡슐이 알려주므로). */}
-      <TabHeader title={t('tabs.group')} actions={addAction ? [addAction] : undefined} />
+      <TabHeader
+        title={t('tabs.group')}
+        subtitle={t('tabs.groupInfo')}
+        actions={addAction ? [addAction] : undefined}
+      />
       <ClassifyCapsuleTabs
         value={classifyTab}
         onChange={setClassifyTab}
@@ -1382,6 +1609,11 @@ const makeContainerStyles = (colors: ThemeColors) =>
     },
   });
 
+// 편집 모드 X/＋ 배지(top:-6, 지름 18)가 캡슐 위로 삐져나오는 만큼의 세로 여유. ScrollView는
+// 자기 박스 바깥을 항상 클립하므로, 콘텐츠 쪽에 이만큼 paddingTop을 주고 ScrollView 자신에
+// 같은 값만큼 음수 marginTop을 줘서(아래 scroll 스타일) 시각적 위치는 그대로 유지한다.
+const CAPSULE_BADGE_CLEARANCE = 10;
+
 const makeCapsuleStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     // 캡슐 바는 그룹 헤더(타이틀 '그룹' + 추가) 바로 아래에 온다 — 상태바 여백은 헤더가 지므로
@@ -1394,12 +1626,43 @@ const makeCapsuleStyles = (colors: ThemeColors) =>
       paddingTop: 4,
       paddingBottom: 8,
     },
-    // 캡슐들이 차지하는 영역 — flex:1로 늘어나되, ⋮/체크 버튼은 그 오른쪽 고정 자리에 남는다.
-    capsuleGroup: {
+    // 캡슐 가로 스크롤 영역 — flex:1로 늘어나되, ⋮/체크 버튼은 그 오른쪽 고정 자리에 남는다.
+    // 폭이 좁아져도 줄바꿈하지 않고 한 줄을 유지, 대신 이 안에서 가로 스크롤된다(재정렬 보존).
+    scrollWrap: {
       flex: 1,
+      minWidth: 0,
+    },
+    // 음수 marginTop: 아래 capsuleGroup의 paddingTop(배지 클리핑 방지용)만큼 끌어올려
+    // ScrollView가 차지하는 실제 레이아웃 공간은 배지 여유가 없던 예전과 동일하게 유지한다.
+    scroll: {
+      flex: 1,
+      minWidth: 0,
+      marginTop: -CAPSULE_BADGE_CLEARANCE,
+    },
+    // ScrollView의 contentContainerStyle — 캡슐들을 한 줄로 배열(wrap 없음).
+    // paddingTop: 편집 모드 배지가 캡슐 위로 삐져나와도(top:-6) ScrollView 자체 클리핑에
+    // 잘리지 않도록 콘텐츠 안쪽에 여유를 준다(위 scroll.marginTop과 짝 — 시각적 위치는 불변).
+    capsuleGroup: {
       flexDirection: 'row',
-      flexWrap: 'wrap',
+      alignItems: 'center',
       gap: 8,
+      paddingTop: CAPSULE_BADGE_CLEARANCE,
+    },
+    // 캡슐 바가 가로로 넘칠 때 양끝에 스크롤 가능함을 알리는 페이드(내용이 그 방향으로 더 있을
+    // 때만 렌더 — canScrollLeft/Right). 배경(colors.background)과 동일 계열 그라데이션.
+    fadeLeft: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 20,
+    },
+    fadeRight: {
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      bottom: 0,
+      width: 20,
     },
     // 캡슐 라인 맨 오른쪽 ⋮·체크 — ChatScreen 헤더 편집(⋮) 문법과 동일(크기 16·textSecondary).
     editToggle: {

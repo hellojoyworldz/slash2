@@ -36,6 +36,7 @@ export default {
   },
   tabs: {
     group: 'グループ',
+    groupInfo: 'カテゴリ・タグ・自動分類でメモを整理できます',
     friends: 'カテゴリ',
     chats: 'メモ',
     auto: '自動分類',
@@ -97,6 +98,7 @@ export default {
   },
   chats: {
     title: 'メモ',
+    info: '自分に送ったリンクや考えが集まる場所',
     firstMessage: '最初のメモを送ってみましょう',
     myRoom: 'すべて',
   },

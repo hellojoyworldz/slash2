@@ -36,6 +36,7 @@ export default {
   },
   tabs: {
     group: 'Groups',
+    groupInfo: 'Organize notes with categories, tags, and auto-sort',
     friends: 'Categories',
     chats: 'Notes',
     auto: 'Auto',
@@ -97,6 +98,7 @@ export default {
   },
   chats: {
     title: 'Notes',
+    info: 'Where the links and thoughts you send yourself collect',
     firstMessage: 'Send your first note',
     myRoom: 'All',
   },

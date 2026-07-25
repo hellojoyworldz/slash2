@@ -256,6 +256,7 @@ export function ChatsScreen({
     <View style={styles.container}>
       <TabHeader
         title={t('chats.title')}
+        subtitle={t('chats.info')}
         actions={[
           {
             key: 'add',

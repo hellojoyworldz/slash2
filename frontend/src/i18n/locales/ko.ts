@@ -38,6 +38,8 @@ export default {
   },
   tabs: {
     group: '그룹',
+    // 그룹 탭(분류·태그·자동구분 캡슐) 타이틀 아래 상시 노출되는 짧은 설명.
+    groupInfo: '분류·태그·자동구분으로 메모를 정리해요',
     friends: '분류',
     chats: '메모',
     auto: '자동구분',
@@ -99,6 +101,8 @@ export default {
   },
   chats: {
     title: '메모',
+    // 메모 탭 타이틀 아래 상시 노출되는 짧은 설명.
+    info: '나에게 보낸 링크와 생각이 쌓이는 곳',
     firstMessage: '첫 메모를 보내보세요',
     myRoom: '전체',
   },

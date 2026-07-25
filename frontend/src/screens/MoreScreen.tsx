@@ -19,6 +19,7 @@ import {
   Hash,
   LayoutGrid,
   EllipsisVertical,
+  LogOut,
   MessageSquare,
   Slash,
 } from 'lucide-react-native';
@@ -220,11 +221,22 @@ export function MoreScreen({
         scrollEnabled={reorder.draggingId === null}
       >
         <View style={styles.header}>
-          {leading ? <View style={styles.headerLeading}>{leading}</View> : null}
-          <View style={styles.titleRow}>
-            {isMobile ? <Logo size={38} /> : null}
-            <Text variant="title">{t('more.title')}</Text>
+          <View style={styles.headerLeft}>
+            {leading ? <View style={styles.headerLeading}>{leading}</View> : null}
+            <View style={styles.titleRow}>
+              {isMobile ? <Logo size={38} /> : null}
+              <Text variant="title">{t('more.title')}</Text>
+            </View>
           </View>
+          {/* 타이틀 오른쪽 로그아웃 — 하단 로그아웃 버튼과 같은 동작(onLogout) 재사용, 확인 다이얼로그 없음(기존 문법 그대로). */}
+          <TouchableOpacity
+            onPress={onLogout}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel={t('more.logout')}
+          >
+            <LogOut size={22} strokeWidth={2} color={colors.ink} />
+          </TouchableOpacity>
         </View>
 
         {/* 프로필 — 연필을 누르면 이름 편집 오버레이 */}
@@ -565,9 +577,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: layout.statusBarPad + 4,
     paddingBottom: 14,
     paddingHorizontal: 20,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 1,
   },
   headerLeading: {
     marginRight: 8,
