@@ -19,6 +19,7 @@ import { MessageDetailHost, MessageDetailProvider } from '../message-detail';
 import { NameEditProvider } from '../name-edit';
 import { PopoverHostProvider } from '../popover';
 import { SelectedRoomProvider } from '../selected-room';
+import { useRealtimeSync } from '../sync';
 import { TagCreateHost, TagCreateProvider } from '../tag-create';
 import { ThemeColors } from '../theme';
 import { ThemeProvider, useTheme } from '../theme-context';
@@ -87,6 +88,8 @@ function Shell() {
   // 루트 index가 appStyle에 따라 그룹을 고르므로, 준비 전엔 목록형 유저가 채팅형으로 튄다.
   const { ready: appStyleReady } = useAppStyle();
   useFocusRingStyle();
+  // 기기 간 실시간 동기화(SSE) — 로그인 상태에서 연결, 이벤트 수신 시 목록/열린 방을 조용히 재조회.
+  useRealtimeSync();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   // 저장된 로그인 복원(+화면 스타일 복원)이 끝나기 전에는 라우트를 아예 렌더하지 않는다.

@@ -5,6 +5,7 @@ import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { EventsModule } from './events/events.module';
 import { FriendsModule } from './friends/friends.module';
 import { MessagesModule } from './messages/messages.module';
 import { TagsModule } from './tags/tags.module';
@@ -35,6 +36,7 @@ import { TagsModule } from './tags/tags.module';
       }),
     }),
     AuthModule,
+    EventsModule,
     FriendsModule,
     MessagesModule,
     TagsModule,

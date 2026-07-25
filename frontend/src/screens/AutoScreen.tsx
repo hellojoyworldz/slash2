@@ -91,7 +91,8 @@ export function AutoScreen({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 데스크톱 스플릿뷰에서만 현재 선택된 자동구분을 강조한다.
   // autoAll: "전체" 자동구분 방이 열렸는지(상단 전체 행 강조).
-  const { autoKind, autoAll } = useSelectedRoom();
+  // roomsVersion: 실시간 동기화·로컬 변이 신호 — 자동구분 개수를 최신화하는 데 쓴다.
+  const { autoKind, autoAll, roomsVersion } = useSelectedRoom();
   // 자동구분 순서·즐겨찾기(사용자 값 우선) + 저장 후 컨텍스트 갱신.
   const { autoOrder, setAutoOrder, autoFavorites, setAutoFavorites } = useAuth();
   const { width } = useWindowDimensions();
@@ -238,7 +239,7 @@ export function AutoScreen({
       return () => {
         cancelled = true;
       };
-    }, [token, onLogout]),
+    }, [token, onLogout, roomsVersion]),
   );
 
   // 자동구분 행 하나를 렌더한다. 두 섹션(즐겨찾기·자동구분) 모두 그립+ReorderRow로 드래그 재정렬하며,

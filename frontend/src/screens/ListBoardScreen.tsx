@@ -152,7 +152,7 @@ export function ListBoardScreen({
   // 자동구분 보드 섹션 순서(사용자 순서 우선, 없으면 기본).
   const autoKindOrder = useMemo(() => resolveAutoOrder(autoOrder), [autoOrder]);
   // 생성·삭제·분류 변경을 채팅형 목록과 동기화하는 신호.
-  const { bumpRooms, roomsVersion, pollPreview, subscribePreview } =
+  const { bumpRooms, roomsVersion, syncVersion, pollPreview, subscribePreview } =
     useSelectedRoom();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -192,6 +192,8 @@ export function ListBoardScreen({
 
   const activeQuery = useRef('');
   const firstLoadRef = useRef(true);
+  // 과거 페이지를 불러왔는지(silentReload가 전체 교체 대신 병합해 스크롤을 보존). load마다 리셋.
+  const hasPaginatedRef = useRef(false);
 
   const winW = useWindowDimensions().width;
   const measuredW = containerW || winW;
@@ -213,6 +215,8 @@ export function ListBoardScreen({
       }
       setLoading(true);
       activeQuery.current = query;
+      // 첫 페이지로 되돌아가므로 과거 페이지 로드 상태를 리셋(silentReload가 전체 교체하도록).
+      hasPaginatedRef.current = false;
       try {
         const page = await api.listMessages(token, { q: query || undefined });
         if (activeQuery.current !== query) return;
@@ -231,6 +235,30 @@ export function ListBoardScreen({
     [token, onLogout, t],
   );
 
+  // 실시간 동기화: SSE 이벤트(syncVersion)를 받으면 로딩 스피너 없이 조용히 재조회한다.
+  // 과거 페이지 미로드면 첫 페이지로 전체 교체, 로드했으면 병합(새 메시지만 앞에 붙이고 기존 갱신).
+  const silentReload = useCallback(async () => {
+    if (!token) return;
+    try {
+      const page = await api.listMessages(token, {
+        q: activeQuery.current || undefined,
+      });
+      if (!hasPaginatedRef.current) {
+        setMessages(page.items);
+        setHasMore(page.hasMore);
+        return;
+      }
+      setMessages((prev) => {
+        const byId = new Map(page.items.map((m) => [m.id, m]));
+        const existingIds = new Set(prev.map((m) => m.id));
+        const prepend = page.items.filter((m) => !existingIds.has(m.id));
+        return [...prepend, ...prev.map((m) => byId.get(m.id) ?? m)];
+      });
+    } catch {
+      // 조용한 재조회 실패는 무시.
+    }
+  }, [token]);
+
   // 첫 로드는 즉시, 이후 검색어 변경은 300ms 디바운스(ChatScreen과 동일 관례).
   useEffect(() => {
     const query = searchOpen ? searchText.trim() : '';
@@ -242,6 +270,18 @@ export function ListBoardScreen({
     const timer = setTimeout(() => load(query), 300);
     return () => clearTimeout(timer);
   }, [searchText, searchOpen, load]);
+
+  // 실시간 동기화 신호(syncVersion)가 바뀌면 조용히 재조회(첫 렌더는 건너뜀).
+  const silentReloadRef = useRef(silentReload);
+  silentReloadRef.current = silentReload;
+  const firstSyncRef = useRef(true);
+  useEffect(() => {
+    if (firstSyncRef.current) {
+      firstSyncRef.current = false;
+      return;
+    }
+    void silentReloadRef.current();
+  }, [syncVersion]);
 
   // 분류 목록(이름·색). 생성·삭제·분류 변경(roomsVersion)마다 최신화.
   useEffect(() => {
@@ -277,6 +317,7 @@ export function ListBoardScreen({
         q: activeQuery.current || undefined,
         before: oldest.id,
       });
+      hasPaginatedRef.current = true;
       setMessages((prev) => [...prev, ...page.items]);
       setHasMore(page.hasMore);
     } catch {

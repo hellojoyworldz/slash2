@@ -83,6 +83,7 @@ export function ChatScreen({
   const {
     bumpRooms,
     roomsVersion,
+    syncVersion,
     saveChatDraft,
     readChatDraft,
     setTag,
@@ -143,6 +144,10 @@ export function ChatScreen({
   const activeQuery = useRef('');
   // 첫 로드 여부: 첫 조회는 디바운스 없이 즉시(복원된 검색어로) 실행하기 위한 플래그
   const firstLoadRef = useRef(true);
+  // 사용자가 위로 스크롤해 과거 페이지를 불러왔는지. 실시간 동기화(silentReload)가
+  // 전체 교체 대신 병합(새 메시지만 앞에 붙이고 로드된 과거는 보존)해 스크롤 튐을 막는 데 쓴다.
+  // 새 load()(방 진입·검색·재조회)마다 false로 리셋.
+  const hasPaginatedRef = useRef(false);
   // 물리 키보드 기기(데스크톱급)에서만 Enter=전송, Shift+Enter=줄바꿈
   const desktopInput = useDesktopClassInput();
   const inputRef = useRef<TextInput>(null);
@@ -294,6 +299,22 @@ export function ChatScreen({
     }
   };
 
+  // 이 방을 조회하는 쿼리 파라미터(검색어 제외). 태그/자동구분 전체 방은 특수값 'all',
+  // 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합, 일반 방은 friendId. load·loadOlder·silentReload 공용.
+  const roomQuery = useMemo(
+    () =>
+      tagAll
+        ? { tagId: 'all' as const }
+        : autoAll
+          ? { auto: 'all' as const }
+          : roomTag
+            ? { tagId: roomTag.id }
+            : auto
+              ? { auto }
+              : { friendId: friendId ?? undefined },
+    [tagAll, autoAll, roomTag, auto, friendId],
+  );
+
   const load = useCallback(
     async (query: string) => {
       // 로그인 없이 URL로 들어온 경우(디자인 미리보기)는 조회를 건너뛴다.
@@ -303,20 +324,12 @@ export function ChatScreen({
       }
       setLoading(true);
       activeQuery.current = query;
+      // 첫 페이지로 되돌아가므로 과거 페이지 로드 상태를 리셋(silentReload가 전체 교체하도록).
+      hasPaginatedRef.current = false;
       try {
         const page = await api.listMessages(token, {
           q: query || undefined,
-          // 태그/자동구분 전체 방은 특수값 'all', 태그 방은 tagId, 자동구분 방은 auto로 전 방 통합,
-          // 일반 방은 friendId로 조회.
-          ...(tagAll
-            ? { tagId: 'all' }
-            : autoAll
-              ? { auto: 'all' as const }
-              : roomTag
-                ? { tagId: roomTag.id }
-                : auto
-                  ? { auto }
-                  : { friendId: friendId ?? undefined }),
+          ...roomQuery,
         });
         // 응답이 도착했을 때 검색어가 이미 바뀌었으면 버린다.
         if (activeQuery.current !== query) return;
@@ -332,8 +345,34 @@ export function ChatScreen({
         setLoading(false);
       }
     },
-    [token, friendId, auto, roomTag, tagAll, autoAll, onLogout, t],
+    [token, roomQuery, onLogout, t],
   );
+
+  // 실시간 동기화: SSE 이벤트(syncVersion)를 받으면 로딩 스피너 없이 조용히 재조회한다.
+  // 과거 페이지를 안 불러온 상태면 첫 페이지로 전체 교체(추가·수정·삭제 모두 반영),
+  // 불러온 상태면 병합(새 메시지만 앞에 붙이고 기존은 최신본으로 갱신)해 스크롤을 보존한다.
+  const silentReload = useCallback(async () => {
+    if (!token) return;
+    try {
+      const page = await api.listMessages(token, {
+        q: activeQuery.current || undefined,
+        ...roomQuery,
+      });
+      if (!hasPaginatedRef.current) {
+        setMessages(page.items);
+        setHasMore(page.hasMore);
+        return;
+      }
+      setMessages((prev) => {
+        const byId = new Map(page.items.map((m) => [m.id, m]));
+        const existingIds = new Set(prev.map((m) => m.id));
+        const prepend = page.items.filter((m) => !existingIds.has(m.id));
+        return [...prepend, ...prev.map((m) => byId.get(m.id) ?? m)];
+      });
+    } catch {
+      // 조용한 재조회 실패는 무시(다음 이벤트/포커스에서 다시 시도).
+    }
+  }, [token, roomQuery]);
 
   // 분류 시트와 친구 이름 태그·말풍선 색에 쓸 친구 목록.
   // roomsVersion을 의존성에 넣어, 분류 프로필(색)이 바뀌면 열린 대화의 말풍선도 갱신된다.
@@ -392,6 +431,20 @@ export function ChatScreen({
     return () => clearTimeout(timer);
   }, [searchText, searchOpen, load]);
 
+  // 실시간 동기화 신호(syncVersion)가 바뀌면 조용히 재조회. silentReload는 ref로 잡아
+  // (방 전환 등으로 identity가 바뀌어도) 실제 SSE 이벤트(syncVersion 증가)에만 반응하게 한다.
+  // 첫 렌더(마운트 시 load가 이미 도는 시점)는 건너뛴다.
+  const silentReloadRef = useRef(silentReload);
+  silentReloadRef.current = silentReload;
+  const firstSyncRef = useRef(true);
+  useEffect(() => {
+    if (firstSyncRef.current) {
+      firstSyncRef.current = false;
+      return;
+    }
+    void silentReloadRef.current();
+  }, [syncVersion]);
+
   // 검색·입력 상태를 루트 store에 계속 반영해 둔다(900px 트리 스왑에도 살아남게).
   useEffect(() => {
     saveChatDraft({ roomKey, searchOpen, searchText, input, inputHeight });
@@ -404,16 +457,10 @@ export function ChatScreen({
       const page = await api.listMessages(token, {
         q: activeQuery.current || undefined,
         before: oldest.id,
-        ...(tagAll
-          ? { tagId: 'all' }
-          : autoAll
-            ? { auto: 'all' as const }
-            : roomTag
-              ? { tagId: roomTag.id }
-              : auto
-                ? { auto }
-                : { friendId: friendId ?? undefined }),
+        ...roomQuery,
       });
+      // 과거 페이지를 불렀음을 표시 — 이후 silentReload는 전체 교체 대신 병합해 스크롤을 보존한다.
+      hasPaginatedRef.current = true;
       setMessages((prev) => [...prev, ...page.items]);
       setHasMore(page.hasMore);
     } catch {

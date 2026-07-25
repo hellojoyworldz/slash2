@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
+import { EventsService } from '../events/events.service';
 import { Friend } from '../friends/friend.entity';
 import { Tag } from '../tags/tag.entity';
 import { matchKeywordTags } from '../tags/keyword-match';
@@ -34,7 +35,14 @@ export class MessagesService {
     @InjectRepository(Tag) private readonly tags: Repository<Tag>,
     private readonly linkPreview: LinkPreviewService,
     private readonly linkClassifier: LinkClassifierService,
+    private readonly events: EventsService,
   ) {}
+
+  /** 방 목록/열린 방에 영향 주는 변이가 일어났음을 이 유저의 모든 기기에 알린다.
+   *  자기 자신이 보낸 기기에도 전파되지만, 프론트가 조용히(silent) 재조회하므로 해가 없다. */
+  private notifyChanged(userId: string, roomId?: string | null): void {
+    this.events.publish(userId, { type: 'rooms_changed', roomId: roomId ?? null });
+  }
 
   /** 주어진 메시지 id들의 tagIds를 조인 한 번으로 로드한다(N+1 방지). 없는 메시지는 빈 배열. */
   private async loadTagIdMap(ids: string[]): Promise<Map<string, string[]>> {
@@ -130,6 +138,9 @@ export class MessagesService {
       void this.unpackInBackground(saved.id, userId, urls);
     }
 
+    // 다른 기기(데스크톱/웹)의 방 목록·열린 방에 새 메모가 즉시 나타나게 알린다.
+    this.notifyChanged(userId, saved.friendId);
+
     return this.toResponse(
       saved,
       message.tags.map((tag) => tag.id),
@@ -160,6 +171,8 @@ export class MessagesService {
       // 키워드 매칭분을 합친다(제거는 안 함 — 사용자가 그 사이 뗀 태그는 건드리지 않는다).
       message.tags = await this.mergeKeywordTags(userId, message, message.tags ?? []);
       await this.messages.save(message);
+      // 언퍼얼로 미리보기(og·자동구분·키워드 태그)가 채워졌으니 다른 기기도 갱신되게 알린다.
+      this.notifyChanged(userId, message.friendId);
     } catch (err) {
       this.logger.error(
         `백그라운드 언퍼얼 실패 (message=${id}): ${(err as Error)?.message ?? err}`,
@@ -281,6 +294,7 @@ export class MessagesService {
     }
 
     await this.messages.save(message);
+    this.notifyChanged(userId, message.friendId);
     return (await this.withTagIds([message]))[0];
   }
 
@@ -551,6 +565,7 @@ export class MessagesService {
 
     // save가 tags 관계 diff까지 반영(조인행 추가/삭제).
     await this.messages.save(message);
+    this.notifyChanged(userId, message.friendId);
     return (await this.withTagIds([message]))[0];
   }
 
@@ -583,9 +598,12 @@ export class MessagesService {
   }
 
   async remove(userId: string, id: string): Promise<void> {
+    // 삭제 전에 방(friendId)을 알아둔다 — 다른 기기에 어느 방이 바뀌었는지 힌트로 전달하기 위함.
+    const message = await this.messages.findOneBy({ id, userId });
     const result = await this.messages.delete({ id, userId });
     if (!result.affected) {
       throw new NotFoundException('메시지를 찾을 수 없습니다.');
     }
+    this.notifyChanged(userId, message?.friendId ?? null);
   }
 }

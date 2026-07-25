@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { EventsModule } from '../events/events.module';
 import { Friend } from '../friends/friend.entity';
 import { Tag } from '../tags/tag.entity';
 import { LinkClassifierService } from './link-classifier.service';
@@ -9,7 +10,7 @@ import { MessagesController } from './messages.controller';
 import { MessagesService } from './messages.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Message, Friend, Tag])],
+  imports: [TypeOrmModule.forFeature([Message, Friend, Tag]), EventsModule],
   controllers: [MessagesController],
   providers: [MessagesService, LinkPreviewService, LinkClassifierService],
 })

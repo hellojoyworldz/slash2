@@ -81,6 +81,13 @@ interface SelectedRoomState {
   /** 방 목록에 영향 주는 변경(전송·삭제·분류)의 카운터 — 목록 새로고침 신호 */
   roomsVersion: number;
   bumpRooms: () => void;
+  /** 기기 간 실시간 동기화(SSE) 전용 신호 카운터. 서버 이벤트를 받았을 때만 올라간다.
+   *  roomsVersion과 분리한 이유: roomsVersion은 로컬 편집(색·고정 등)에도 자주 흔들려서
+   *  열린 상세 화면(ChatScreen/ListBoardScreen)이 매번 메시지를 재조회하면 낭비다.
+   *  syncVersion은 "원격에서 데이터가 실제로 바뀌었다"는 신호만 담아, 상세 화면이 그때만
+   *  조용히(로딩 스피너 없이) 메시지를 재조회하게 한다. */
+  syncVersion: number;
+  bumpSync: () => void;
   /** 분류 탭 상단 캡슐이 고른 리스트(분류/태그/자동구분). 900px 스왑에도 살아남는다. */
   classifyTab: ClassifyTab;
   setClassifyTab: (tab: ClassifyTab) => void;
@@ -166,6 +173,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
   }, []);
   const [roomsVersion, setRoomsVersion] = useState(0);
   const bumpRooms = useCallback(() => setRoomsVersion((v) => v + 1), []);
+  const [syncVersion, setSyncVersion] = useState(0);
+  const bumpSync = useCallback(() => setSyncVersion((v) => v + 1), []);
   const [classifyTab, setClassifyTab] = useState<ClassifyTab>('friends');
 
   // 비동기 미리보기 폴링. token은 ref로 최신값을 읽어(로그인/로그아웃 시 갱신) value 메모를 흔들지 않는다.
@@ -254,6 +263,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoAll,
       roomsVersion,
       bumpRooms,
+      syncVersion,
+      bumpSync,
       classifyTab,
       setClassifyTab,
       infoScreen,
@@ -276,6 +287,8 @@ export function SelectedRoomProvider({ children }: { children: ReactNode }) {
       setAutoAll,
       roomsVersion,
       bumpRooms,
+      syncVersion,
+      bumpSync,
       classifyTab,
       setClassifyTab,
       infoScreen,
