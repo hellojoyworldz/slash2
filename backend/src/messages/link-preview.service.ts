@@ -16,18 +16,22 @@ export interface LinkPreviewResult {
 }
 
 const MAX_HTML_BYTES = 512 * 1024;
+// JSON API 응답(카카오 장소 API 등) 캡 — 실측 응답이 50~56KB라 넉넉히 5배.
+const MAX_JSON_BYTES = 256 * 1024;
 // 1차(봇 UA)는 짧게, 2차(브라우저 UA) 폴백은 조금 더 준다 — 총 소요를 ~9초로 묶는다.
 const FIRST_TIMEOUT_MS = 4000;
 const SECOND_TIMEOUT_MS = 5000;
 
 // 1차: 봇 UA. 일부 사이트(트위터 등)는 봇 UA에만 OG 태그를 내려준다.
-const BOT_UA = 'facebookexternalhit/1.1 (+slash2 link preview)';
-const BOT_ACCEPT = 'text/html,application/xhtml+xml';
+// export — 네이버 장소 상세 2차 재요청(link-classifier.service.ts)도 같은 UA를 쓴다.
+export const BOT_UA = 'facebookexternalhit/1.1 (+slash2 link preview)';
+export const BOT_ACCEPT = 'text/html,application/xhtml+xml';
 // 2차 폴백: 최신 Chrome desktop UA + 일반 브라우저 Accept.
 // 봇 UA를 차단(403 등)하거나 봇 UA엔 OG를 안 주는 사이트(쿠팡·인스타 등)를 위한 재시도.
-const BROWSER_UA =
+// export — 유튜브 전용 2차 재요청(link-classifier.service.ts)도 같은 UA를 쓴다.
+export const BROWSER_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-const BROWSER_ACCEPT =
+export const BROWSER_ACCEPT =
   'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
 
 // 단발 fetch 시도의 결과. hasContent = html 파싱 + og(title/description/image) 최소 1개.
@@ -92,6 +96,76 @@ export class LinkPreviewService {
       html: best.html,
       finalUrl: best.finalUrl ?? first.finalUrl ?? second.finalUrl,
     };
+  }
+
+  /** 임의 UA·바이트 캡으로 페이지를 한 번 받아 HTML만 돌려준다(og 파싱 없음).
+   *  classifier가 특정 사이트(유튜브 등)를 더 큰 캡으로 재요청할 때 쓴다.
+   *  실패(네트워크·타임아웃·non-ok·non-html)는 조용히 null — 예외를 던지지 않는다. */
+  async fetchCapped(
+    url: string,
+    opts: {
+      userAgent: string;
+      accept: string;
+      timeoutMs: number;
+      maxBytes: number;
+    },
+  ): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(opts.timeoutMs),
+        headers: {
+          'User-Agent': opts.userAgent,
+          Accept: opts.accept,
+          'Accept-Language': 'ko,en;q=0.8',
+        },
+      });
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('html')) return null;
+      return await this.readHtml(response, opts.maxBytes);
+    } catch (error) {
+      this.logger.debug(`fetchCapped 실패 for ${url}: ${String(error)}`);
+      return null;
+    }
+  }
+
+  /** 임의 UA·헤더로 JSON API 엔드포인트를 한 번 받아 파싱해 돌려준다(카카오 장소 API
+   *  등, 페이지가 아니라 API라 fetchCapped와 별도). 바이트 캡까지만 읽어 대형 응답을
+   *  방어한다(readHtml 재사용 — charset 디코딩 로직이 JSON에도 그대로 유효, content-type
+   *  의 charset을 그대로 따라간다). content-type이 json이 아니거나, 캡 초과로 잘려
+   *  JSON.parse가 실패하거나, 네트워크 실패면 조용히 null — 예외를 던지지 않는다. */
+  async fetchJson<T = unknown>(
+    url: string,
+    opts: {
+      userAgent: string;
+      accept?: string;
+      headers?: Record<string, string>;
+      timeoutMs: number;
+      maxBytes?: number;
+    },
+  ): Promise<T | null> {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(opts.timeoutMs),
+        headers: {
+          'User-Agent': opts.userAgent,
+          Accept: opts.accept ?? 'application/json',
+          ...opts.headers,
+        },
+      });
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('json')) return null;
+      const text = await this.readHtml(
+        response,
+        opts.maxBytes ?? MAX_JSON_BYTES,
+      );
+      return JSON.parse(text) as T;
+    } catch (error) {
+      this.logger.debug(`fetchJson 실패 for ${url}: ${String(error)}`);
+      return null;
+    }
   }
 
   /** UA 한 벌로 페이지를 한 번 받아본다. 모든 실패 경로(non-ok·non-html·예외·og 전무)를
@@ -184,10 +258,14 @@ export class LinkPreviewService {
     };
   }
 
-  /** HTML을 캡(512KB)까지 읽는다. OG 태그는 <head>에 있지만 JSON-LD 구조화 데이터는
-   *  <body>에 있는 사이트가 많아, </head>에서 끊지 않고 캡까지 받아 분류기에 넘긴다.
-   *  UTF-8 고정이 아니라 헤더/meta의 charset을 감지해 디코딩한다 (EUC-KR 한글 깨짐 방지). */
-  private async readHtml(response: Response): Promise<string> {
+  /** HTML을 캡(기본 512KB, maxBytes로 조절 가능)까지 읽는다. OG 태그는 <head>에 있지만
+   *  JSON-LD 구조화 데이터는 <body>에 있는 사이트가 많아, </head>에서 끊지 않고 캡까지
+   *  받아 분류기에 넘긴다. UTF-8 고정이 아니라 헤더/meta의 charset을 감지해 디코딩한다
+   *  (EUC-KR 한글 깨짐 방지). */
+  private async readHtml(
+    response: Response,
+    maxBytes: number = MAX_HTML_BYTES,
+  ): Promise<string> {
     const reader = response.body?.getReader();
     if (!reader) return '';
     const chunks: Uint8Array[] = [];
@@ -196,7 +274,7 @@ export class LinkPreviewService {
     // 앞부분에 있으므로 앞 64KB까지만 누적한다(latin1은 단일바이트라 스트림 상태 불필요).
     const probe = new TextDecoder('latin1');
     let probed = '';
-    while (bytes < MAX_HTML_BYTES) {
+    while (bytes < maxBytes) {
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
@@ -286,13 +364,39 @@ export class LinkPreviewService {
           fromCode(parseInt(hex, 16)),
         )
         .replace(/&#(\d+);/g, (_, dec: string) => fromCode(parseInt(dec, 10)))
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/gi, "'")
-        .replace(/&nbsp;/g, ' ')
-        // &amp;는 마지막에 (이중 디코드 방지)
+        // 이름 엔티티 — 표에 있으면 치환, 모르는 건 원문 유지. &amp;는 이중 디코드
+        // 방지를 위해 여기서 건너뛰고 마지막에 따로.
+        .replace(/&([a-zA-Z]+);/g, (whole, name: string) => {
+          const key = name.toLowerCase();
+          if (key === 'amp') return whole;
+          return NAMED_ENTITIES[key] ?? whole;
+        })
         .replace(/&amp;/g, '&')
     );
   }
 }
+
+// 실사이트 og 제목·설명에서 실제로 관찰되는 이름 엔티티(문장부호 위주 실용 셋).
+// 예: 다음 검색은 제목에 &ndash;를 그대로 내려준다. 목록에 없는 엔티티는 원문 유지.
+const NAMED_ENTITIES: Record<string, string> = {
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  hellip: '…',
+  middot: '·',
+  bull: '•',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
+  laquo: '«',
+  raquo: '»',
+  times: '×',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+};

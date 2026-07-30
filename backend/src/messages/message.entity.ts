@@ -41,6 +41,7 @@ export interface LinkMeta {
   currency?: string; // 기본 'KRW'
   durationSec?: number; // 영상 길이(초)
   channel?: string; // 영상 채널/작성자
+  reviews?: string; // 리뷰 수 요약 한 줄(예: "방문자리뷰 6,240 · 블로그리뷰 74")
 }
 
 // content에 들어온 링크별 미리보기. 등장 순서대로 저장하며, 프론트가

@@ -219,17 +219,21 @@ export class MessagesService {
     const { preview, html, finalUrl } = await this.linkPreview.fetchPage(url);
     // 미리보기로 받은 HTML·최종 URL을 그대로 분류기에 넘겨 재요청을 피한다.
     // (finalUrl이 없으면 원본 url로 폴백 — URL 패턴만으로도 구분되는 경우가 있다.)
-    const { linkType, linkMeta } = await this.linkClassifier.classify(
-      finalUrl ?? url,
-      html ?? '',
-      preview,
-    );
+    const { linkType, linkMeta, fullDescription, siteName } =
+      await this.linkClassifier.classify(finalUrl ?? url, html ?? '', preview);
+    // 유튜브 등은 og:description을 못 믿는다(잘림·일반 소개문). classify가 대체값을
+    // 내놓았으면(undefined가 아니면) 그걸 쓴다 — null도 유효한 대체값(원본 설명 없음)이라
+    // ?? 대신 undefined 여부로 명시적으로 분기(null도 fallback시켜버리는 ?? 오적용 방지).
+    const ogDescription =
+      fullDescription !== undefined ? fullDescription : preview.description;
     return {
       url,
       ogTitle: preview.title,
-      ogDescription: preview.description,
+      ogDescription,
       ogImage: preview.image,
-      siteName: preview.siteName,
+      // 구글 장소 링크는 classify가 "Google Maps"로 정규화한 값을 준다(siteName이
+      // "www.google.com"·"이름 · 주소" 등으로 오염돼 있어서) — null 오버라이드는 없어 ??로 충분.
+      siteName: siteName ?? preview.siteName,
       linkType,
       linkMeta,
     };
