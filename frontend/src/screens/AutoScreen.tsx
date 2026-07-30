@@ -514,13 +514,11 @@ const makeStyles = (colors: ThemeColors) =>
     allRowActive: {
       backgroundColor: colors.surface,
     },
-    // ✳ 아이덴티티 타일 — 무채 surface 채움 + 1px 보더(태그 전체의 # 타일과 대구), 라운드 0.
+    // ✳ 아이덴티티 타일 — 무채 surface 채움(태그 전체의 # 타일과 대구), 라운드 0, 보더 없음(사용자 확정).
     allTile: {
       width: 56,
       height: 56,
       borderRadius: 0,
-      borderWidth: 1,
-      borderColor: colors.border,
       backgroundColor: colors.surface,
       alignItems: 'center',
       justifyContent: 'center',
