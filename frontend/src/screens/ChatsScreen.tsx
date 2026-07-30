@@ -78,7 +78,7 @@ export function ChatsScreen({
   const { selfColor } = useAuth();
   // 분류 추가·수정 편집기(루트 상주) — 헤더 +버튼·행 스와이프 수정에서 연다.
   // open = 스와이프/롱프레스 [수정](색 프로필 폼), openManage = 헤더 + 분류 추가(픽커 관리 모드).
-  const { open: openCategoryEditor, openManage: openCategoryManage } = useCategoryEdit();
+  const { open: openCategoryEditor } = useCategoryEdit();
   const [rooms, setRooms] = useState<RoomsSummary | null>(null);
   // 상주 대화 패널에서 전송/삭제/분류가 일어나면 목록도 갱신 (데스크톱 스플릿뷰)
   // room: 현재 선택된 방 — 데스크톱에서 active 행 하이라이트에 쓴다.
@@ -262,8 +262,8 @@ export function ChatsScreen({
             key: 'add',
             icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
             label: t('friends.add'),
-            // 분류 추가 = 픽커 관리 모드(태그 추가와 한 문법). 스와이프 [수정]만 색 프로필 폼.
-            onPress: () => openCategoryManage(),
+            // + = 분류 추가 폼 바로(목록 모달 경유 없음 — 사용자 확정).
+            onPress: () => openCategoryEditor(),
           },
         ]}
       />

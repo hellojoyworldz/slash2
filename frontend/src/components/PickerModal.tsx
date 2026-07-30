@@ -18,13 +18,12 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { GestureDetector } from 'react-native-gesture-handler';
 import { useReducedMotion } from 'react-native-reanimated';
-import { ChevronDown, ChevronRight } from 'lucide-react-native';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react-native';
 import { useTranslation } from 'react-i18next';
 import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
@@ -195,7 +194,8 @@ const reorderRowStyles = StyleSheet.create({
 // 재현한다. "고르기 → 저장" 방식: 행 탭은 로컬 선택만 바꾸고, 푸터의 공용 Button
 // [취소(ghost)][저장(primary)]가 확정 지점이다 — 취소·스크림·Esc·뒤로가기는 모두 onClose로
 // 선택을 버리고 닫는다(별도 되돌리기 로직 불필요 — 애초에 반영을 안 했으니까).
-// 상단은 [텍스트 입력 + 추가] 한 줄(신규 항목 생성 — 생성 자체는 즉시, 선택 반영은 각 픽커가 로컬로).
+// 픽커는 **목록 전용**이다 — 신규 항목 생성은 타이틀 오른쪽 [+]가 여는 루트 상주 추가 모달
+// (category-edit / tag-create 세션) 몫이고, 여기엔 추가 폼을 두지 않는다.
 // Esc·Android 뒤로가기·스크림 탭 닫기와 a11y(dialog)를 여기서 공통 처리한다.
 export const PICKER_TILE_SIZE = 44;
 
@@ -204,14 +204,9 @@ interface PickerModalProps {
   title: string;
   /** 취소·스크림·Esc·뒤로가기 — 선택을 버리고 닫는다(PATCH 없음). */
   onClose: () => void;
-  /** 상단 입력줄 — 신규 항목 이름. */
-  newName: string;
-  onChangeNewName: (v: string) => void;
-  /** [추가] 또는 입력 제출 시 호출. */
+  /** 타이틀 오른쪽 [+] — 루트 상주 추가 모달을 연다(두 픽커 공통, 항상 보인다). */
   onAdd: () => void;
-  addPlaceholder: string;
-  /** 생성 진행 중 — 입력 잠금 + 버튼 스피너. */
-  adding: boolean;
+  /** [+]는 아이콘 전용 버튼이라 스크린리더 라벨 필수(분류='분류 추가' / 태그='태그 추가'). */
   addLabel: string;
   cancelLabel: string;
   saveLabel: string;
@@ -221,17 +216,6 @@ interface PickerModalProps {
   /** 관리 모드처럼 확정 액션이 없을 때: 밑줄(ghost) [닫기] 하나만 둔다.
    *  (버튼 색 규칙 — 검정 채움은 상태를 확정·변경하는 버튼에만. 닫기/취소는 항상 ghost.) */
   closeOnly?: boolean;
-  /** 추가 폼의 '설명 (선택)' 입력. 넘길 때만 렌더(분류 선택 픽커는 항상 넘김, 필요 없는 픽커는 생략). */
-  newDescription?: string;
-  onChangeNewDescription?: (v: string) => void;
-  descriptionPlaceholder?: string;
-  /** 추가 폼 전용 슬롯 — 설명 아래·[추가] 버튼 위에 렌더(현재 태그 픽커의 키워드 스테퍼).
-   *  키워드는 태그 전용이라 분류 픽커는 넘기지 않아 표시되지 않는다. */
-  addExtra?: ReactNode;
-  /** 추가 폼 접이식 섹션 — "목록" 섹션과 같은 문법(헤더 탭으로 펼침/접힘). 접힘 상태는
-   *  호출부가 useCollapsedSections로 서버 저장(키: picker.categories.add / picker.tags.add). */
-  addExpanded: boolean;
-  onToggleAddExpanded: () => void;
   /** "목록" 섹션 접이식 헤더 — 스크롤 밖(고정)에 PickerModal이 직접 렌더한다. 목록이 길어 행들이
    *  스크롤돼도 헤더는 항상 보인다. 접힘 상태는 호출부가 서버 저장(키: picker.categories / picker.tags),
    *  개수(listCount)는 라벨 옆에 표시. children(행들)은 호출부가 listExpanded로 게이팅해 넘긴다. */
@@ -240,7 +224,8 @@ interface PickerModalProps {
   listCount: number;
   /** 이 key를 가진 행으로 스크롤(추가 직후 새 항목 / 열릴 때 선택 항목). 값이 바뀔 때마다 재시도. */
   scrollToKey?: string | null;
-  /** 타이틀 행 오른쪽 슬롯(선택) — 전체 삭제 휴지통 등. 항목이 없을 땐 호출부가 null로 숨긴다. */
+  /** 타이틀 행 오른쪽 슬롯(선택) — [+] 오른쪽에 붙는다(전체 삭제 휴지통 등).
+   *  항목이 없을 땐 호출부가 null로 숨긴다([+]는 그때도 남는다 — 유일한 추가 진입점이라). */
   titleAccessory?: ReactNode;
   /** 목록 드래그 순서 변경(선택). order=재정렬 대상 key들의 표시 순서, onReorder=놓을 때 새 순서(id 배열).
    *  대상 행은 각 픽커가 PickerReorderRow로 감싼다. 커밋 계약(본 목록과 같은 순서 API·낙관 반영)은 호출부 몫.
@@ -262,23 +247,13 @@ export function PickerModal({
   visible,
   title,
   onClose,
-  newName,
-  onChangeNewName,
   onAdd,
-  addPlaceholder,
-  adding,
   addLabel,
   cancelLabel,
   saveLabel,
   onSave,
   saving,
   closeOnly = false,
-  newDescription,
-  onChangeNewDescription,
-  descriptionPlaceholder,
-  addExtra,
-  addExpanded,
-  onToggleAddExpanded,
   listExpanded,
   onToggleListExpanded,
   listCount,
@@ -287,7 +262,6 @@ export function PickerModal({
   reorder = null,
   children,
 }: PickerModalProps) {
-  const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const reducedMotion = useReducedMotion();
@@ -453,58 +427,21 @@ export function PickerModal({
             >
               <Text variant="heading">{title}</Text>
             </View>
-            {/* 타이틀 오른쪽 보조 슬롯(전체 삭제 휴지통 등) — 없으면 자리 차지 안 함. */}
-            {titleAccessory ? (
-              <View style={styles.titleAccessory}>{titleAccessory}</View>
-            ) : null}
-          </View>
-
-          {/* 상단: 신규 항목 생성 폼 — "목록" 섹션과 같은 접이식 문법(헤더 탭 = 펼침/접힘).
-              두 모드(관리/선택) 공용 세로 스택. 펼치면 이름 입력 → 설명(있으면) →
-              addExtra 슬롯(있으면, 예: 태그 키워드 스테퍼) → 우측 정렬 검정(primary) [추가] 버튼
-              (푸터 [저장]과 같은 문법). closeOnly는 아래 푸터(닫기/저장·취소) 구성에만 관여한다. */}
-          <PickerSectionHeader
-            expanded={addExpanded}
-            onToggle={onToggleAddExpanded}
-            label={t('common.add')}
-          />
-          {addExpanded ? (
-            <>
-              <TextInput
-                style={styles.addNameInput}
-                value={newName}
-                onChangeText={onChangeNewName}
-                placeholder={addPlaceholder}
-                placeholderTextColor={colors.textTertiary}
-                onSubmitEditing={onAdd}
-                returnKeyType="done"
-                editable={!adding}
-                accessibilityLabel={t('a11y.nameInput')}
-              />
-              {onChangeNewDescription ? (
-                <TextInput
-                  style={styles.descriptionInput}
-                  value={newDescription}
-                  onChangeText={onChangeNewDescription}
-                  placeholder={descriptionPlaceholder}
-                  placeholderTextColor={colors.textTertiary}
-                  onSubmitEditing={onAdd}
-                  returnKeyType="done"
-                  editable={!adding}
-                  accessibilityLabel={t('a11y.descriptionInput')}
-                />
-              ) : null}
-              {/* 추가 폼 전용 슬롯(태그 키워드 스테퍼 등). 안 넘긴 픽커(분류)는 표시 안 됨. */}
-              {addExtra}
-              <Button
-                label={addLabel}
-                variant="primary"
+            {/* 타이틀 오른쪽 액션 — [+ 추가][보조 슬롯(전체 삭제 휴지통 등)] 순.
+                [+]는 두 픽커 공통·상시(유일한 추가 진입점), 휴지통은 항목이 있을 때만 호출부가 넘긴다. */}
+            <View style={styles.titleActions}>
+              <TouchableOpacity
                 onPress={onAdd}
-                loading={adding}
-                style={styles.addSubmitButton}
-              />
-            </>
-          ) : null}
+                // 아이콘 20 + 상하 12·좌우 8 → 세로 44pt 터치 타깃. 좌우는 gap(16)과 같아 휴지통과 안 겹친다.
+                hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={addLabel}
+              >
+                <Plus size={20} strokeWidth={2} color={colors.ink} />
+              </TouchableOpacity>
+              {titleAccessory}
+            </View>
+          </View>
 
           {/* "목록" 섹션 헤더 — 스크롤 밖(고정). 목록이 길어 행들이 스크롤돼도 헤더는 항상 보인다
               (행들만 아래 ScrollView에서 스크롤). 개수·접기 동작은 그대로. */}
@@ -652,22 +589,18 @@ interface PickerSectionHeaderProps {
   /** 펼침 상태 — 접히면 호출부가 아래 행들을 숨긴다(헤더 자체는 항상 보임). */
   expanded: boolean;
   onToggle: () => void;
-  /** 이 섹션 행 수(전체 행 제외) — 넘기면 라벨 옆에 표시. 넘기지 않으면(예: 추가 폼 섹션엔
-   *  개수 개념이 없다) 표시하지 않는다. 0이어도 헤더는 그대로 보이고, 접기는 무해하다. */
-  count?: number;
-  /** 헤더 라벨 — 기본은 '목록'(common.listSection). 추가 폼 섹션은 common.add('추가')를 넘긴다. */
-  label?: string;
+  /** 이 섹션 행 수(전체 행 제외) — 라벨 옆에 표시. 0이어도 헤더는 그대로 보이고, 접기는 무해하다. */
+  count: number;
 }
 
-// 픽커 카드 안 접이식 섹션 헤더 — 본 목록(FriendsScreen·TagsScreen·AutoScreen)의 접이식 섹션
-// 헤더와 같은 시각 문법·동작([∨/›] + 라벨(+개수), 탭하면 접힘/펼침)을 재현한다. "목록" 섹션(count
-// 있음)과 "추가" 폼 섹션(count 없음, PickerModal이 직접 렌더)이 이 구현 한 벌을 공유한다.
+// 픽커 카드 안 접이식 "목록" 섹션 헤더 — 본 목록(FriendsScreen·TagsScreen·AutoScreen)의 접이식
+// 섹션 헤더와 같은 시각 문법·동작([∨/›] + 라벨 + 개수, 탭하면 접힘/펼침)을 재현한다.
 // 카드가 이미 좌우 20px 인셋을 주므로 본 목록과 달리 paddingHorizontal은 두지 않는다(행들과 flush).
-export function PickerSectionHeader({ expanded, onToggle, count, label }: PickerSectionHeaderProps) {
+export function PickerSectionHeader({ expanded, onToggle, count }: PickerSectionHeaderProps) {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const text = label ?? t('common.listSection');
+  const text = t('common.listSection');
   return (
     <TouchableOpacity
       style={styles.sectionRow}
@@ -685,9 +618,7 @@ export function PickerSectionHeader({ expanded, onToggle, count, label }: Picker
       <Text variant="caption" color={colors.textSecondary} style={styles.sectionTitle}>
         {text}
       </Text>
-      {count != null ? (
-        <Text variant="micro" color={colors.textSecondary}>{count}</Text>
-      ) : null}
+      <Text variant="micro" color={colors.textSecondary}>{count}</Text>
     </TouchableOpacity>
   );
 }
@@ -737,40 +668,12 @@ const makeStyles = (colors: ThemeColors) =>
     titleText: {
       flexShrink: 1,
     },
-    titleAccessory: {
+    // 타이틀 오른쪽 아이콘 줄 — [+ 추가][전체 삭제 휴지통]. gap은 탭 헤더(TabHeader.actions)와 같은 16.
+    titleActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 16,
       marginLeft: 8,
-    },
-    // 추가 폼 이름 입력 — 전폭(세로 스택의 첫 줄). marginTop = 추가 섹션 헤더와의 간격
-    // ('목록' 섹션 헤더의 paddingBottom(4) + 첫 행 paddingTop(6)과 같은 시각 간격을 재현).
-    addNameInput: {
-      marginTop: 6,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 0,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 15,
-      color: colors.textPrimary,
-      backgroundColor: colors.background,
-    },
-    // 추가 폼 맨 아래 검정(primary) [추가] 버튼 — 푸터 [저장]과 같은 문법(우측 정렬, 최소 폭).
-    addSubmitButton: {
-      marginTop: 10,
-      alignSelf: 'flex-end',
-      height: 42,
-      minWidth: 92,
-    },
-    // 추가 폼 '설명 (선택)' — 이름 입력과 같은 박스, 아래로 한 칸.
-    descriptionInput: {
-      marginTop: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 0,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 15,
-      color: colors.textPrimary,
-      backgroundColor: colors.background,
     },
     // 위 "목록" 섹션 헤더(paddingBottom 4)가 행들과의 간격을 이미 주므로 여기선 marginTop 없음.
     scroll: {

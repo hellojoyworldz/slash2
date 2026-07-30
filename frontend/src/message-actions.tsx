@@ -192,7 +192,7 @@ export function MessageActionsHost() {
   // 관리 모드 픽커(category-edit·tag-create 호스트)가 쓰는 것과 같은 경로를 선택 모드에도 이관.
   // "전체" 행은 self 프로필 편집(open({self:true})) / 태그 전체 프로필 편집(openTagAllEdit)으로 연다.
   const { open: openCategoryEditor } = useCategoryEdit();
-  const { openTagRename, openTagAllEdit } = useTagCreate();
+  const { openTagAdd, openTagRename, openTagAllEdit } = useTagCreate();
   if (!ctx) {
     throw new Error('MessageActionsHost는 MessageActionsProvider 안에서만 쓸 수 있습니다');
   }
@@ -250,6 +250,9 @@ export function MessageActionsHost() {
         onPicked={(tagIds) => session?.onPickedTags?.(tagIds)}
         // 행 스와이프 [수정] — 태그 이름·설명·색 폼(관리 모드와 같은 경로). 저장 시 bumpRooms로 목록 갱신.
         onEditTag={openTagRename}
+        // 타이틀 [+] — 같은 폼의 추가 모드(관리 픽커와 같은 경로). 선택 픽커 위에 뜬다
+        // (루트 마운트 순서: MessageActionsHost < TagCreateHost).
+        onAddTag={openTagAdd}
         // "전체" 행 — 태그 전체 프로필 색/부제 + 스와이프 [수정](태그 전체 프로필 편집 폼).
         tagAllColor={tagAllColor}
         tagAllDescription={tagAllDescription}
@@ -270,6 +273,11 @@ export function MessageActionsHost() {
         onPicked={(friendId) => session?.onPickedFriend?.(friendId)}
         // 행 스와이프 [수정] — 분류 색·프로필 편집 폼(관리 모드와 같은 경로).
         onEditFriend={(friend) => openCategoryEditor(friend)}
+        // 타이틀 [+] — 같은 폼의 추가 모드(관리 픽커와 같은 경로). 선택 픽커 위에 뜬다
+        // (루트 마운트 순서: MessageActionsHost < CategoryEditHost).
+        onAddFriend={(onCreated, defaultColor) =>
+          openCategoryEditor(undefined, defaultColor, onCreated)
+        }
         // "전체" 행 스와이프 [수정] — self 프로필 편집 폼.
         onEditSelf={() => openCategoryEditor({ self: true })}
       />

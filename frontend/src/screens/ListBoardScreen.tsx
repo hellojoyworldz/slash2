@@ -141,14 +141,14 @@ export function ListBoardScreen({
   // 미분류(전체) 섹션 아바타·카드 점에 쓸 "전체" 프로필 색 + 자동구분 표시 순서.
   const { selfColor, autoOrder } = useAuth();
   // 헤더 + 버튼 = 분류 추가(채팅형 분류 탭 +와 동일 경로 — 픽커 관리 모드).
-  const { openManage: openCategoryManage } = useCategoryEdit();
+  const { open: openCategoryEditor } = useCategoryEdit();
   // 메시지 액션·태그 추가 모달은 루트 상주 호스트 — 여기선 열기만.
   const { openMessageMenu } = useMessageActions();
   // ⋮ 메뉴 [내용 수정] 전용 — 목록형의 카드 탭 상세(CardDetailPanel)와는 별개로,
   // "내용 수정"만은 채팅형과 같은 상세 모달(message-detail.tsx)을 startInEdit로 연다
   // (두 화면이 수정 모달을 따로 두지 않고 하나로 통일).
   const { openMessageDetail } = useMessageDetail();
-  const { openTagCreate } = useTagCreate();
+  const { openTagAdd } = useTagCreate();
   // 자동구분 보드 섹션 순서(사용자 순서 우선, 없으면 기본).
   const autoKindOrder = useMemo(() => resolveAutoOrder(autoOrder), [autoOrder]);
   // 생성·삭제·분류 변경을 채팅형 목록과 동기화하는 신호.
@@ -856,16 +856,16 @@ export function ListBoardScreen({
             <Search size={22} strokeWidth={2} color={colors.ink} />
           )}
         </TouchableOpacity>
-        {/* + 버튼 = 태그 보드면 태그 추가, 그 외엔 분류 추가(루트 상주 편집기).
-            채팅형 각 탭의 + 관례와 동일 경로. */}
+        {/* + 버튼 = 태그 보드면 태그 추가 폼, 그 외엔 분류 추가 폼 바로(목록 모달 경유 없음 —
+            사용자 확정). 채팅형 각 탭의 + 관례와 동일 경로. */}
         <TouchableOpacity
           style={styles.newButton}
           onPress={() => {
             if (board === 'tags') {
               // 태그 추가는 루트 상주 호스트 — 생성 후 이 보드의 태그 목록만 갱신.
-              openTagCreate(() => reloadTags());
+              openTagAdd(() => reloadTags());
             } else {
-              openCategoryManage();
+              openCategoryEditor();
             }
           }}
           activeOpacity={0.85}

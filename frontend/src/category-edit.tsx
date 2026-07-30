@@ -48,17 +48,24 @@ interface EditSession {
   self: boolean;
   // 추가(생성) 모드 기본 선택색. 호출부가 자기 분류 목록으로 pickDefaultCategoryColor를 계산해 넘긴다.
   defaultColor?: string;
+  // 저장 성공 결과(추가=생성분, 수정=갱신분). 픽커 [+]가 넘겨 새 분류를 목록에 얹고 그 항목으로 스크롤한다.
+  onSaved?: (friend: Friend) => void;
 }
 
 interface CategoryEditState {
   /**
-   * category 전달 = 그 분류 수정(스와이프 [수정] — 이름·설명·프로필 색 폼), { self:true } = "전체" 프로필 편집.
-   * 무인자도 폼 추가로 열 수 있으나(레거시), 분류 "추가" 진입점은 openManage(픽커 문법)를 쓴다.
+   * open() = 분류 추가(픽커 타이틀 [+]), open(category) = 그 분류 수정(스와이프 [수정] —
+   * 이름·설명·프로필 색 폼), open({ self:true }) = "전체" 프로필 편집.
+   * defaultColor = 추가 모드 기본 선택색, onSaved = 저장 성공 결과 콜백(둘 다 픽커 [+]가 넘긴다).
    */
-  open: (arg?: EditableCategory | { self: true }, defaultColor?: string) => void;
+  open: (
+    arg?: EditableCategory | { self: true },
+    defaultColor?: string,
+    onSaved?: (friend: Friend) => void,
+  ) => void;
   /**
-   * 분류 "추가" — 태그 추가(openTagCreate)와 한 문법. CategoryPickerModal 관리 모드를 연다
-   * (선택 없이 목록 + 인라인 추가(이름 + 설명) + 밑줄 [닫기], 색은 자동 배정).
+   * 분류 목록 모달 — 태그 목록(openTagCreate)과 한 문법. CategoryPickerModal 관리 모드를 연다
+   * (선택 없이 목록 + 타이틀 [+](추가 모달) + 밑줄 [닫기]).
    */
   openManage: (onChanged?: () => void) => void;
 }
@@ -81,9 +88,13 @@ export function CategoryEditProvider({ children }: { children: ReactNode }) {
     null,
   );
   const open = useCallback(
-    (arg?: EditableCategory | { self: true }, defaultColor?: string) => {
+    (
+      arg?: EditableCategory | { self: true },
+      defaultColor?: string,
+      onSaved?: (friend: Friend) => void,
+    ) => {
       if (arg && 'self' in arg) setSession({ category: null, self: true });
-      else setSession({ category: arg ?? null, self: false, defaultColor });
+      else setSession({ category: arg ?? null, self: false, defaultColor, onSaved });
     },
     [],
   );
@@ -127,9 +138,10 @@ export function CategoryEditHost() {
   );
 }
 
-// 분류 "추가" = CategoryPickerModal 관리 모드(새 컴포넌트 없음, TagManageHost 미러).
+// 분류 목록 모달 = CategoryPickerModal 관리 모드(새 컴포넌트 없음, TagManageHost 미러).
 // 자기 분류 목록을 로드해 픽커에 넘기고(추가 시 픽커가 로컬로 얹는다), 추가되면 목록을 구독하는
 // 화면들이 재조회하도록 bumpRooms + 호출부 콜백을 함께 알린다.
+// 픽커 타이틀 [+]는 같은 프로바이더의 open()(분류 추가 폼)을 이 픽커 위에 띄운다.
 function CategoryManageHost({
   session,
   onClose,
@@ -163,6 +175,8 @@ function CategoryManageHost({
       manage
       onEditFriend={open}
       onEditSelf={() => open({ self: true })}
+      // 타이틀 [+] → 분류 추가 폼(같은 프로바이더). 픽커는 열린 채 그 위에 뜬다(호스트 렌더 순서 = z-순서).
+      onAddFriend={(onCreated, defaultColor) => open(undefined, defaultColor, onCreated)}
       onClose={onClose}
       onFriendsChanged={() => {
         bumpRooms();
@@ -275,10 +289,13 @@ function CategoryEditModal({
         if (room?.friendId === updated.id) {
           setRoom({ friendId: updated.id, name: updated.name });
         }
+        session?.onSaved?.(updated);
         onClose();
       } else {
-        await api.createFriend(token, name, color, description);
+        const created = await api.createFriend(token, name, color, description);
         bumpRooms();
+        // 픽커 [+]로 열렸으면 만들어진 분류를 돌려준다(목록에 얹고 그 항목으로 스크롤).
+        session?.onSaved?.(created);
         onClose();
       }
     } catch {

@@ -179,7 +179,8 @@ export default {
     addTitle: 'Add tag',
     editTitle: 'Edit tag',
     newPlaceholder: 'New tag name',
-    empty: 'No tags yet. Add one above.',
+    // Empty list note inside the (list-only) picker — adding lives behind the title [+].
+    empty: 'No tags yet. Tap + at the top right to add one.',
     emptyHint: 'Tap “Add” at the top right\nto create your first tag',
     roomEmpty: 'No notes with this tag yet',
     allRoomEmpty: 'No tagged notes yet',
@@ -206,6 +207,8 @@ export default {
     addFailed: 'Couldn’t add. Please try again.',
     editFailed: 'Couldn’t update. Please try again.',
     emptyHint: 'Tap “Add” at the top right\nto create your first category',
+    // Empty list note inside the (list-only) picker — adding lives behind the title [+].
+    empty: 'No categories yet. Tap + at the top right to add one.',
     addTitle: 'Add category',
     editTitle: 'Edit category',
     profileLabel: 'Profile',
@@ -224,7 +227,6 @@ export default {
     addProfile: 'Add profile',
     removeProfile: 'Remove profile',
     namePlaceholder: 'Name (e.g. Dev, Cooking, News)',
-    newPlaceholder: 'New category name',
     descriptionPlaceholder: 'Description (optional)',
     confirmDelete: 'Delete “{{name}}”?',
     deleteAllTitle: 'Delete all categories',

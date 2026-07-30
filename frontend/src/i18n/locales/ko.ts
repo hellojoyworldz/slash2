@@ -183,7 +183,8 @@ export default {
     addTitle: '태그 추가',
     editTitle: '태그 수정',
     newPlaceholder: '새 태그 이름',
-    empty: '아직 태그가 없어요. 위에서 추가해보세요.',
+    // 픽커(목록 전용) 빈 목록 안내 — 추가는 타이틀 오른쪽 [+]가 여는 추가 모달 몫.
+    empty: '아직 태그가 없어요. 오른쪽 위 +를 눌러 추가해보세요.',
     emptyHint: "오른쪽 위 '추가'를 눌러\n첫 태그를 만들어보세요",
     roomEmpty: '아직 이 태그의 메모가 없어요',
     // 태그 전체 방 빈 상태. (전체 행 부제는 friends.sendToMe 공통 키 재사용)
@@ -212,6 +213,8 @@ export default {
     addFailed: '추가하지 못했어요. 다시 시도해주세요.',
     editFailed: '수정하지 못했어요. 다시 시도해주세요.',
     emptyHint: "오른쪽 위 '추가'를 눌러\n첫 분류를 만들어보세요",
+    // 픽커(목록 전용) 빈 목록 안내 — 추가는 타이틀 오른쪽 [+]가 여는 추가 모달 몫.
+    empty: '아직 분류가 없어요. 오른쪽 위 +를 눌러 추가해보세요.',
     addTitle: '분류 추가',
     editTitle: '분류 수정',
     profileLabel: '프로필',
@@ -230,7 +233,6 @@ export default {
     addProfile: '프로필 추가',
     removeProfile: '프로필 삭제',
     namePlaceholder: '이름 (예: 개발, 요리, 뉴스)',
-    newPlaceholder: '새 분류 이름',
     descriptionPlaceholder: '설명 (선택)',
     confirmDelete: "'{{name}}' 분류를 삭제할까요?",
     deleteAllTitle: '분류 전체 삭제',

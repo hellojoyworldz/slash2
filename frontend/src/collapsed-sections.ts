@@ -5,8 +5,7 @@ import { useAuth } from './auth';
 // 섹션 접기 상태를 서버(users.collapsedSections)에 저장하는 공용 훅.
 // 키 체계는 프론트 소유(전부 소문자·점 구분):
 //   - 본탭:        friends.favorites, friends.list, tags.favorites, tags.list, auto.favorites, auto.list
-//   - 픽커 모달:   picker.categories, picker.tags (목록 섹션),
-//                  picker.categories.add, picker.tags.add (추가 폼 섹션)
+//   - 픽커 모달:   picker.categories, picker.tags (목록 섹션 — 픽커는 목록 전용이라 이 둘뿐)
 //   - 목록형 보드: board.<board>.<sectionKey>  (예: board.auto.place, board.category.<friendId>, board.tags.tag:<tagId>)
 //
 // 상태는 루트 auth 컨텍스트에 있으므로 900px 트리 스왑(데스크톱 3패널 ↔ 모바일 탭 리마운트)에서도

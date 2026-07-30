@@ -179,7 +179,8 @@ export default {
     addTitle: 'タグを追加',
     editTitle: 'タグを編集',
     newPlaceholder: '新しいタグ名',
-    empty: 'まだタグがありません。上から追加してみましょう。',
+    // 一覧専用ピッカーの空リスト案内 — 追加はタイトル右の [+] が開くモーダルの担当。
+    empty: 'まだタグがありません。右上の＋から追加してみましょう。',
     emptyHint: '右上の「追加」を押して\n最初のタグを作りましょう',
     roomEmpty: 'このタグのメモはまだありません',
     allRoomEmpty: 'タグ付きのメモはまだありません',
@@ -206,6 +207,8 @@ export default {
     addFailed: '追加できませんでした。もう一度お試しください。',
     editFailed: '更新できませんでした。もう一度お試しください。',
     emptyHint: '右上の「追加」を押して\n最初のカテゴリを作ってみましょう',
+    // 一覧専用ピッカーの空リスト案内 — 追加はタイトル右の [+] が開くモーダルの担当。
+    empty: 'まだカテゴリがありません。右上の＋から追加してみましょう。',
     addTitle: 'カテゴリを追加',
     editTitle: 'カテゴリを編集',
     profileLabel: 'プロフィール',
@@ -224,7 +227,6 @@ export default {
     addProfile: 'プロフィールを追加',
     removeProfile: 'プロフィールを削除',
     namePlaceholder: '名前（例：開発、料理、ニュース）',
-    newPlaceholder: '新しいカテゴリ名',
     descriptionPlaceholder: '説明（任意）',
     confirmDelete: '「{{name}}」を削除しますか？',
     deleteAllTitle: 'カテゴリを全削除',

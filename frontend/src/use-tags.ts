@@ -5,7 +5,8 @@ import { errorText } from './i18n/errors';
 import { confirmDialog, notify } from './notify';
 
 // 태그 CRUD 공용 훅 — 태그 선택 모달(TagPickerModal)과 태그 탭/보드가 공유한다.
-// 목록 상태 + 서버 호출(생성·수정·삭제)을 한 곳에 모아 화면마다 로직을 복붙하지 않는다.
+// 목록 상태 + 서버 호출(수정·삭제)을 한 곳에 모아 화면마다 로직을 복붙하지 않는다.
+// 생성은 여기 없다 — 루트 상주 추가 모달(tag-create의 openTagAdd)이 api.createTag를 직접 부른다.
 // 실패는 code 번역(errorText)이나 공용 알림으로 노출한다. 호출부는 반환값으로
 // 자기 고유 상태(선택 집합·라우팅 등)를 추가로 반영한다.
 export function useTagCrud(token: string | null) {
@@ -16,37 +17,6 @@ export function useTagCrud(token: string | null) {
     if (!token) return;
     api.listTags(token).then(setTags).catch(() => {});
   }, [token]);
-
-  // 생성 성공 시 만들어진 Tag를 반환(없으면 null). 이름 중복은 409 code로 번역 노출.
-  // 설명·키워드(선택)는 관리 모드 인라인 추가에서만 넘어온다 — 빈/공백은 서버가 null로 저장.
-  // 키워드가 있으면 서버가 매칭 메시지에 이 태그를 실제 부착한다(0개면 생략).
-  // 색은 배정하지 않는다 — 새 태그는 기본 무채(색 없음). 색은 태그 수정 폼에서 고른다.
-  const addTag = useCallback(
-    async (
-      name: string,
-      description?: string,
-      keywords?: string[],
-    ): Promise<Tag | null> => {
-      const trimmed = name.trim();
-      if (!trimmed || !token) return null;
-      try {
-        const desc = description?.trim();
-        const created = await api.createTag(
-          token,
-          trimmed,
-          undefined,
-          desc || undefined,
-          keywords && keywords.length ? keywords : undefined,
-        );
-        setTags((prev) => [...prev, created]);
-        return created;
-      } catch (e) {
-        notify(t('common.notice'), errorText(e));
-        return null;
-      }
-    },
-    [token, t],
-  );
 
   // 이름 수정 성공 시 갱신된 Tag를 반환(변화 없거나 실패면 null).
   const renameTag = useCallback(
@@ -89,5 +59,5 @@ export function useTagCrud(token: string | null) {
     [token, t],
   );
 
-  return { tags, setTags, reload, addTag, renameTag, removeTag };
+  return { tags, setTags, reload, renameTag, removeTag };
 }

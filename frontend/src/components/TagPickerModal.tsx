@@ -11,7 +11,6 @@ import { ThemeColors } from '../theme';
 import { useTheme } from '../theme-context';
 import { useTagCrud } from '../use-tags';
 import { HashTile } from './HashTile';
-import { cleanKeywords, KeywordStepper } from './KeywordStepper';
 import {
   PICKER_TILE_SIZE,
   PickerModal,
@@ -33,6 +32,10 @@ interface Props {
   onSaved?: (updated: Message) => void;
   /** 태그 생성으로 전역 태그가 바뀌면 호출(호출부가 태그명 캐시를 갱신). */
   onTagsChanged: () => void;
+  /** 타이틀 [+] — 루트 상주 태그 추가 모달(tag-create `openTagAdd`)을 연다. 픽커는 목록 전용이라
+   *  추가 폼을 직접 들지 않는다(분류 픽커 onAddFriend 미러). 호출부가 세션을 열고,
+   *  생성되면 onCreated로 만들어진 태그를 돌려준다 — 픽커가 목록에 얹고 그 항목으로 스크롤한다. */
+  onAddTag: (onCreated: (tag: Tag) => void) => void;
   /** 수정 모드 스테이징: true면 [저장]이 PATCH 대신 고른 tagIds를 onPicked로 돌려주고 닫는다.
    *  (태그 생성 "+추가"는 스테이징과 무관하게 즉시 — 목록에 떠야 하니. 이 메시지엔 선택만 반영.) */
   staged?: boolean;
@@ -54,11 +57,10 @@ interface Props {
 // 최상단 "전체" 행의 스크롤/재정렬 제외 key 센티널(태그가 아니라 프로필 행).
 const TAG_ALL_KEY = '__tagall__';
 
-// 태그 선택 픽커 — 분류 픽커와 한 문법(PickerModal 골격 + PickerRow 행).
-// "고르기 → 저장": 위는 새 태그 이름 입력 + [추가](중복 409 → errors.tag_name_taken, 생성은
-// 즉시 — 목록에 떠야 하니, 단 이 메시지엔 선택 상태로만 반영·자동 체크), 아래는 내 태그 목록
-// 멀티 선택을 로컬로 고른다(PATCH 없음). 행 = [# 타일][이름], 선택 = surface 채움(체크 아이콘 없음).
-// 푸터 [저장]에서만 tagIds 전체를 PATCH. 관리(이름수정·삭제·고정·순서)는 태그 탭 몫 — 픽커는 선택+추가 전용.
+// 태그 선택 픽커 — 분류 픽커와 한 문법(PickerModal 골격 + PickerRow 행). **목록 전용**이다:
+// 신규 생성은 타이틀 [+]가 여는 루트 상주 추가 모달(tag-create) 몫이고, 여기엔 추가 폼이 없다.
+// "고르기 → 저장": 내 태그 목록 멀티 선택을 로컬로 고르고(PATCH 없음), 푸터 [저장]에서만
+// tagIds 전체를 PATCH. 행 = [# 타일][이름], 선택 = surface 채움(체크 아이콘 없음).
 export function TagPickerModal({
   visible,
   token,
@@ -66,6 +68,7 @@ export function TagPickerModal({
   onClose,
   onSaved,
   onTagsChanged,
+  onAddTag,
   staged,
   onPicked,
   manage = false,
@@ -77,16 +80,11 @@ export function TagPickerModal({
   const { t } = useTranslation();
   const { colors } = useTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  // 태그 목록·추가·삭제는 공용 훅에서. 여기선 멀티 선택·저장만 얹는다.
-  const { tags, setTags, reload, addTag, removeTag } = useTagCrud(token);
+  // 태그 목록·삭제는 공용 훅에서. 여기선 멀티 선택·저장만 얹는다(생성은 루트 상주 추가 모달 몫).
+  const { tags, setTags, reload, removeTag } = useTagCrud(token);
   // 수정 폼(루트 상주)이 이름·설명을 바꾸거나 삭제하면 bumpRooms → roomsVersion으로 목록 재로드.
   const { roomsVersion } = useSelectedRoom();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [newName, setNewName] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  // 새 태그의 자동 부착 키워드(0~10개) — 관리·선택 모드 공통. 생성 시 서버가 매칭 메시지에 부착한다.
-  const [newKeywords, setNewKeywords] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   // 전체 삭제 진행 중 — 중복 클릭 방지(타이틀 휴지통).
   const [deletingAll, setDeletingAll] = useState(false);
@@ -95,18 +93,12 @@ export function TagPickerModal({
   // '목록' 섹션 접힘 상태 — 서버 저장(픽커 전용 키, 본 목록과 독립). 재진입해도 접힘이 유지된다.
   const { isCollapsed, toggle: toggleCollapsed } = useCollapsedSections();
   const listExpanded = !isCollapsed('picker.tags');
-  // '추가' 폼 섹션 접힘 상태 — 같은 훅·같은 문법, '목록' 키와 구분되는 전용 키. 기본(저장된 상태
-  // 없음)은 펼침 — 저장되지 않은 키는 isCollapsed가 항상 false를 돌려준다.
-  const addExpanded = !isCollapsed('picker.tags.add');
 
   // 열릴 때(또는 대상 변경 시): 태그 목록 fetch + 대상 메시지의 현재 태그로 선택 초기화.
   useEffect(() => {
     if (!visible || !token) return;
     const init = new Set(message?.tagIds ?? []);
     setSelected(init);
-    setNewName('');
-    setNewDescription('');
-    setNewKeywords([]);
     // 선택된 태그가 있으면(목록 순서상 첫 번째) 열릴 때 그 항목으로 스크롤(길면 화면 밖일 수 있어).
     setScrollTarget(init.size > 0 ? [...init][0] : null);
     // 접힘 상태는 서버 저장이라 열 때 리셋하지 않는다(재진입 시 유지 — 사용자 리포트한 버그 수정).
@@ -144,23 +136,18 @@ export function TagPickerModal({
     onTagsChanged();
   };
 
-  // 새 태그 생성 → 목록에 추가 → (관리 모드가 아니면) 선택 상태에만 반영(자동 체크).
-  const onAdd = async () => {
-    if (adding) return;
-    setAdding(true);
-    // '설명 (선택)'·키워드 스테퍼 모두 선택·관리 모드 공통(사용자 확정 — 두 모드는 푸터만 다르다).
-    const created = await addTag(newName, newDescription, cleanKeywords(newKeywords));
-    setAdding(false);
-    if (!created) return;
-    setNewName('');
-    setNewDescription('');
-    setNewKeywords([]);
-    onTagsChanged();
-    if (!manage) setSelected((prev) => new Set(prev).add(created.id));
-    // 새 항목으로 스크롤(목록 어디에 들어가든 보이게).
-    setScrollTarget(created.id);
-    // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다(접혀 있을 때만 토글).
-    if (isCollapsed('picker.tags')) toggleCollapsed('picker.tags');
+  // 타이틀 [+] — 루트 상주 태그 추가 모달을 픽커 위에 연다(픽커는 열린 채 유지).
+  // 생성되면 목록에 즉시 얹고 그 항목으로 스크롤, 선택 픽커면 새 태그를 체크 상태로 만든다.
+  const onAdd = () => {
+    onAddTag((created) => {
+      setTags((prev) => (prev.some((x) => x.id === created.id) ? prev : [...prev, created]));
+      onTagsChanged();
+      if (!manage) setSelected((prev) => new Set(prev).add(created.id));
+      // 새 항목으로 스크롤(목록 어디에 들어가든 보이게).
+      setScrollTarget(created.id);
+      // 접힌 상태로 추가하면 새 항목이 안 보이니 자동으로 펼친다(접혀 있을 때만 토글).
+      if (isCollapsed('picker.tags')) toggleCollapsed('picker.tags');
+    });
   };
 
   // 타이틀 휴지통 — 확인창 → 모든 태그를 모든 메시지에서 제거. 선택도 비운다.
@@ -327,26 +314,15 @@ export function TagPickerModal({
       visible={visible}
       title={t('tags.title')}
       onClose={onClose}
-      newName={newName}
-      onChangeNewName={setNewName}
+      // 타이틀 [+] = 태그 추가 모달(분류 픽커와 같은 자리·같은 문법).
       onAdd={onAdd}
-      addPlaceholder={t('tags.newPlaceholder')}
-      adding={adding}
-      addLabel={t('common.add')}
+      addLabel={t('tags.addTitle')}
       cancelLabel={t('common.cancel')}
       // 관리 모드는 선택·저장 없이 밑줄 [닫기] 하나만(스크림·Esc·뒤로가기도 동일하게 닫힌다).
       saveLabel={manage ? t('common.close') : t('common.save')}
       onSave={manage ? onClose : onSave}
       saving={manage ? false : saving}
       closeOnly={manage}
-      // 관리 모드에만 '설명 (선택)' 입력을 얹는다(분류 추가 폼 문법 재사용).
-      newDescription={newDescription}
-      onChangeNewDescription={setNewDescription}
-      descriptionPlaceholder={t('friends.descriptionPlaceholder')}
-      // 태그 추가 폼 전용 키워드 스테퍼(공용) — 관리·선택 모드 공통(분류 픽커엔 없음). 수정 모달과 동일 UI.
-      addExtra={<KeywordStepper keywords={newKeywords} onChange={setNewKeywords} />}
-      addExpanded={addExpanded}
-      onToggleAddExpanded={() => toggleCollapsed('picker.tags.add')}
       // "목록" 섹션 헤더는 PickerModal이 스크롤 밖(고정)에 렌더한다. 접힘 키·개수만 넘긴다.
       listExpanded={listExpanded}
       onToggleListExpanded={() => toggleCollapsed('picker.tags')}

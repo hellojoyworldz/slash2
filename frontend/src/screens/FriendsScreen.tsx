@@ -811,8 +811,8 @@ export function FriendsList({
               key: 'add',
               icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
               label: t('friends.add'),
-              // 분류 추가 = 픽커 관리 모드(태그 추가와 한 문법). 스와이프 [수정]만 색 프로필 폼.
-              onPress: () => openCategoryManage(),
+              // + = 분류 추가 폼 바로(목록은 이 화면 자체가 이미 목록이라 모달 불요 — 사용자 확정).
+              onPress: () => openCategoryEditor(),
             },
           ]}
         />
@@ -1523,19 +1523,20 @@ export function FriendsScreen({
   const { classifyTab, setClassifyTab, bumpRooms } = useSelectedRoom();
   // 캡슐 편집 모드(순간적 — X/＋ 배지 노출). 화면 로컬 state로 충분(900px 스왑 생존 불요).
   const [capsuleEditMode, setCapsuleEditMode] = useState(false);
-  // 그룹 헤더의 '추가'가 여는 관리 모달(루트 상주). 여긴 열기만.
-  const { openManage: openCategoryManage } = useCategoryEdit();
-  const { openTagCreate } = useTagCreate();
+  // 그룹 헤더의 '추가'가 여는 추가 폼(루트 상주). 여긴 열기만.
+  const { open: openCategoryEditor } = useCategoryEdit();
+  const { openTagAdd } = useTagCreate();
 
-  // 헤더 '추가'(+) 동작은 활성 캡슐에 따라 갈린다: 분류→분류 추가, 태그→태그 추가(관리 모달),
-  // 자동구분→+ 없음(종류가 정적이라 추가 개념이 없다).
+  // 헤더 '추가'(+) 동작은 활성 캡슐에 따라 갈린다: 분류→분류 추가 폼, 태그→태그 추가 폼,
+  // 자동구분→+ 없음(종류가 정적이라 추가 개념이 없다). 목록은 화면에 이미 보이므로
+  // +는 목록 모달을 거치지 않고 추가 폼을 바로 연다(사용자 확정).
   const addAction = useMemo(() => {
     if (classifyTab === 'tags') {
       return {
         key: 'add',
         icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
         label: t('tags.addTitle'),
-        onPress: () => openTagCreate(() => bumpRooms()),
+        onPress: () => openTagAdd(() => bumpRooms()),
       };
     }
     if (classifyTab === 'friends') {
@@ -1543,12 +1544,11 @@ export function FriendsScreen({
         key: 'add',
         icon: <Plus size={22} strokeWidth={2} color={colors.ink} />,
         label: t('friends.add'),
-        // 분류 추가 = 픽커 관리 모드(태그 추가와 한 문법). 추가 후 그룹 목록 재조회.
-        onPress: () => openCategoryManage(() => bumpRooms()),
+        onPress: () => openCategoryEditor(undefined, undefined, () => bumpRooms()),
       };
     }
     return null; // 자동구분: 추가 없음
-  }, [classifyTab, colors.ink, t, openTagCreate, openCategoryManage, bumpRooms]);
+  }, [classifyTab, colors.ink, t, openTagAdd, openCategoryEditor, bumpRooms]);
 
   return (
     <View style={styles.container}>
