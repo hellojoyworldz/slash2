@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo } from 'react';
 import {
-  Linking,
   Platform,
   StyleProp,
   StyleSheet,
@@ -155,11 +154,6 @@ export function MessageBubble({
     linkMeta: message.linkMeta ?? null,
   };
 
-  // 단일 카드 폴백: 탭하면 원본 URL을 연다(장소도 시트 단계 없이 바로 열기).
-  const handleLinkPress = () => {
-    if (message.url) Linking.openURL(message.url);
-  };
-
   // 아이콘 색: 분류색 말풍선 위에서도 대비를 유지하도록 onBubble 계열 알파만 얹는다.
   const actionIconColor = hexAlpha(puffy.onBubble, 0.75);
 
@@ -182,7 +176,7 @@ export function MessageBubble({
     </View>
   );
 
-  // 세그먼트 하나 렌더: 텍스트(본문 스타일·공백뿐이면 생략) 또는 카드(자기 URL로 링크).
+  // 세그먼트 하나 렌더: 텍스트(본문 스타일·공백뿐이면 생략) 또는 자기 링크의 카드.
   const renderSegment = (seg: Segment, i: number) => {
     if (seg.type === 'text') {
       const value = seg.value.trim();
@@ -199,16 +193,13 @@ export function MessageBubble({
         </Text>
       );
     }
+    // 카드 탭(열기/임베드 펼치기)·바로가기는 LinkCard가 소유한다 — 바깥에서 감싸지 않는다.
     return (
-      <TouchableOpacity
+      <LinkCard
         key={`seg-c-${i}`}
-        activeOpacity={0.85}
-        onPress={() => Linking.openURL(seg.link.url)}
+        link={seg.link}
         onLongPress={() => onLongPress(message)}
-        accessibilityRole="link"
-      >
-        <LinkCard link={seg.link} />
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -237,18 +228,15 @@ export function MessageBubble({
       <TouchableOpacity
         activeOpacity={0.85}
         onLongPress={() => onLongPress(message)}
-        // 세그먼트 모드는 카드마다 자기 URL을 열어야 하므로 바깥 프레임은 링크가 아니다(안쪽 카드가 담당).
-        onPress={isLink && !hasSegments ? handleLinkPress : undefined}
         style={[
           styles.bubble,
           isLink && styles.linkBubbleWidth,
-          // 클릭 대상이 아닌 프레임(텍스트·세그먼트 프레임)은 pointer 커서를 끈다.
-          (!isLink || hasSegments) && styles.textCursor,
+          // 프레임 자체는 클릭 대상이 아니다(카드·버튼이 안에서 담당) — pointer 커서를 끈다.
+          styles.textCursor,
         ]}
-        // 단일 카드 폴백만 프레임 자체가 원본 URL을 여는 링크. 그 외 프레임에 button 역할을 주면
-        // 웹(RNW)에서 <button> 안에 ⋮·상세 <button>이 중첩돼 invalid HTML(hydration 에러)이자
-        // 중첩 인터랙티브 접근성 위반 — 롱프레스 메뉴의 스크린리더 경로는 라벨 있는 ⋮ 버튼이 담당한다.
-        accessibilityRole={isLink && !hasSegments ? 'link' : undefined}
+        // 프레임에 링크/버튼 역할을 주면 웹(RNW)에서 카드 안 Pressable·⋮·상세 버튼이
+        // 중첩돼 invalid HTML(hydration 에러)이자 중첩 인터랙티브 접근성 위반이 된다.
+        // 링크 열기는 카드가, 롱프레스 메뉴의 스크린리더 경로는 라벨 있는 ⋮ 버튼이 담당한다.
       >
         {isLink ? (
           // 링크 말풍선: 텍스트 말풍선과 동일한 퍼피 재질(bubbleFill·bubbleBorder·라운드 24·
@@ -284,7 +272,11 @@ export function MessageBubble({
               <View style={styles.segments}>{segments.map(renderSegment)}</View>
             ) : (
               // 단일 카드 폴백(구 메시지·links 없음) — 텍스트는 카드 안 코멘트로.
-              <LinkCard link={messageLink} comment={textBesidesUrl} />
+              <LinkCard
+                link={messageLink}
+                comment={textBesidesUrl}
+                onLongPress={() => onLongPress(message)}
+              />
             )}
             {renderActionRow(styles.linkActionRow)}
           </View>

@@ -33,6 +33,10 @@ export default {
     descriptionInput: 'Description input',
     moveUp: 'Move up',
     moveDown: 'Move down',
+    // In-card embed (YouTube/Instagram/X) expand & collapse
+    embedPlay: 'Play in card',
+    embedExpand: 'Expand in card',
+    embedCollapse: 'Collapse embed',
   },
   tabs: {
     group: 'Groups',
@@ -135,7 +139,11 @@ export default {
       channel: 'Channel',
       duration: 'Duration',
       author: 'Author',
+      reviews: 'Reviews',
     },
+    // Shared action at the bottom of every link card — the only way out to the browser/app
+    openLink: 'Open link',
+    callPhone: 'Call',
     // Card detail panel map/source actions
     linkSheet: {
       openMap: 'Open in Maps',

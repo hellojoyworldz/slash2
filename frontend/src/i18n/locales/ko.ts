@@ -35,6 +35,10 @@ export default {
     descriptionInput: '설명 입력',
     moveUp: '위로 이동',
     moveDown: '아래로 이동',
+    // 링크 카드 안 임베드(유튜브·인스타·X) 펼치기/접기
+    embedPlay: '카드 안에서 재생',
+    embedExpand: '카드 안에서 펼치기',
+    embedCollapse: '임베드 접기',
   },
   tabs: {
     group: '그룹',
@@ -138,7 +142,11 @@ export default {
       channel: '채널',
       duration: '길이',
       author: '작성자',
+      reviews: '리뷰',
     },
+    // 링크 카드 맨 아래 공통 액션 — 외부(브라우저·앱)로 나가는 유일한 출구
+    openLink: '바로가기',
+    callPhone: '전화걸기',
     // 카드 상세 패널의 지도/출처 액션
     linkSheet: {
       openMap: '지도 앱에서 열기',

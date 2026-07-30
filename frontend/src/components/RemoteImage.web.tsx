@@ -3,6 +3,7 @@
 // Referer가 없으면(no-referrer) 대개 통과한다. 그래서 웹에서는 실제 <img>에 no-referrer를 줘서
 // 로드한다 — unstable_createElement가 RN 스타일(width·aspectRatio·backgroundColor)이 그대로
 // 먹는 DOM <img>를 만들어 주므로 카드 레이아웃은 네이티브와 동일하게 유지된다.
+import type { SyntheticEvent } from 'react';
 import { unstable_createElement } from 'react-native-web';
 import type { RemoteImageProps } from './RemoteImage';
 
@@ -12,6 +13,7 @@ export function RemoteImage({
   resizeMode = 'cover',
   accessibilityLabel,
   accessible = true,
+  onNaturalSize,
 }: RemoteImageProps) {
   return unstable_createElement('img', {
     src: uri,
@@ -20,6 +22,14 @@ export function RemoteImage({
     'aria-hidden': accessible ? undefined : true,
     draggable: false,
     referrerPolicy: 'no-referrer',
+    onLoad: onNaturalSize
+      ? (e: SyntheticEvent<HTMLImageElement>) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth && img.naturalHeight) {
+            onNaturalSize(img.naturalWidth, img.naturalHeight);
+          }
+        }
+      : undefined,
     // RN Image의 cover/contain을 object-fit으로 재현. display:block으로 <img> 기본 inline
     // 하단 여백(descender gap)을 없애 div 기반 RN Image와 레이아웃을 맞춘다. 두 속성 모두
     // RNW 스타일 컴파일러를 그대로 통과한다(검증 완료). 박스 스타일은 호출부 style에서 온다.

@@ -33,6 +33,10 @@ export default {
     descriptionInput: '説明入力',
     moveUp: '上へ移動',
     moveDown: '下へ移動',
+    // カード内の埋め込み（YouTube・Instagram・X）の展開／折りたたみ
+    embedPlay: 'カード内で再生',
+    embedExpand: 'カード内で開く',
+    embedCollapse: '埋め込みを閉じる',
   },
   tabs: {
     group: 'グループ',
@@ -135,7 +139,11 @@ export default {
       channel: 'チャンネル',
       duration: '長さ',
       author: '投稿者',
+      reviews: 'レビュー',
     },
+    // すべてのリンクカード下部の共通アクション — 外部（ブラウザ・アプリ）へ出る唯一の導線
+    openLink: 'リンクを開く',
+    callPhone: '電話をかける',
     // カード詳細パネルの地図・出典アクション
     linkSheet: {
       openMap: '地図アプリで開く',

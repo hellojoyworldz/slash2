@@ -71,6 +71,7 @@ export interface LinkMeta {
   durationSec?: number;
   channel?: string;
   author?: string;
+  reviews?: string;
 }
 
 // content에 등장한 링크별 미리보기. 등장 순서대로 저장되며, 중복 URL은 1회, 최대 5개.

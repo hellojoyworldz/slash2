@@ -14,7 +14,6 @@ import { useTranslation } from 'react-i18next';
 import {
   BackHandler,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -520,17 +519,8 @@ export function MessageDetailHost() {
                       </Text>
                     );
                   }
-                  return (
-                    // 카드 탭 = 그 링크 열기.
-                    <TouchableOpacity
-                      key={`seg-c-${i}`}
-                      activeOpacity={0.85}
-                      onPress={() => Linking.openURL(seg.link.url)}
-                      accessibilityRole="link"
-                    >
-                      <LinkCard link={seg.link} />
-                    </TouchableOpacity>
-                  );
+                  // 카드 탭(열기/임베드 펼치기)·바로가기는 LinkCard가 소유한다.
+                  return <LinkCard key={`seg-c-${i}`} link={seg.link} />;
                 })}
               </View>
             </ScrollView>

@@ -8,6 +8,8 @@ export interface RemoteImageProps {
   accessibilityLabel?: string;
   /** 장식 이미지(인접에 제목 등 대체 텍스트가 이미 있는 경우) false로 스크린리더에서 숨긴다. 기본 true. */
   accessible?: boolean;
+  /** 로드된 원본(자연) 크기 콜백 — 프레임 비율 계산 등에 쓴다. 옵션이라 기존 호출부엔 영향 없음. */
+  onNaturalSize?: (width: number, height: number) => void;
 }
 
 // og 썸네일 등 원격 이미지 렌더. 네이티브는 RN Image 그대로.
@@ -20,6 +22,7 @@ export function RemoteImage({
   resizeMode = 'cover',
   accessibilityLabel,
   accessible = true,
+  onNaturalSize,
 }: RemoteImageProps) {
   return (
     <Image
@@ -28,6 +31,11 @@ export function RemoteImage({
       resizeMode={resizeMode}
       accessibilityLabel={accessibilityLabel}
       accessible={accessible}
+      onLoad={(e) => {
+        if (!onNaturalSize) return;
+        const { width, height } = e.nativeEvent.source;
+        onNaturalSize(width, height);
+      }}
     />
   );
 }
